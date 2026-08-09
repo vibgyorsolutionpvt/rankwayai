@@ -99,12 +99,14 @@ composer install --no-dev --optimize-autoloader
 ### Option 2 — rsync from Mac
 
 ```bash
-cd /Users/anil/Projects/marketing-os
+cd /Users/anil/Projects/php/rankwayai
 
 rsync -avz --delete \
   --exclude='.git' \
   --exclude='node_modules' \
   --exclude='.env' \
+  --exclude='storage/app/public/**' \
+  --exclude='public/storage' \
   --exclude='storage/logs/*' \
   --exclude='storage/framework/cache/data/*' \
   --exclude='storage/framework/sessions/*' \
@@ -112,13 +114,15 @@ rsync -avz --delete \
   ./ USER@YOUR_SSH_HOST:~/domains/DOMAIN/rankwayai/
 ```
 
+> **Never overwrite** server `.env` or `storage/app/public` (uploaded media). Recreate the symlink after sync.
+
 Then SSH:
 
 ```bash
 cd ~/domains/DOMAIN/rankwayai
 composer install --no-dev --optimize-autoloader
+php artisan storage:link
 ```
-
 ---
 
 ## E. Server — `.env` + Laravel setup
@@ -249,35 +253,38 @@ https://DOMAIN/seo/gsc/callback
 
 ---
 
-## H. Redeploy (updates)
+## H. Redeploy (updates) — safe scripts
 
-Local:
+**Do not** unzip over `public_html` by hand (that wipes uploads + storage link).
+
+Protected forever (see `scripts/deploy-excludes.txt`):
+
+| Path | Why |
+|------|-----|
+| `.env` | production secrets |
+| `storage/app/public/` | uploaded media |
+| `public/storage` | symlink (recreated by post-deploy) |
+
+### Preferred — rsync from Mac
 
 ```bash
-composer install --no-dev --optimize-autoloader
-npm ci && npm run build
-rsync -avz --delete \
-  --exclude='.git' --exclude='node_modules' --exclude='.env' \
-  --exclude='storage/logs/*' \
-  --exclude='storage/framework/cache/data/*' \
-  --exclude='storage/framework/sessions/*' \
-  --exclude='storage/framework/views/*' \
-  ./ USER@HOST:~/domains/DOMAIN/rankwayai/
+./scripts/hostinger-deploy.sh USER@HOST:~/domains/DOMAIN/rankwayai
+# then SSH:
+cd ~/domains/DOMAIN/rankwayai && bash scripts/hostinger-post-deploy.sh
 ```
 
-Server:
+### Zip upload (cPanel / Hostinger)
+
+1. Local: `./scripts/hostinger-prepare.sh /tmp/rankwayai-release.zip`
+2. Upload zip to server (outside app, e.g. home dir)
+3. SSH:
 
 ```bash
 cd ~/domains/DOMAIN/rankwayai
-composer install --no-dev --optimize-autoloader
-php artisan migrate --force
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
-php artisan queue:restart
+bash scripts/hostinger-safe-extract.sh ~/rankwayai-release.zip
 ```
 
----
+`safe-extract` syncs code with excludes, then runs `storage:link` + migrate + caches. Uploads and `.env` stay.---
 
 ## I. Common errors
 

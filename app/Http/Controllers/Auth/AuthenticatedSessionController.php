@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
+use App\Services\Workspaces\ProvisionClientWorkspace;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -27,11 +28,17 @@ class AuthenticatedSessionController extends Controller
     /**
      * Handle an incoming authentication request.
      */
-    public function store(LoginRequest $request): RedirectResponse
+    public function store(LoginRequest $request, ProvisionClientWorkspace $provision): RedirectResponse
     {
         $request->authenticate();
 
         $request->session()->regenerate();
+
+        $user = $request->user();
+        if ($user && ! $user->is_superadmin) {
+            $workspace = $provision->for($user);
+            $request->session()->put('active_workspace_id', $workspace->id);
+        }
 
         return redirect()->intended(route('home', absolute: false));
     }

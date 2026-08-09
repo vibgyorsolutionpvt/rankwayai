@@ -74,9 +74,21 @@ export default function PricingPlans({
                                 {plan.save_label}
                             </div>
                         ) : null}
-                        <p className="mt-3 flex-1 text-sm leading-relaxed text-ink-muted">
-                            {plan.blurb}
-                        </p>
+                        <p className="mt-3 text-sm leading-relaxed text-ink-muted">{plan.blurb}</p>
+                        {Array.isArray(plan.highlights) && plan.highlights.length > 0 ? (
+                            <ul className="mt-4 flex-1 space-y-1.5 text-sm text-ink">
+                                {plan.highlights.map((item) => (
+                                    <li key={item} className="flex gap-2">
+                                        <span className="mt-0.5 text-signal-strong" aria-hidden>
+                                            ✓
+                                        </span>
+                                        <span>{item}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : (
+                            <div className="flex-1" />
+                        )}
                         {registerHref ? (
                             <Link
                                 href={registerHref}

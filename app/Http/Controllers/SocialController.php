@@ -348,22 +348,30 @@ class SocialController extends Controller
         return back()->with('success', 'Post approved');
     }
 
-    public function publishNow(Request $request, SocialPost $post): RedirectResponse
+    public function publishNow(Request $request, SocialPost $post, PlanAccess $plans): RedirectResponse
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
         abort_unless($post->workspace_id === $workspace->id, 404);
+
+        if (! $plans->allows($workspace, 'social_publish')) {
+            return back()->with('error', $plans->denyMessage('social_publish'));
+        }
 
         PublishSocialPostJob::dispatch($post->id);
 
         return back()->with('success', 'Publish job queued');
     }
 
-    public function retry(Request $request, SocialPost $post): RedirectResponse
+    public function retry(Request $request, SocialPost $post, PlanAccess $plans): RedirectResponse
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
         abort_unless($post->workspace_id === $workspace->id, 404);
+
+        if (! $plans->allows($workspace, 'social_publish')) {
+            return back()->with('error', $plans->denyMessage('social_publish'));
+        }
 
         $post->update(['status' => 'scheduled', 'failure_reason' => null]);
         PublishSocialPostJob::dispatch($post->id);

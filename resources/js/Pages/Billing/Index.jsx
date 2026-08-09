@@ -49,6 +49,14 @@ export default function Index({
     ai_history = null,
 }) {
     const isFree = subscription.plan === 'free';
+    const freeHighlights =
+        plans.find((p) => p.id === 'free')?.highlights ?? [
+            'SEO site audit crawl',
+            'Google Search Console',
+            'PageSpeed Insights',
+            'DataForSEO ranks & keyword metrics',
+            'Billing & workspace settings',
+        ];
     const currency = subscription.billing_currency || (market === 'in' ? 'INR' : 'USD');
     const subInterval = subscription.billing_interval || 'month';
     const charged =
@@ -195,12 +203,68 @@ export default function Index({
                                         : ''}
                                 </div>
                                 {isFree ? (
-                                    <p className="mt-2 text-sm text-ink-muted">
-                                        Free includes brand, media, drafts, CRM, and local SEO
-                                        crawl. AI studio and API sends unlock on paid plans.
-                                    </p>
-                                ) : null}
-                                <p className="mt-3 text-sm text-ink-muted">{note}</p>
+                                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                                        <div>
+                                            <div className="text-[11px] font-semibold uppercase tracking-wide text-signal-strong">
+                                                Included
+                                            </div>
+                                            <ul className="mt-2 space-y-1.5 text-sm text-ink">
+                                                {freeHighlights.map((item) => (
+                                                    <li key={item} className="flex gap-2">
+                                                        <span
+                                                            className="mt-0.5 text-signal-strong"
+                                                            aria-hidden
+                                                        >
+                                                            ✓
+                                                        </span>
+                                                        <span>{item}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                        <div>
+                                            <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                                                Paid plans unlock
+                                            </div>
+                                            <ul className="mt-2 space-y-1.5 text-sm text-ink-muted">
+                                                {[
+                                                    'AI studio & generations',
+                                                    'Social publish / OAuth',
+                                                    'WhatsApp, Email & RCS sends',
+                                                    'CRM, channels, funnels & media',
+                                                    'Backlinks, local pack, CMS & JS crawl',
+                                                ].map((item) => (
+                                                    <li key={item} className="flex gap-2">
+                                                        <span className="mt-0.5" aria-hidden>
+                                                            •
+                                                        </span>
+                                                        <span>{item}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <ul className="mt-4 space-y-1.5 text-sm text-ink">
+                                        {[
+                                            'Full SEO toolkit (audit, GSC, PageSpeed, metrics)',
+                                            'AI studio with plan credits',
+                                            'Social, WhatsApp / Email / RCS channel sends',
+                                            'CRM, media, funnels & other modules',
+                                        ].map((item) => (
+                                            <li key={item} className="flex gap-2">
+                                                <span
+                                                    className="mt-0.5 text-signal-strong"
+                                                    aria-hidden
+                                                >
+                                                    ✓
+                                                </span>
+                                                <span>{item}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                                <p className="mt-4 text-sm text-ink-muted">{note}</p>
                                 {is_platform_admin && admin_note ? (
                                     <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
                                         {admin_note}
@@ -237,8 +301,8 @@ export default function Index({
                                             locked={!usage.ai.allowed}
                                             hint={
                                                 usage.ai.allowed
-                                                    ? `${(usage.ai.available ?? 0).toLocaleString()} available (plan + top-up). Recharge when empty.`
-                                                    : 'Buy a credit pack or upgrade to unlock AI.'
+                                                    ? `${(usage.ai.available ?? 0).toLocaleString()} available (plan + top-up). Recharge when empty — top-up also unlocks all paid modules.`
+                                                    : 'Buy a credit pack or upgrade to unlock all paid modules.'
                                             }
                                         />
                                         <Meter
@@ -265,8 +329,8 @@ export default function Index({
                                         Recharge AI credits
                                     </div>
                                     <p className="mt-0.5 text-sm text-ink-muted">
-                                        Top-ups stay in your wallet and don’t expire with the
-                                        billing month.
+                                        Top-ups stay in your wallet, don’t expire with the billing
+                                        month, and unlock all paid modules while balance remains.
                                     </p>
                                 </div>
                                 <div className="grid gap-3 sm:grid-cols-3">
@@ -389,9 +453,25 @@ export default function Index({
                                                     /mo
                                                 </div>
                                             ) : null}
-                                            <p className="mt-2 flex-1 text-sm text-ink-muted">
-                                                {plan.blurb}
-                                            </p>
+                                            <p className="mt-2 text-sm text-ink-muted">{plan.blurb}</p>
+                                            {Array.isArray(plan.highlights) &&
+                                            plan.highlights.length > 0 ? (
+                                                <ul className="mt-3 flex-1 space-y-1.5 text-sm text-ink">
+                                                    {plan.highlights.map((item) => (
+                                                        <li key={item} className="flex gap-2">
+                                                            <span
+                                                                className="mt-0.5 text-signal-strong"
+                                                                aria-hidden
+                                                            >
+                                                                ✓
+                                                            </span>
+                                                            <span>{item}</span>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            ) : (
+                                                <div className="flex-1" />
+                                            )}
                                             <PrimaryButton
                                                 className="mt-4"
                                                 type="button"

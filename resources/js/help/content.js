@@ -281,7 +281,7 @@ export const HELP = {
                 'Run Write today’s posts or the blog / meta tools.',
                 'Review generation history — approve before publishing.',
             ],
-            note: 'Free plan has no AI credits. Recharge or upgrade in Billing.',
+            note: 'Free includes SEO audit, GSC, PageSpeed, and keyword metrics. AI/social/WhatsApp need a paid plan.',
         },
     ),
     channels: entry(

@@ -6,6 +6,7 @@ use App\Enums\WorkspaceRole;
 use App\Models\PlatformMenu;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\Billing\PlanAccess;
 use App\Support\NavModules;
 use Illuminate\Support\Facades\Cache;
 
@@ -58,7 +59,8 @@ class ModuleAccess
     }
 
     /**
-     * Modules enabled for a workspace (already intersected with global).
+     * Modules enabled for a workspace (intersected with global menus).
+     * Plan locks are applied in canAccess() so free users still see all menus.
      *
      * @return list<string>
      */
@@ -75,7 +77,7 @@ class ModuleAccess
     }
 
     /**
-     * Modules a specific user can access in a workspace.
+     * Modules listed in the sidebar for a user (may include plan-locked items).
      *
      * @return list<string>
      */
@@ -111,7 +113,14 @@ class ModuleAccess
 
     public function canAccess(User $user, Workspace $workspace, string $moduleKey): bool
     {
-        return in_array($moduleKey, $this->userEnabledKeys($user, $workspace), true);
+        if (! in_array($moduleKey, $this->userEnabledKeys($user, $workspace), true)) {
+            return false;
+        }
+
+        // Free plan: menus show, but non-SEO modules stay locked.
+        $planKeys = app(PlanAccess::class)->modulesFor($workspace);
+
+        return in_array($moduleKey, $planKeys, true);
     }
 
     /**
@@ -142,21 +151,87 @@ class ModuleAccess
     public function navItemsFor(User $user, ?Workspace $workspace): array
     {
         if ($user->is_superadmin) {
+            // When viewing a client workspace, show the client module nav.
+            if ($workspace) {
+                $allowed = $this->globallyEnabledKeys();
+                $catalog = NavModules::catalog();
+
+                return collect($allowed)
+                    ->map(function (string $key) use ($catalog) {
+                        $meta = $catalog[$key] ?? null;
+                        if (! $meta) {
+                            return null;
+                        }
+
+                        return [
+                            'key' => $key,
+                            'label' => $meta['label'],
+                            'route' => $meta['route'],
+                            'match' => $meta['match'],
+                            'icon' => $meta['icon'],
+                            'tone' => $meta['tone'],
+                        ];
+                    })
+                    ->filter()
+                    ->values()
+                    ->all();
+            }
+
             return [
                 [
                     'key' => 'admin',
-                    'label' => 'Platform',
+                    'label' => 'Overview',
                     'route' => 'admin.dashboard',
-                    'match' => 'admin.*',
+                    'match' => 'admin.dashboard',
                     'icon' => 'platform',
                     'tone' => 'ink',
                 ],
                 [
-                    'key' => 'workspaces',
-                    'label' => 'Workspaces',
-                    'route' => 'workspaces.index',
-                    'match' => 'workspaces.*',
+                    'key' => 'admin-users',
+                    'label' => 'Users',
+                    'route' => 'admin.users',
+                    'match' => 'admin.users*',
                     'icon' => 'workspace',
+                    'tone' => 'amber',
+                ],
+                [
+                    'key' => 'admin-workspaces',
+                    'label' => 'Workspaces',
+                    'route' => 'admin.workspaces',
+                    'match' => 'admin.workspaces*',
+                    'icon' => 'workspace',
+                    'tone' => 'sky',
+                ],
+                [
+                    'key' => 'admin-billing',
+                    'label' => 'Billing',
+                    'route' => 'admin.billing',
+                    'match' => 'admin.billing',
+                    'icon' => 'platform',
+                    'tone' => 'emerald',
+                ],
+                [
+                    'key' => 'admin-activity',
+                    'label' => 'Activity',
+                    'route' => 'admin.activity',
+                    'match' => 'admin.activity',
+                    'icon' => 'today',
+                    'tone' => 'fuchsia',
+                ],
+                [
+                    'key' => 'admin-jobs',
+                    'label' => 'Jobs',
+                    'route' => 'admin.jobs',
+                    'match' => 'admin.jobs*',
+                    'icon' => 'seo',
+                    'tone' => 'rose',
+                ],
+                [
+                    'key' => 'admin-system',
+                    'label' => 'System',
+                    'route' => 'admin.system',
+                    'match' => 'admin.system*',
+                    'icon' => 'brand',
                     'tone' => 'sky',
                 ],
             ];
@@ -193,6 +268,15 @@ class ModuleAccess
     public function firstAllowedRoute(User $user, ?Workspace $workspace): string
     {
         $items = $this->navItemsFor($user, $workspace);
+
+        if ($workspace && ! $user->is_superadmin) {
+            $planKeys = app(PlanAccess::class)->modulesFor($workspace);
+            $items = collect($items)
+                ->filter(fn (array $item) => in_array($item['key'], $planKeys, true))
+                ->values()
+                ->all();
+        }
+
         $first = $items[0]['route'] ?? null;
 
         return $first ?: ($user->is_superadmin ? 'admin.dashboard' : 'profile.edit');

@@ -30,8 +30,14 @@ class MarketingController extends Controller
             'description' => 'Talk to the RankwayAI team about SEO, onboarding, agency plans, or a product demo.',
             'path' => '/contact',
         ], [
-            'contact_email' => config('seo.marketing.contact_email', 'contact@rankwayai.com'),
-            'contact_phone' => config('seo.marketing.contact_phone', '+91 9889995999'),
+            'contact_email' => \App\Models\PlatformSetting::getValue(
+                'contact_email',
+                (string) config('seo.marketing.contact_email', 'contact@rankwayai.com')
+            ),
+            'contact_phone' => \App\Models\PlatformSetting::getValue(
+                'contact_phone',
+                (string) config('seo.marketing.contact_phone', '+91 9889995999')
+            ),
             'plans' => PlanCatalog::plansForMarket(PlanCatalog::MARKET_IN, PlanCatalog::INTERVAL_MONTH),
         ]));
     }
@@ -45,7 +51,10 @@ class MarketingController extends Controller
             'message' => ['required', 'string', 'max:5000'],
         ]);
 
-        $to = (string) config('seo.marketing.contact_email', 'contact@rankwayai.com');
+        $to = (string) \App\Models\PlatformSetting::getValue(
+            'contact_email',
+            (string) config('seo.marketing.contact_email', 'contact@rankwayai.com')
+        );
         $body = implode("\n", [
             'Name: '.$data['name'],
             'Email: '.$data['email'],
