@@ -1,6 +1,6 @@
 /.phpunit.cache
 /node_modules
-/public/build
+# Vite production assets in public/build are committed for deploy (no server-side npm build).
 /public/hot
 /public/storage
 /storage/*.key
