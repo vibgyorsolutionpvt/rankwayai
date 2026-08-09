@@ -50,6 +50,16 @@ class LoginRequest extends FormRequest
             ]);
         }
 
+        $user = Auth::user();
+        if ($user && isset($user->is_active) && ! $user->is_active) {
+            Auth::logout();
+            RateLimiter::hit($this->throttleKey());
+
+            throw ValidationException::withMessages([
+                'email' => 'This account has been disabled. Contact support.',
+            ]);
+        }
+
         RateLimiter::clear($this->throttleKey());
     }
 

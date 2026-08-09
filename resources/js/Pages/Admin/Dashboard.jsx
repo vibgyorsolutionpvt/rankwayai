@@ -1,18 +1,18 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import Toggle from '@/Components/Toggle';
 import { moduleTone, toneForModule } from '@/Components/moduleTones';
-import { Head, router } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 
-export default function Dashboard({ stats, users, workspaces, menus = [] }) {
+export default function Dashboard({ stats, menus = [], recentUsers = [], recentWorkspaces = [] }) {
     return (
         <AuthenticatedLayout
             header={
                 <div>
                     <div className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-muted">
-                        Admin
+                        Super admin
                     </div>
                     <h2 className="font-display text-2xl font-bold tracking-tight text-ink">
-                        Overview
+                        Platform overview
                     </h2>
                 </div>
             }
@@ -22,19 +22,27 @@ export default function Dashboard({ stats, users, workspaces, menus = [] }) {
             <div className="atlas-shell space-y-6 stagger">
                 <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                     {[
-                        { label: 'Total users', value: stats.users },
-                        { label: 'Clients', value: stats.clients },
-                        { label: 'Businesses', value: stats.workspaces },
-                        { label: 'Admins', value: stats.superadmins },
+                        { label: 'Total users', value: stats.users, href: route('admin.users') },
+                        { label: 'Clients', value: stats.clients, href: route('admin.users') },
+                        {
+                            label: 'Workspaces',
+                            value: stats.workspaces,
+                            href: route('admin.workspaces'),
+                        },
+                        { label: 'Admins', value: stats.superadmins, href: route('admin.users') },
                     ].map((stat) => (
-                        <div key={stat.label} className="atlas-panel p-5">
+                        <Link
+                            key={stat.label}
+                            href={stat.href}
+                            className="atlas-panel block p-5 transition hover:-translate-y-0.5 hover:border-signal/40"
+                        >
                             <div className="text-xs font-semibold uppercase tracking-[0.16em] text-ink-muted">
                                 {stat.label}
                             </div>
                             <div className="mt-3 font-display text-4xl font-bold text-ink">
                                 {stat.value}
                             </div>
-                        </div>
+                        </Link>
                     ))}
                 </section>
 
@@ -43,7 +51,6 @@ export default function Dashboard({ stats, users, workspaces, menus = [] }) {
                         <h3 className="font-display text-lg font-bold text-ink">Client menus</h3>
                         <p className="mt-1 text-sm text-ink-muted">
                             Disable a menu to hide it from every client sidebar and block the route.
-                            Client admins can only grant modules that remain enabled here.
                         </p>
                     </div>
                     <div className="grid gap-2 p-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
@@ -87,84 +94,80 @@ export default function Dashboard({ stats, users, workspaces, menus = [] }) {
                     </div>
                 </section>
 
-                <section className="atlas-panel overflow-hidden">
-                    <div className="border-b border-line/70 px-6 py-5">
-                        <h3 className="font-display text-lg font-bold text-ink">All accounts</h3>
-                        <p className="mt-1 text-sm text-ink-muted">
-                            All users across every account. Clients manage their own businesses.
-                        </p>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full text-left text-sm">
-                            <thead className="bg-mist/80 text-ink-muted">
-                                <tr>
-                                    <th className="px-6 py-3 font-semibold">Name</th>
-                                    <th className="px-6 py-3 font-semibold">Email</th>
-                                    <th className="px-6 py-3 font-semibold">Role</th>
-                                    <th className="px-6 py-3 font-semibold">Workspaces</th>
-                                    <th className="px-6 py-3 font-semibold">Joined</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {users.map((user) => (
-                                    <tr key={user.id} className="border-t border-line/70">
-                                        <td className="px-6 py-3 font-semibold text-ink">{user.name}</td>
-                                        <td className="px-6 py-3 text-ink-muted">{user.email}</td>
-                                        <td className="px-6 py-3">
-                                            <span
-                                                className={
-                                                    'rounded-lg px-2.5 py-1 text-xs font-semibold ' +
-                                                    (user.is_superadmin
-                                                        ? 'bg-ink text-white'
-                                                        : 'bg-signal-soft text-signal-strong')
-                                                }
-                                            >
-                                                {user.is_superadmin ? 'superadmin' : 'client'}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-3 text-ink">{user.workspaces_count}</td>
-                                        <td className="px-6 py-3 text-ink-muted">{user.created_at}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
+                <div className="grid gap-6 lg:grid-cols-2">
+                    <section className="atlas-panel overflow-hidden">
+                        <div className="flex items-center justify-between border-b border-line/70 px-6 py-5">
+                            <h3 className="font-display text-lg font-bold text-ink">Recent users</h3>
+                            <Link
+                                href={route('admin.users')}
+                                className="text-sm font-semibold text-signal-strong hover:text-signal"
+                            >
+                                Manage
+                            </Link>
+                        </div>
+                        <ul className="divide-y divide-line/70">
+                            {recentUsers.map((user) => (
+                                <li
+                                    key={user.id}
+                                    className="flex items-center justify-between gap-3 px-6 py-3"
+                                >
+                                    <div className="min-w-0">
+                                        <div className="truncate text-sm font-semibold text-ink">
+                                            {user.name}
+                                        </div>
+                                        <div className="truncate text-xs text-ink-muted">
+                                            {user.email}
+                                        </div>
+                                    </div>
+                                    <span
+                                        className={
+                                            'shrink-0 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase ' +
+                                            (user.is_superadmin
+                                                ? 'bg-ink text-white'
+                                                : 'bg-signal-soft text-signal-strong')
+                                        }
+                                    >
+                                        {user.is_superadmin ? 'admin' : 'client'}
+                                    </span>
+                                </li>
+                            ))}
+                        </ul>
+                    </section>
 
-                <section className="atlas-panel overflow-hidden">
-                    <div className="border-b border-line/70 px-6 py-5">
-                        <h3 className="font-display text-lg font-bold text-ink">All workspaces</h3>
-                        <p className="mt-1 text-sm text-ink-muted">
-                            Tenant spaces on the platform. This is not a client workspace screen.
-                        </p>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full text-left text-sm">
-                            <thead className="bg-mist/80 text-ink-muted">
-                                <tr>
-                                    <th className="px-6 py-3 font-semibold">Workspace</th>
-                                    <th className="px-6 py-3 font-semibold">Slug</th>
-                                    <th className="px-6 py-3 font-semibold">Members</th>
-                                    <th className="px-6 py-3 font-semibold">Created</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {workspaces.map((workspace) => (
-                                    <tr key={workspace.id} className="border-t border-line/70">
-                                        <td className="px-6 py-3 font-semibold text-ink">
+                    <section className="atlas-panel overflow-hidden">
+                        <div className="flex items-center justify-between border-b border-line/70 px-6 py-5">
+                            <h3 className="font-display text-lg font-bold text-ink">
+                                Recent workspaces
+                            </h3>
+                            <Link
+                                href={route('admin.workspaces')}
+                                className="text-sm font-semibold text-signal-strong hover:text-signal"
+                            >
+                                Manage
+                            </Link>
+                        </div>
+                        <ul className="divide-y divide-line/70">
+                            {recentWorkspaces.map((workspace) => (
+                                <li
+                                    key={workspace.id}
+                                    className="flex items-center justify-between gap-3 px-6 py-3"
+                                >
+                                    <div className="min-w-0">
+                                        <div className="truncate text-sm font-semibold text-ink">
                                             {workspace.name}
-                                        </td>
-                                        <td className="px-6 py-3 text-ink-muted">/{workspace.slug}</td>
-                                        <td className="px-6 py-3 text-ink">{workspace.members_count}</td>
-                                        <td className="px-6 py-3 text-ink-muted">
-                                            {workspace.created_at}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
+                                        </div>
+                                        <div className="truncate text-xs text-ink-muted">
+                                            /{workspace.slug} · {workspace.members_count} members
+                                        </div>
+                                    </div>
+                                    <span className="shrink-0 rounded-md bg-mist px-2 py-0.5 text-[10px] font-semibold uppercase text-ink-muted">
+                                        {workspace.plan}
+                                    </span>
+                                </li>
+                            ))}
+                        </ul>
+                    </section>
+                </div>
             </div>
         </AuthenticatedLayout>
     );

@@ -45,8 +45,10 @@ class UsageMeterService
         $apiAllowed = (bool) ($limits['api'] ?? false);
 
         $snap = $this->wallet->snapshot($workspace, $subscription);
-        if (! $aiAllowed && $snap['topup'] > 0) {
+        // Purchased top-up credits unlock the full product (same as paid plan access).
+        if ($snap['topup'] > 0) {
             $aiAllowed = true;
+            $apiAllowed = true;
         }
         $periodStart = now()->startOfMonth();
 

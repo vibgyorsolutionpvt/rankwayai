@@ -101,6 +101,46 @@ class PlanCatalog
     }
 
     /**
+     * Bullet points shown on pricing / billing cards (keep Free in sync with Current Plan).
+     *
+     * @return list<string>
+     */
+    public static function highlights(string $plan, string $market = self::MARKET_IN): array
+    {
+        return match ($plan) {
+            'free' => [
+                'SEO site audit crawl',
+                'Google Search Console',
+                'PageSpeed Insights',
+                'DataForSEO ranks & keyword metrics',
+                'Billing & workspace settings',
+            ],
+            'starter' => [
+                'Everything in Free',
+                '1 workspace',
+                'AI studio with plan credits',
+                'Social publish + WhatsApp / Email / RCS',
+                '500 channel sends/mo',
+            ],
+            'growth' => [
+                'Everything in Starter',
+                '5 workspaces',
+                'Higher AI budget',
+                '5,000 channel sends/mo',
+                'Backlinks, local pack, CMS & JS crawl',
+            ],
+            'agency' => [
+                'Everything in Growth',
+                '50 workspaces',
+                'Max AI budget',
+                '50,000 channel sends/mo',
+                'Best for agencies & multi-brand teams',
+            ],
+            default => [],
+        };
+    }
+
+    /**
      * Display + checkout amounts for a market + billing interval.
      *
      * @return list<array{
@@ -109,6 +149,7 @@ class PlanCatalog
      *   price:int|float,
      *   price_monthly_equiv:int|float,
      *   blurb:string,
+     *   highlights:list<string>,
      *   currency:string,
      *   symbol:string,
      *   interval:string,
@@ -124,16 +165,10 @@ class PlanCatalog
         $isYear = $interval === self::INTERVAL_YEAR;
 
         $blurbs = [
-            'free' => 'Brand, media, drafts, CRM, local SEO crawl — no AI, no API sends',
-            'starter' => $market === self::MARKET_IN
-                ? '1 workspace, AI budget included, 500 channel sends/mo'
-                : '1 workspace, AI budget $20, 500 channel sends/mo',
-            'growth' => $market === self::MARKET_IN
-                ? '5 workspaces, higher AI budget, 5k channel sends/mo'
-                : '5 workspaces, AI budget $50, 5k channel sends/mo',
-            'agency' => $market === self::MARKET_IN
-                ? '50 workspaces, max AI budget, 50k channel sends/mo'
-                : '50 workspaces, AI budget $200, 50k channel sends/mo',
+            'free' => 'SEO toolkit on us — upgrade when you need channels & AI',
+            'starter' => 'Full product access for a single workspace',
+            'growth' => 'More workspaces, AI budget, and channel volume',
+            'agency' => 'Scale across many brands and high send volume',
         ];
 
         $names = [
@@ -158,6 +193,7 @@ class PlanCatalog
                 'price' => $price,
                 'price_monthly_equiv' => $monthlyEquiv,
                 'blurb' => $blurbs[$id],
+                'highlights' => self::highlights($id, $market),
                 'currency' => $meta['currency'],
                 'symbol' => $meta['symbol'],
                 'interval' => $interval,

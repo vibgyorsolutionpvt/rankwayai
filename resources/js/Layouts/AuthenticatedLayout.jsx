@@ -127,25 +127,36 @@ const toneStyles = {
 function NavLink({ item, onNavigate }) {
     const active = route().current(item.match);
     const tone = toneStyles[item.tone] || toneStyles.signal;
+    const locked = Boolean(item.locked);
 
     return (
         <Link
             href={route(item.routeName)}
             onClick={onNavigate}
+            title={locked ? 'Paid plan required' : undefined}
             className={
                 'group flex items-center gap-2.5 rounded-md px-2 py-2 text-sm font-semibold transition duration-150 ' +
-                (active ? tone.activeRow : `text-ink-muted ${tone.row} hover:text-ink`)
+                (active
+                    ? tone.activeRow
+                    : locked
+                      ? 'text-ink-muted/70 hover:bg-mist hover:text-ink-muted'
+                      : `text-ink-muted ${tone.row} hover:text-ink`)
             }
         >
             <span
                 className={
                     'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition ' +
-                    (active ? 'bg-white/20 text-white' : tone.idle)
+                    (active ? 'bg-white/20 text-white' : locked ? 'bg-mist text-ink-muted' : tone.idle)
                 }
             >
                 <NavIcon name={item.icon} className="h-[15px] w-[15px]" />
             </span>
-            {item.label}
+            <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            {locked ? (
+                <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-ink-muted">
+                    Pro
+                </span>
+            ) : null}
         </Link>
     );
 }
@@ -155,43 +166,40 @@ export default function AuthenticatedLayout({ header, children }) {
     const user = page.auth.user;
     const workspaces = page.workspaces || [];
     const activeWorkspace = page.activeWorkspace || null;
+    const plan = page.plan || null;
     const [mobileOpen, setMobileOpen] = useState(false);
 
     const navItems = useMemo(() => {
+        const allowed = plan?.modules || null;
+        const markLocked = (item) => {
+            const unlocked = plan.unlocked ?? plan.paid;
+            const locked =
+                Boolean(plan) &&
+                unlocked === false &&
+                Array.isArray(allowed) &&
+                !allowed.includes(item.key || item.route);
+            return { ...item, locked };
+        };
+
         const shared = page.navigation || [];
         if (shared.length > 0) {
-            return shared.map((item) => ({
-                label: item.label,
-                routeName: item.route,
-                match: item.match,
-                icon: item.icon,
-                tone: item.tone,
-            }));
-        }
-
-        if (user?.is_superadmin) {
-            return [
-                {
-                    label: 'Platform',
-                    routeName: 'admin.dashboard',
-                    match: 'admin.*',
-                    icon: 'platform',
-                    tone: 'ink',
-                },
-                {
-                    label: 'Workspaces',
-                    routeName: 'workspaces.index',
-                    match: 'workspaces.*',
-                    icon: 'workspace',
-                    tone: 'sky',
-                },
-            ];
+            return shared.map((item) =>
+                markLocked({
+                    key: item.key,
+                    label: item.label,
+                    routeName: item.route,
+                    match: item.match,
+                    icon: item.icon,
+                    tone: item.tone,
+                }),
+            );
         }
 
         return [];
-    }, [page.navigation, user?.is_superadmin]);
+    }, [page.navigation, plan, user?.is_superadmin]);
 
     const homeHref = navItems[0] ? route(navItems[0].routeName) : route('profile.edit');
+    const impersonating = Boolean(page.impersonating);
 
     return (
         <div className="min-h-screen lg:grid lg:grid-cols-[220px_1fr]">
@@ -216,15 +224,38 @@ export default function AuthenticatedLayout({ header, children }) {
 
                     <div className="mt-auto rounded-md border border-line bg-white/80 p-2.5">
                         <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
-                            {user?.is_superadmin ? 'Admin' : 'Signed in'}
+                            {user?.is_superadmin ? (impersonating ? 'Viewing as' : 'Admin') : 'Signed in'}
                         </div>
                         <div className="mt-1 truncate text-sm font-semibold text-ink">{user.name}</div>
                         <div className="truncate text-xs text-ink-muted">{user.email}</div>
+                        {impersonating ? (
+                            <button
+                                type="button"
+                                onClick={() => router.post(route('admin.leave-workspace'))}
+                                className="mt-2 w-full rounded-md bg-ink px-2 py-1.5 text-xs font-semibold text-white"
+                            >
+                                Exit workspace
+                            </button>
+                        ) : null}
                     </div>
                 </div>
             </aside>
 
             <div className="flex min-h-screen flex-col">
+                {impersonating ? (
+                    <div className="flex items-center justify-between gap-3 bg-ink px-4 py-2 text-xs font-semibold text-white sm:px-6">
+                        <span>
+                            Super admin view · {activeWorkspace?.name || 'Workspace'}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => router.post(route('admin.leave-workspace'))}
+                            className="rounded-md bg-white/15 px-2.5 py-1 transition hover:bg-white/25"
+                        >
+                            Back to admin
+                        </button>
+                    </div>
+                ) : null}
                 <header className="sticky top-0 z-20 border-b border-line/70 bg-white/85 backdrop-blur-md">
                     <div className="flex h-14 items-center justify-between gap-3 px-4 sm:px-6">
                         <div className="flex min-w-0 items-center gap-2 lg:hidden">

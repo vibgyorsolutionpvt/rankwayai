@@ -1,1 +1,0 @@
-import{a as t,j as n}from"./app-BQ-PdNrQ.js";const p=t.forwardRef(function({type:r="text",className:u="",isFocused:s=!1,...a},f){const e=t.useRef(null);return t.useImperativeHandle(f,()=>({focus:()=>e.current?.focus()})),t.useEffect(()=>{s&&e.current?.focus()},[s]),n.jsx("input",{...a,type:r,className:"atlas-input "+u,ref:e})});export{p as T};

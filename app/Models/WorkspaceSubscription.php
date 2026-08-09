@@ -64,6 +64,11 @@ class WorkspaceSubscription extends Model
                     'channel_sends_month' => 0,
                     'ai' => false,
                     'api' => false,
+                    // SEO toolkit on free; social/WhatsApp/AI/CMS stay paid.
+                    'seo_audit' => true,
+                    'seo_apis' => true,
+                    'seo_metrics' => true,
+                    'modules' => ['seo', 'billing', 'settings'],
                 ],
             ],
             'growth' => [

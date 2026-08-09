@@ -84,6 +84,20 @@ Route::middleware(['auth', 'verified', 'module'])->group(function () {
 
     Route::middleware(EnsureSuperAdmin::class)->prefix('admin')->name('admin.')->group(function () {
         Route::get('/', [PlatformAdminController::class, 'dashboard'])->name('dashboard');
+        Route::get('/users', [PlatformAdminController::class, 'users'])->name('users');
+        Route::post('/users', [PlatformAdminController::class, 'storeUser'])->name('users.store');
+        Route::patch('/users/{user}', [PlatformAdminController::class, 'updateUser'])->name('users.update');
+        Route::get('/workspaces', [PlatformAdminController::class, 'workspaces'])->name('workspaces');
+        Route::patch('/workspaces/{workspace}', [PlatformAdminController::class, 'updateWorkspace'])->name('workspaces.update');
+        Route::post('/workspaces/{workspace}/enter', [PlatformAdminController::class, 'enterWorkspace'])->name('workspaces.enter');
+        Route::post('/leave-workspace', [PlatformAdminController::class, 'leaveWorkspace'])->name('leave-workspace');
+        Route::get('/billing', [PlatformAdminController::class, 'billing'])->name('billing');
+        Route::get('/activity', [PlatformAdminController::class, 'activity'])->name('activity');
+        Route::get('/system', [PlatformAdminController::class, 'system'])->name('system');
+        Route::patch('/system', [PlatformAdminController::class, 'updateSystem'])->name('system.update');
+        Route::get('/jobs', [PlatformAdminController::class, 'jobs'])->name('jobs');
+        Route::post('/jobs/failed/{uuid}/retry', [PlatformAdminController::class, 'retryFailedJob'])->name('jobs.retry');
+        Route::post('/jobs/failed/flush', [PlatformAdminController::class, 'flushFailedJobs'])->name('jobs.flush');
         Route::patch('/menus/{key}', [PlatformAdminController::class, 'updateMenu'])->name('menus.update');
     });
 
@@ -131,7 +145,9 @@ Route::middleware(['auth', 'verified', 'module'])->group(function () {
         ->name('seo.sites.pagespeed');
     Route::patch('/seo/sites/{site}/crawl-settings', [SeoController::class, 'updateCrawlSettings'])->name('seo.sites.crawl-settings');
     Route::post('/seo/keywords', [SeoController::class, 'storeKeyword'])->name('seo.keywords.store');
-    Route::post('/seo/keywords/track', [SeoController::class, 'trackRanks'])->name('seo.keywords.track');
+    Route::post('/seo/keywords/track', [SeoController::class, 'trackRanks'])
+        ->middleware('plan:seo_metrics')
+        ->name('seo.keywords.track');
     Route::post('/seo/keywords/metrics', [SeoController::class, 'refreshMetrics'])
         ->middleware('plan:seo_metrics')
         ->name('seo.keywords.metrics');

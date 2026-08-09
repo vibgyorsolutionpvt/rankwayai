@@ -24,6 +24,8 @@ zip -rq "$OUT" . \
   -x "*.git*" \
   -x "*node_modules*" \
   -x "*.env" \
+  -x "*storage/app/public/*" \
+  -x "*public/storage*" \
   -x "*storage/logs/*" \
   -x "*storage/framework/cache/data/*" \
   -x "*storage/framework/sessions/*" \
@@ -32,4 +34,6 @@ zip -rq "$OUT" . \
   -x "*.phpunit*"
 
 echo "Done."
-echo "Upload $OUT to the server, unzip into APP path, then follow docs/11_HOSTINGER_DEPLOY.md"
+echo "Upload $OUT to the server, then SSH:"
+echo "  cd <app-path> && bash scripts/hostinger-safe-extract.sh $OUT"
+echo "(Do NOT unzip over the app by hand — that wipes uploads.)"

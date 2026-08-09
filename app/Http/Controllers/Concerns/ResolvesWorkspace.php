@@ -10,6 +10,18 @@ trait ResolvesWorkspace
     protected function workspace(Request $request): Workspace
     {
         $user = $request->user();
+
+        // Super admin viewing a tenant workspace.
+        if ($user?->is_superadmin) {
+            $impersonateId = (int) $request->session()->get('impersonate_workspace_id');
+            if ($impersonateId) {
+                $workspace = Workspace::query()->find($impersonateId);
+                abort_unless($workspace, 404, 'Workspace not found.');
+
+                return $workspace;
+            }
+        }
+
         $activeId = (int) $request->session()->get('active_workspace_id');
 
         $workspace = null;
