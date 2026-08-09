@@ -1,0 +1,27 @@
+---
+description: Never use native browser confirm/alert dialogs; use ConfirmProvider
+globs: resources/js/**/*.{js,jsx,ts,tsx}
+alwaysApply: false
+---
+
+# Custom confirmations only
+
+Never use `window.confirm()`, `confirm()`, `window.alert()`, or `alert()` in frontend code.
+
+Every destructive action (`router.delete`, remove, disconnect that destroys data) must go through `@/Components/ConfirmProvider`:
+
+```js
+import { confirmAsk } from '@/Components/ConfirmProvider';
+
+const ok = await confirmAsk({
+  title: 'Delete this funnel?',
+  message: 'Optional detail',
+  confirmLabel: 'Delete',
+  tone: 'danger', // or 'default'
+});
+if (ok) {
+  router.delete(...);
+}
+```
+
+String shorthand: `await confirmAsk('Remove this file?')`

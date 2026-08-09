@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    --ink: #0b1220;
+    --ink-soft: #1a2332;
+    --ink-muted: #5b667a;
+    --mist: #f3f5f8;
+    --mist-deep: #e6eaf0;
+    --signal: #0e9f90;
+    --signal-soft: #d7f3ef;
+    --signal-strong: #0b7f73;
+    --line: #d5dce6;
+    --surface: #ffffff;
+    --danger: #c0392b;
+}
+
+@layer base {
+    body {
+        @apply bg-mist text-ink antialiased;
+        background-image:
+            radial-gradient(ellipse 80% 50% at 10% -10%, rgba(14, 159, 144, 0.12), transparent 55%),
+            radial-gradient(ellipse 60% 40% at 100% 0%, rgba(11, 18, 32, 0.06), transparent 50%),
+            linear-gradient(180deg, #f7f8fb 0%, var(--mist) 100%);
+        background-attachment: fixed;
+    }
+
+    ::selection {
+        background: rgba(14, 159, 144, 0.22);
+        color: var(--ink);
+    }
+}
+
+@layer components {
+    .atlas-grid {
+        background-image:
+            linear-gradient(rgba(11, 18, 32, 0.04) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(11, 18, 32, 0.04) 1px, transparent 1px);
+        background-size: 48px 48px;
+        mask-image: radial-gradient(ellipse at center, black 35%, transparent 75%);
+    }
+
+    /* Full main-column width — tight gutters to cut empty scroll */
+    .atlas-shell {
+        @apply mx-auto w-full px-3 py-3 sm:px-4;
+    }
+
+    .atlas-panel {
+        @apply rounded-md border border-line/80 bg-white/90 shadow-panel backdrop-blur-sm;
+    }
+
+    .atlas-input {
+        @apply w-full rounded-md border-line bg-white px-3 py-2 font-sans text-ink shadow-none transition
+            placeholder:text-ink-muted/60
+            focus:border-signal focus:ring-2 focus:ring-signal/20;
+    }
+
+    .atlas-select {
+        @apply w-full rounded-md border-line bg-white px-3 py-2 font-sans text-ink transition
+            focus:border-signal focus:ring-2 focus:ring-signal/20;
+    }
+
+    .stagger > * {
+        animation: fade-up 0.55s ease-out both;
+    }
+
+    .stagger > *:nth-child(1) { animation-delay: 0.05s; }
+    .stagger > *:nth-child(2) { animation-delay: 0.12s; }
+    .stagger > *:nth-child(3) { animation-delay: 0.19s; }
+    .stagger > *:nth-child(4) { animation-delay: 0.26s; }
+    .stagger > *:nth-child(5) { animation-delay: 0.33s; }
+}
+
+@keyframes fade-up {
+    from {
+        opacity: 0;
+        transform: translateY(14px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes toast-in {
+    from {
+        opacity: 0;
+        transform: translateY(-10px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.animate-toast-in {
+    animation: toast-in 0.22s ease-out both;
+}

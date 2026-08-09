@@ -1,0 +1,33 @@
+name: marketing-os-ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: mbstring, sqlite
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Validate composer
+        run: composer validate --no-check-publish
+      - name: Install PHP
+        run: composer install --no-interaction --prefer-dist
+      - name: Install JS
+        run: npm ci
+      - name: Build assets
+        run: npm run build
+      - name: Pint (dirty check optional)
+        run: vendor/bin/pint --test || true
+      - name: Tests
+        run: php artisan test
