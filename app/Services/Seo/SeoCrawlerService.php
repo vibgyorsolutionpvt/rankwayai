@@ -175,6 +175,8 @@ class SeoCrawlerService
     }
 
     /**
+     * Crawl-based internal link map (used by tests / advanced views).
+     *
      * @return array{nodes:list<array{id:int,url:string,title:?string,depth:int,inlinks:int,outlinks:int,orphan:bool}>,edges:list<array{from:int,to:?int,external:bool}>}
      */
     public function architectureMap(SeoSite $site): array
@@ -202,6 +204,214 @@ class SeoCrawlerService
             ])->values()->all();
 
         return ['nodes' => $nodes, 'edges' => $edges];
+    }
+
+    /**
+     * Site map tab: URLs from sitemap.xml (not crawl invent).
+     *
+     * @return array{
+     *   source:string,
+     *   sitemap_url:?string,
+     *   error:?string,
+     *   nodes:list<array{id:string,url:string,title:?string,lastmod:?string,priority:?string,changefreq:?string,crawled:bool,depth:?int,inlinks:?int,outlinks:?int,orphan:bool}>,
+     *   edges:list<array<string,mixed>>
+     * }
+     */
+    public function sitemapMap(SeoSite $site, bool $force = false): array
+    {
+        $cacheKey = 'seo_sitemap_map:'.$site->id;
+
+        if ($force) {
+            \Illuminate\Support\Facades\Cache::forget($cacheKey);
+        }
+
+        return \Illuminate\Support\Facades\Cache::remember($cacheKey, now()->addMinutes(30), function () use ($site) {
+            $sitemapUrl = $this->resolveSitemapUrl($site);
+            if (! $sitemapUrl) {
+                return [
+                    'source' => 'sitemap',
+                    'sitemap_url' => null,
+                    'error' => 'No sitemap.xml found. Add sitemap URL when connecting the site, or publish https://'.$site->domain.'/sitemap.xml',
+                    'nodes' => [],
+                    'edges' => [],
+                ];
+            }
+
+            $entries = $this->collectSitemapEntries($sitemapUrl, 0);
+            if ($entries === []) {
+                return [
+                    'source' => 'sitemap',
+                    'sitemap_url' => $sitemapUrl,
+                    'error' => 'Sitemap fetched but no <loc> URLs found.',
+                    'nodes' => [],
+                    'edges' => [],
+                ];
+            }
+
+            $crawled = $site->pages()
+                ->get(['url', 'title', 'depth', 'inlink_count', 'outlink_count', 'is_orphan'])
+                ->keyBy(fn (SeoPage $p) => rtrim((string) $p->url, '/'));
+
+            $nodes = [];
+            foreach (array_slice($entries, 0, 500) as $i => $entry) {
+                $url = $entry['url'];
+                $key = rtrim($url, '/');
+                $page = $crawled->get($key) ?? $crawled->get($url);
+
+                $nodes[] = [
+                    'id' => 'sm-'.$i,
+                    'url' => $url,
+                    'title' => $page?->title,
+                    'lastmod' => $entry['lastmod'] ?? null,
+                    'priority' => $entry['priority'] ?? null,
+                    'changefreq' => $entry['changefreq'] ?? null,
+                    'crawled' => $page !== null,
+                    'depth' => $page?->depth,
+                    'inlinks' => $page?->inlink_count,
+                    'outlinks' => $page?->outlink_count,
+                    'orphan' => (bool) ($page?->is_orphan),
+                ];
+            }
+
+            return [
+                'source' => 'sitemap',
+                'sitemap_url' => $sitemapUrl,
+                'error' => null,
+                'nodes' => $nodes,
+                'edges' => [],
+            ];
+        });
+    }
+
+    public function resolveSitemapUrl(SeoSite $site): ?string
+    {
+        if (filled($site->sitemap_url)) {
+            return (string) $site->sitemap_url;
+        }
+
+        $candidates = [
+            'https://'.$site->domain.'/sitemap.xml',
+            'https://www.'.$site->domain.'/sitemap.xml',
+            'https://'.$site->domain.'/sitemap_index.xml',
+            'https://'.$site->domain.'/sitemap-index.xml',
+        ];
+
+        foreach ($candidates as $candidate) {
+            try {
+                $response = Http::timeout(8)
+                    ->withHeaders(['User-Agent' => 'Mozilla/5.0 (compatible; RankwayAISeoBot/1.0)'])
+                    ->get($candidate);
+                if ($response->successful() && str_contains(strtolower($response->body()), '<loc')) {
+                    return $candidate;
+                }
+            } catch (\Throwable) {
+                // try next
+            }
+        }
+
+        // robots.txt Sitemap: line
+        try {
+            $robots = Http::timeout(8)
+                ->withHeaders(['User-Agent' => 'Mozilla/5.0 (compatible; RankwayAISeoBot/1.0)'])
+                ->get('https://'.$site->domain.'/robots.txt');
+            if ($robots->successful() && preg_match('/(?im)^sitemap:\s*(\S+)/', $robots->body(), $m)) {
+                return trim($m[1]);
+            }
+        } catch (\Throwable) {
+            // ignore
+        }
+
+        return null;
+    }
+
+    /**
+     * @return list<array{url:string,lastmod:?string,priority:?string,changefreq:?string}>
+     */
+    public function collectSitemapEntries(string $sitemapUrl, int $depth = 0): array
+    {
+        if ($depth > 2) {
+            return [];
+        }
+
+        try {
+            $response = Http::timeout(15)
+                ->withHeaders(['User-Agent' => 'Mozilla/5.0 (compatible; RankwayAISeoBot/1.0)'])
+                ->get($sitemapUrl);
+            if (! $response->successful()) {
+                return [];
+            }
+            $xml = (string) $response->body();
+        } catch (\Throwable) {
+            return [];
+        }
+
+        // Sitemap index → follow child sitemaps
+        if (stripos($xml, '<sitemapindex') !== false) {
+            preg_match_all('/<sitemap\b[^>]*>.*?<\/sitemap>/is', $xml, $blocks);
+            $childUrls = [];
+            foreach (array_slice($blocks[0] ?? [], 0, 10) as $block) {
+                if (preg_match('/<loc>\s*(.*?)\s*<\/loc>/i', $block, $m)) {
+                    $childUrls[] = html_entity_decode(trim($m[1]));
+                }
+            }
+            $entries = [];
+            foreach ($childUrls as $child) {
+                $entries = array_merge($entries, $this->collectSitemapEntries($child, $depth + 1));
+                if (count($entries) >= 500) {
+                    break;
+                }
+            }
+
+            return array_slice($entries, 0, 500);
+        }
+
+        preg_match_all('/<url\b[^>]*>.*?<\/url>/is', $xml, $urlBlocks);
+        $entries = [];
+        foreach ($urlBlocks[0] ?? [] as $block) {
+            if (! preg_match('/<loc>\s*(.*?)\s*<\/loc>/i', $block, $m)) {
+                continue;
+            }
+            $url = html_entity_decode(trim($m[1]));
+            if ($url === '') {
+                continue;
+            }
+            $lastmod = preg_match('/<lastmod>\s*(.*?)\s*<\/lastmod>/i', $block, $lm)
+                ? trim($lm[1])
+                : null;
+            $priority = preg_match('/<priority>\s*(.*?)\s*<\/priority>/i', $block, $pr)
+                ? trim($pr[1])
+                : null;
+            $changefreq = preg_match('/<changefreq>\s*(.*?)\s*<\/changefreq>/i', $block, $cf)
+                ? trim($cf[1])
+                : null;
+            $entries[] = [
+                'url' => $url,
+                'lastmod' => $lastmod,
+                'priority' => $priority,
+                'changefreq' => $changefreq,
+            ];
+            if (count($entries) >= 500) {
+                break;
+            }
+        }
+
+        // Fallback: bare <loc> list (some generators omit <url> wrappers cleanly)
+        if ($entries === []) {
+            preg_match_all('/<loc>\s*(.*?)\s*<\/loc>/i', $xml, $locs);
+            foreach (array_slice($locs[1] ?? [], 0, 500) as $loc) {
+                $url = html_entity_decode(trim($loc));
+                if ($url !== '' && ! str_ends_with(strtolower($url), '.xml')) {
+                    $entries[] = [
+                        'url' => $url,
+                        'lastmod' => null,
+                        'priority' => null,
+                        'changefreq' => null,
+                    ];
+                }
+            }
+        }
+
+        return $entries;
     }
 
     private function jsRenderer(): JsRenderProvider
@@ -284,7 +494,7 @@ class SeoCrawlerService
             $loadMs = (int) round((microtime(true) - $started) * 1000);
         }
 
-        $parsed = $this->parseHtml($html);
+        $parsed = $this->parseHtml($html, $url);
         $parsed['status_code'] = $status;
         $parsed['indexable'] = ! str_contains(strtolower($html), 'noindex');
         $parsed['redirect_to'] = null;
@@ -303,7 +513,7 @@ class SeoCrawlerService
     /**
      * @return array<string, mixed>
      */
-    private function parseHtml(string $html): array
+    private function parseHtml(string $html, ?string $baseUrl = null): array
     {
         $title = null;
         if (preg_match('/<title[^>]*>(.*?)<\/title>/is', $html, $m)) {
@@ -329,9 +539,37 @@ class SeoCrawlerService
 
         $hasSchema = (bool) preg_match('/application\/ld\+json/i', $html);
 
-        $imgTotal = preg_match_all('/<img\b[^>]*>/i', $html, $imgs) ?: 0;
-        $withAlt = preg_match_all('/<img\b[^>]*\balt\s*=\s*["\'][^"\']+["\']/i', $html) ?: 0;
-        $missingAlt = max(0, $imgTotal - $withAlt);
+        $imgTotal = 0;
+        $missingAlt = 0;
+        $missingAltSrcs = [];
+        if (preg_match_all('/<img\b[^>]*>/i', $html, $imgs)) {
+            $imgTotal = count($imgs[0]);
+            foreach ($imgs[0] as $tag) {
+                // alt="" is valid for decorative images — only flag when alt attribute is absent.
+                if (preg_match('/\balt\s*=/i', $tag)) {
+                    continue;
+                }
+
+                $missingAlt++;
+
+                $src = null;
+                if (preg_match('/\bsrc\s*=\s*["\']([^"\']+)["\']/i', $tag, $srcMatch)) {
+                    $src = trim(html_entity_decode($srcMatch[1]));
+                } elseif (preg_match('/\bdata-src\s*=\s*["\']([^"\']+)["\']/i', $tag, $srcMatch)) {
+                    $src = trim(html_entity_decode($srcMatch[1]));
+                }
+
+                if ($src === null || $src === '' || str_starts_with(strtolower($src), 'data:')) {
+                    continue;
+                }
+
+                $absolute = $baseUrl ? ($this->absolutize($baseUrl, $src) ?? $src) : $src;
+                if ($absolute) {
+                    $missingAltSrcs[] = $absolute;
+                }
+            }
+        }
+        $missingAltSrcs = array_values(array_slice(array_unique($missingAltSrcs), 0, 20));
 
         $internal = preg_match_all('/<a\b[^>]*href=["\'][^"\']+["\']/i', $html) ?: 0;
         $text = trim(preg_replace('/\s+/', ' ', strip_tags($html)) ?? '');
@@ -348,6 +586,7 @@ class SeoCrawlerService
             'word_count' => $words,
             'audit_meta' => [
                 'img_total' => $imgTotal,
+                'images_missing_alt_srcs' => $missingAltSrcs,
             ],
         ];
     }
@@ -387,15 +626,10 @@ class SeoCrawlerService
      */
     private function urlsFromSitemap(string $sitemapUrl): array
     {
-        try {
-            $xml = (string) Http::timeout(10)->get($sitemapUrl)->body();
-        } catch (\Throwable) {
-            return [];
-        }
-
-        preg_match_all('/<loc>\s*(.*?)\s*<\/loc>/i', $xml, $matches);
-
-        return array_values(array_unique(array_slice($matches[1] ?? [], 0, 20)));
+        return array_values(array_unique(array_map(
+            fn (array $e) => $e['url'],
+            array_slice($this->collectSitemapEntries($sitemapUrl), 0, 40)
+        )));
     }
 
     private function absolutize(string $base, string $href): ?string

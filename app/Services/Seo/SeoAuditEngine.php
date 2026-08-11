@@ -100,13 +100,17 @@ class SeoAuditEngine
         }
 
         if (($page->images_missing_alt ?? 0) > 0) {
+            $srcs = $page->audit_meta['images_missing_alt_srcs'] ?? [];
+            $srcHint = is_array($srcs) && $srcs !== []
+                ? ' — e.g. '.basename((string) parse_url((string) $srcs[0], PHP_URL_PATH) ?: $srcs[0])
+                : '';
             $issues[] = $this->issue(
                 $site,
                 $page,
                 'warning',
                 'images_missing_alt',
-                $page->images_missing_alt.' image(s) missing ALT on '.$path,
-                'Add descriptive ALT attributes'
+                $page->images_missing_alt.' image(s) missing ALT attribute on '.$path.$srcHint,
+                'Add an alt attribute on each image (use alt="" only for decorative images)'
             );
         }
 

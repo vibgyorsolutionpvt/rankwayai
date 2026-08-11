@@ -145,6 +145,9 @@ Route::middleware(['auth', 'verified', 'module'])->group(function () {
         ->name('seo.sites.pagespeed');
     Route::patch('/seo/sites/{site}/crawl-settings', [SeoController::class, 'updateCrawlSettings'])->name('seo.sites.crawl-settings');
     Route::post('/seo/keywords', [SeoController::class, 'storeKeyword'])->name('seo.keywords.store');
+    Route::post('/seo/keywords/research', [SeoController::class, 'researchKeywords'])
+        ->middleware('throttle:20,1')
+        ->name('seo.keywords.research');
     Route::post('/seo/keywords/track', [SeoController::class, 'trackRanks'])
         ->middleware('plan:seo_metrics')
         ->name('seo.keywords.track');
@@ -186,6 +189,10 @@ Route::middleware(['auth', 'verified', 'module'])->group(function () {
     Route::post('/seo/content-drafts/{draft}/publish', [SeoV2Controller::class, 'publishDraft'])
         ->middleware('plan:seo_cms')
         ->name('seo.content.publish');
+    Route::post('/seo/sites/{site}/blogs/sync', [SeoV2Controller::class, 'syncBlogPosts'])
+        ->name('seo.blogs.sync');
+    Route::post('/seo/blog-posts/{post}/share', [SeoV2Controller::class, 'shareBlogPost'])
+        ->name('seo.blogs.share');
 
     Route::get('/ai', [AiStudioController::class, 'index'])->name('ai.index');
     Route::post('/ai/settings', [AiStudioController::class, 'updateSettings'])->name('ai.settings');

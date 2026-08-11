@@ -12,6 +12,8 @@ class SeoSite extends Model
         'workspace_id',
         'domain',
         'sitemap_url',
+        'blog_feed_url',
+        'blog_posts_synced_at',
         'status',
         'gsc_connected',
         'gsc_connection_mode',
@@ -31,9 +33,11 @@ class SeoSite extends Model
         'cwv_cls',
         'cwv_inp',
         'pagespeed_score',
+        'pagespeed_strategy',
         'pagespeed_checked_at',
         'pagespeed_error',
         'pagespeed_issues',
+        'pagespeed_report',
         'crawl_mode',
         'backlinks',
         'referring_domains',
@@ -55,7 +59,9 @@ class SeoSite extends Model
             'next_crawl_at' => 'datetime',
             'pagespeed_checked_at' => 'datetime',
             'pagespeed_issues' => 'array',
+            'pagespeed_report' => 'array',
             'backlinks_synced_at' => 'datetime',
+            'blog_posts_synced_at' => 'datetime',
             'backlink_summary' => 'array',
             'cwv_lcp' => 'decimal:2',
             'cwv_cls' => 'decimal:3',
@@ -81,6 +87,11 @@ class SeoSite extends Model
     public function inboundBacklinks(): HasMany
     {
         return $this->hasMany(SeoBacklink::class);
+    }
+
+    public function blogPosts(): HasMany
+    {
+        return $this->hasMany(SeoBlogPost::class);
     }
 
     public function markGscConnected(?string $property = null, string $mode = 'oauth'): void

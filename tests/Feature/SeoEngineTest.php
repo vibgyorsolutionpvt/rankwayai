@@ -69,6 +69,56 @@ class SeoEngineTest extends TestCase
         // Message must reference this site's page path — not a generic copy for all tenants
         $issue = SeoIssue::query()->where('seo_site_id', $site->id)->where('code', 'missing_meta_description')->first();
         $this->assertStringContainsString('/', (string) $issue->message);
+
+        $home = $site->pages()->where('url', 'https://example.test/')->first();
+        $this->assertNotNull($home);
+        $this->assertSame(1, (int) $home->images_missing_alt);
+        $this->assertContains(
+            'https://example.test/a.jpg',
+            $home->audit_meta['images_missing_alt_srcs'] ?? []
+        );
+        $this->assertDatabaseHas('seo_issues', [
+            'seo_site_id' => $site->id,
+            'code' => 'images_missing_alt',
+        ]);
+    }
+
+    public function test_empty_alt_attribute_is_not_flagged_as_missing(): void
+    {
+        Http::fake([
+            'https://decor.test/' => Http::response(
+                '<html><head><title>Decor Home</title><meta name="description" content="Decorative image page with enough text"/></head>'
+                .'<body><h1>Home</h1>'
+                .'<img src="/banner.png" alt=""/>'
+                .'<img src="/hero.jpg" alt="Hero photo">'
+                .'<img src="/no-alt.png">'
+                .'</body></html>',
+                200
+            ),
+            'http://decor.test/*' => Http::response('redirect', 301, ['Location' => 'https://decor.test/']),
+            'https://www.decor.test/*' => Http::response('not found', 404),
+        ]);
+
+        [, $workspace] = $this->memberWithWorkspace();
+        $site = SeoSite::query()->create([
+            'workspace_id' => $workspace->id,
+            'domain' => 'decor.test',
+            'status' => 'connected',
+        ]);
+
+        (new CrawlAndAuditSeoSiteJob($site->id))->handle(
+            app(SeoCrawlerService::class),
+            app(SeoAuditEngine::class),
+            app(SeoTaskGenerator::class)
+        );
+
+        $home = $site->pages()->where('url', 'https://decor.test/')->first();
+        $this->assertNotNull($home);
+        $this->assertSame(1, (int) $home->images_missing_alt);
+        $this->assertSame(
+            ['https://decor.test/no-alt.png'],
+            $home->audit_meta['images_missing_alt_srcs'] ?? []
+        );
     }
 
     public function test_crawl_skips_private_and_auth_urls(): void
@@ -263,6 +313,80 @@ class SeoEngineTest extends TestCase
 
         Http::assertNothingSent();
         $this->assertSame('old', $site->fresh()->gsc_queries[0]['query']);
+    }
+
+    public function test_pagespeed_stores_psi_style_categories_for_strategy(): void
+    {
+        config([
+            'seo.google.pagespeed_cooldown_minutes' => 0,
+        ]);
+
+        [$user, $workspace] = $this->memberWithWorkspace();
+        \App\Models\WorkspaceSubscription::query()->updateOrCreate(
+            ['workspace_id' => $workspace->id],
+            ['plan' => 'growth', 'status' => 'active'],
+        );
+
+        app(\App\Services\Integrations\WorkspaceIntegrationService::class)->upsert(
+            $workspace,
+            'google_pagespeed',
+            ['api_key' => 'psi-test-key'],
+            true,
+        );
+
+        $site = SeoSite::query()->create([
+            'workspace_id' => $workspace->id,
+            'domain' => 'psi-view.test',
+            'status' => 'connected',
+        ]);
+
+        Http::fake([
+            'https://www.googleapis.com/pagespeedonline/v5/*' => Http::response([
+                'lighthouseResult' => [
+                    'categories' => [
+                        'performance' => [
+                            'score' => 0.75,
+                            'auditRefs' => [
+                                ['id' => 'unused-javascript', 'group' => 'opportunities'],
+                            ],
+                        ],
+                        'accessibility' => ['score' => 0.87],
+                        'best-practices' => ['score' => 0.96],
+                        'seo' => ['score' => 0.92],
+                    ],
+                    'audits' => [
+                        'first-contentful-paint' => ['numericValue' => 1100, 'score' => 0.9],
+                        'largest-contentful-paint' => ['numericValue' => 1800, 'score' => 0.85],
+                        'total-blocking-time' => ['numericValue' => 120, 'score' => 0.9],
+                        'cumulative-layout-shift' => ['numericValue' => 0.099, 'score' => 0.9],
+                        'speed-index' => ['numericValue' => 2200, 'score' => 0.9],
+                        'unused-javascript' => [
+                            'title' => 'Reduce unused JavaScript',
+                            'description' => 'Save bytes.',
+                            'score' => 0.4,
+                            'displayValue' => 'Est savings of 200 KiB',
+                            'details' => ['overallSavingsMs' => 300],
+                        ],
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('seo.sites.pagespeed', $site), ['strategy' => 'desktop'])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $site->refresh();
+        $this->assertSame('desktop', $site->pagespeed_strategy);
+        $this->assertSame(75, (int) $site->pagespeed_score);
+        $this->assertSame(1.8, (float) $site->cwv_lcp);
+        $this->assertSame(75, $site->pagespeed_report['desktop']['categories']['performance']);
+        $this->assertSame(87, $site->pagespeed_report['desktop']['categories']['accessibility']);
+        $this->assertSame(96, $site->pagespeed_report['desktop']['categories']['best-practices']);
+        $this->assertSame(92, $site->pagespeed_report['desktop']['categories']['seo']);
+        $this->assertSame(1.1, $site->pagespeed_report['desktop']['metrics']['fcp']);
     }
 
     public function test_pagespeed_stops_when_google_daily_quota_exhausted(): void
@@ -466,6 +590,8 @@ class SeoEngineTest extends TestCase
 
     public function test_rank_tracker_and_weekly_report(): void
     {
+        config(['seo.providers.ranks' => 'stub']);
+
         [$user, $workspace] = $this->memberWithWorkspace();
         $site = SeoSite::query()->create([
             'workspace_id' => $workspace->id,
@@ -485,5 +611,34 @@ class SeoEngineTest extends TestCase
 
         $report = app(SeoTaskGenerator::class)->weeklyReport($workspace, $site);
         $this->assertSame('weekly', $report->period);
+    }
+
+    public function test_rank_update_refuses_fake_data_without_dataforseo(): void
+    {
+        config(['seo.providers.ranks' => 'auto']);
+
+        [$user, $workspace] = $this->memberWithWorkspace();
+        SeoSite::query()->create([
+            'workspace_id' => $workspace->id,
+            'domain' => 'honest.test',
+            'status' => 'connected',
+        ]);
+        SeoKeyword::query()->create([
+            'workspace_id' => $workspace->id,
+            'keyword' => 'local seo',
+            'group_name' => 'Core',
+            'position' => 12,
+            'rank_provider' => 'stub',
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('seo.keywords.track'))
+            ->assertRedirect()
+            ->assertSessionHas('error');
+
+        $keyword = SeoKeyword::query()->first();
+        $this->assertSame(12, (int) $keyword->position);
+        $this->assertNull($keyword->last_checked_at);
     }
 }

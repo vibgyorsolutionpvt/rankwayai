@@ -112,6 +112,8 @@ class HandleInertiaRequests extends Middleware
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),
+                'keyword_research' => fn () => $request->session()->get('keyword_research'),
+                'share_open_url' => fn () => $request->session()->get('share_open_url'),
             ],
         ];
     }

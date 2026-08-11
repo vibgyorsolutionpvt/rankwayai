@@ -12,6 +12,7 @@ use App\Services\Seo\Providers\DataForSeoClient;
 use App\Services\Seo\Providers\DataForSeoSerpRankProvider;
 use App\Services\Seo\Providers\StubSerpRankProvider;
 use Illuminate\Support\Collection;
+use RuntimeException;
 
 class SeoRankTracker
 {
@@ -20,24 +21,48 @@ class SeoRankTracker
         private SeoApiUsageLogger $usage,
     ) {}
 
-    public function resolveProvider(Workspace $workspace): SerpRankProvider
+    /**
+     * Live SERP only — never invent ranks for paying customers.
+     * Explicit SEO_RANK_PROVIDER=stub is for local/tests only.
+     */
+    public function resolveProvider(Workspace $workspace): ?SerpRankProvider
     {
         $driver = (string) config('seo.providers.ranks', 'auto');
 
-        $wantLive = match ($driver) {
-            'dataforseo' => true,
-            'stub' => false,
-            default => DataForSeoClient::configured(),
-        };
+        if ($driver === 'stub') {
+            return app(StubSerpRankProvider::class);
+        }
 
-        if ($wantLive
+        $wantLive = $driver === 'dataforseo' || $driver === 'auto';
+        if (
+            $wantLive
             && DataForSeoClient::configured()
             && $this->plans->allows($workspace, 'seo_metrics')
         ) {
             return app(DataForSeoSerpRankProvider::class);
         }
 
-        return app(StubSerpRankProvider::class);
+        return null;
+    }
+
+    public function liveReady(Workspace $workspace): bool
+    {
+        $provider = $this->resolveProvider($workspace);
+
+        return $provider !== null && $provider->name() !== 'stub';
+    }
+
+    public function unavailableMessage(Workspace $workspace): string
+    {
+        if (! DataForSeoClient::configured()) {
+            return 'Live ranks need DataForSEO. Add credentials under Settings → Providers — we do not show fake Google ranks.';
+        }
+
+        if (! $this->plans->allows($workspace, 'seo_metrics')) {
+            return 'Live SERP ranks need plan access to SEO metrics. Upgrade or buy credits to unlock.';
+        }
+
+        return 'Live SERP ranks are not available right now.';
     }
 
     /**
@@ -51,7 +76,17 @@ class SeoRankTracker
         }
 
         $provider = $this->resolveProvider($workspace);
-        $targetDomain = $workspace->seoSites()->latest()->value('domain') ?: 'example.com';
+        if (! $provider) {
+            throw new RuntimeException($this->unavailableMessage($workspace));
+        }
+
+        $isStub = $provider->name() === 'stub';
+        $targetDomain = $workspace->seoSites()->latest()->value('domain');
+        if (! $isStub && blank($targetDomain)) {
+            throw new RuntimeException('Connect a website in SEO before updating ranks.');
+        }
+        $targetDomain = $targetDomain ?: 'example.com';
+
         $defaultLocation = (string) config('seo.default_location', 'India');
         $language = (string) config('seo.default_language', 'en');
 
@@ -67,7 +102,8 @@ class SeoRankTracker
                 (bool) $keyword->is_local
             );
 
-            if ($provider->name() === 'stub') {
+            if ($isStub) {
+                // Local/test only — never used when DataForSEO auto mode is on without keys.
                 $delta = random_int(-3, 3);
                 $next = $previous === null
                     ? (int) ($result->organicPosition ?? random_int(5, 40))
@@ -98,7 +134,7 @@ class SeoRankTracker
                 'last_checked_at' => now(),
             ]);
 
-            if ($provider->name() !== 'stub') {
+            if (! $isStub) {
                 $this->usage->log(
                     $workspace,
                     $provider->name(),

@@ -6,11 +6,14 @@ use App\Http\Controllers\Concerns\ResolvesWorkspace;
 use App\Jobs\CrawlAndAuditSeoSiteJob;
 use App\Models\CmsConnection;
 use App\Models\SeoBacklink;
+use App\Models\SeoBlogPost;
 use App\Models\SeoContentDraft;
 use App\Models\SeoLocalTarget;
 use App\Models\SeoSite;
 use App\Services\Seo\Providers\WordpressCmsPublisher;
 use App\Services\Seo\SeoBacklinkService;
+use App\Services\Seo\SeoBlogDiscoveryService;
+use App\Services\Seo\SeoBlogShareService;
 use App\Services\Seo\SeoCmsPublishService;
 use App\Services\Seo\SeoLocalPackService;
 use Illuminate\Http\RedirectResponse;
@@ -201,5 +204,54 @@ class SeoV2Controller extends Controller
                 ? 'Published: '.$draft->published_url
                 : ($draft->last_error ?: 'Publish failed')
         );
+    }
+
+    public function syncBlogPosts(Request $request, SeoSite $site, SeoBlogDiscoveryService $blogs): RedirectResponse
+    {
+        $workspace = $this->workspace($request);
+        abort_unless($site->workspace_id === $workspace->id, 404);
+        $this->authorize('update', $workspace);
+
+        try {
+            $result = $blogs->sync($site);
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return back()->with(
+            $result['count'] > 0 ? 'success' : 'error',
+            $result['message']
+        );
+    }
+
+    public function shareBlogPost(
+        Request $request,
+        SeoBlogPost $post,
+        SeoBlogShareService $shares,
+    ): RedirectResponse {
+        $workspace = $this->workspace($request);
+        $post->loadMissing('site');
+        abort_unless($post->site && $post->site->workspace_id === $workspace->id, 404);
+        $this->authorize('update', $workspace);
+
+        $data = $request->validate([
+            'channel' => ['required', 'string', 'max:40'],
+        ]);
+
+        $allowed = collect($shares->channels())->pluck('id')->all();
+        if (! in_array($data['channel'], $allowed, true)) {
+            return back()->with('error', 'Unknown share channel.');
+        }
+
+        try {
+            $share = $shares->record($workspace, $post, $data['channel']);
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return back()->with([
+            'success' => 'Share opened — finish posting on '.$data['channel'].' for the backlink.',
+            'share_open_url' => $share->share_url,
+        ]);
     }
 }
