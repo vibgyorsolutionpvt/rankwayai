@@ -8,8 +8,9 @@ return [
     |--------------------------------------------------------------------------
     |
     | Buy data, build UX. Prefer DataForSEO for metrics + SERP ranks.
-    | "auto" for ranks = DataForSEO when credentials exist, else honest stub
-    | (demo/dev only — never marketed as live ranks).
+    | "auto" / "dataforseo" = live SERP only when credentials exist.
+    | Without DataForSEO we refuse to update ranks (no fake Google positions).
+    | "stub" is local/tests only — never enable for customer accounts.
     |
     */
 
@@ -66,6 +67,62 @@ return [
         'pagespeed_queries_per_minute' => (int) env('SEO_PAGESPEED_QUERIES_PER_MINUTE', 240),
         // Stay under Google's hard ceiling so we fail gracefully in-app first.
         'pagespeed_quota_safety_percent' => (int) env('SEO_PAGESPEED_QUOTA_SAFETY_PERCENT', 90),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Blog discovery → share for backlinks
+    |--------------------------------------------------------------------------
+    |
+    | Opens the platform's compose/submit page with the blog URL prefilled.
+    | User posts from their own account (no spam auto-submit to directories).
+    |
+    */
+
+    'blog_share_channels' => [
+        [
+            'id' => 'reddit',
+            'label' => 'Reddit',
+            'blurb' => 'Submit with title + body',
+            // Text post so body prefills (link-only submit leaves body empty on new Reddit).
+            'template' => 'https://www.reddit.com/submit?title={title}&text={text}',
+        ],
+        [
+            'id' => 'hackernews',
+            'label' => 'Hacker News',
+            'blurb' => 'Submit story',
+            'template' => 'https://news.ycombinator.com/submitlink?u={url}&t={title}',
+        ],
+        [
+            'id' => 'linkedin',
+            'label' => 'LinkedIn',
+            'blurb' => 'Share update',
+            'template' => 'https://www.linkedin.com/sharing/share-offsite/?url={url}',
+        ],
+        [
+            'id' => 'x',
+            'label' => 'X',
+            'blurb' => 'Post with link',
+            'template' => 'https://twitter.com/intent/tweet?url={url}&text={title}',
+        ],
+        [
+            'id' => 'facebook',
+            'label' => 'Facebook',
+            'blurb' => 'Share link',
+            'template' => 'https://www.facebook.com/sharer/sharer.php?u={url}',
+        ],
+        [
+            'id' => 'devto',
+            'label' => 'Dev.to',
+            'blurb' => 'New post (paste link)',
+            'template' => 'https://dev.to/new?prefill=---%0Atitle%3A%20{title}%0Apublished%3A%20false%0A---%0A%0A{url}',
+        ],
+        [
+            'id' => 'indiehackers',
+            'label' => 'Indie Hackers',
+            'blurb' => 'Start a discussion',
+            'template' => 'https://www.indiehackers.com/new-post',
+        ],
     ],
 
 ];

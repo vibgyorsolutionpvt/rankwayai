@@ -194,8 +194,13 @@ class GoogleSeoService
         ];
     }
 
-    public function runPageSpeed(SeoSite $site, bool $force = false): array
+    /**
+     * @param  'mobile'|'desktop'  $strategy
+     */
+    public function runPageSpeed(SeoSite $site, bool $force = false, string $strategy = 'mobile'): array
     {
+        $strategy = in_array($strategy, ['mobile', 'desktop'], true) ? $strategy : 'mobile';
+
         $apiKey = $this->integrations->pagespeedApiKey($site->workspace);
         if (blank($apiKey)) {
             return [
@@ -234,14 +239,19 @@ class GoogleSeoService
         }
 
         try {
+            // Repeated category= params (Laravel array encoding is not accepted by Google).
+            $query = http_build_query([
+                'url' => $url,
+                'key' => $apiKey,
+                'strategy' => $strategy,
+            ]);
+            foreach (['performance', 'accessibility', 'best-practices', 'seo'] as $category) {
+                $query .= '&category='.rawurlencode($category);
+            }
+
             $response = Http::timeout(90)
                 ->connectTimeout(20)
-                ->get('https://www.googleapis.com/pagespeedonline/v5/runPagespeed', [
-                    'url' => $url,
-                    'key' => $apiKey,
-                    'category' => 'performance',
-                    'strategy' => 'mobile',
-                ]);
+                ->get('https://www.googleapis.com/pagespeedonline/v5/runPagespeed?'.$query);
 
             // Count only after we actually hit Google (success or API error both consume quota).
             $quota->record($apiKey);
@@ -256,36 +266,35 @@ class GoogleSeoService
                 return ['ok' => false, 'message' => 'PageSpeed API error'];
             }
 
-            $lighthouse = $response->json('lighthouseResult');
-            $audits = $lighthouse['audits'] ?? [];
-            $score = (int) round(($lighthouse['categories']['performance']['score'] ?? 0) * 100);
-            $issues = $this->extractPagespeedIssues($lighthouse);
+            $lighthouse = $response->json('lighthouseResult') ?? [];
+            $snapshot = $this->buildPagespeedSnapshot($lighthouse, $strategy);
+            $report = is_array($site->pagespeed_report) ? $site->pagespeed_report : [];
+            $report[$strategy] = $snapshot;
+            $report['active'] = $strategy;
 
             $site->update([
-                'pagespeed_score' => $score,
-                'cwv_lcp' => isset($audits['largest-contentful-paint']['numericValue'])
-                    ? round($audits['largest-contentful-paint']['numericValue'] / 1000, 2)
-                    : null,
-                'cwv_cls' => isset($audits['cumulative-layout-shift']['numericValue'])
-                    ? round($audits['cumulative-layout-shift']['numericValue'], 3)
-                    : null,
-                'cwv_inp' => isset($audits['interaction-to-next-paint']['numericValue'])
-                    ? round($audits['interaction-to-next-paint']['numericValue'], 2)
-                    : null,
+                'pagespeed_score' => $snapshot['score'],
+                'pagespeed_strategy' => $strategy,
+                'cwv_lcp' => $snapshot['metrics']['lcp'],
+                'cwv_cls' => $snapshot['metrics']['cls'],
+                'cwv_inp' => $snapshot['metrics']['inp'],
                 'pagespeed_checked_at' => now(),
                 'pagespeed_error' => null,
-                'pagespeed_issues' => $issues,
+                'pagespeed_issues' => $snapshot['issues'],
+                'pagespeed_report' => $report,
             ]);
 
-            $issueCount = count($issues);
+            $issueCount = count($snapshot['issues']);
+            $label = $strategy === 'desktop' ? 'Desktop' : 'Mobile';
 
             return [
                 'ok' => true,
                 'message' => $issueCount > 0
-                    ? "PageSpeed score {$score} — {$issueCount} fix".($issueCount === 1 ? '' : 'es').' suggested'
-                    : 'PageSpeed score '.$score.' — no major speed fixes suggested',
-                'score' => $score,
-                'issues' => $issues,
+                    ? "{$label} PageSpeed {$snapshot['score']} — {$issueCount} fix".($issueCount === 1 ? '' : 'es').' suggested'
+                    : "{$label} PageSpeed {$snapshot['score']} — no major speed fixes suggested",
+                'score' => $snapshot['score'],
+                'strategy' => $strategy,
+                'issues' => $snapshot['issues'],
             ];
         } catch (\Illuminate\Http\Client\ConnectionException $e) {
             $site->update([
@@ -305,6 +314,59 @@ class GoogleSeoService
 
             return ['ok' => false, 'message' => 'PageSpeed request failed'];
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $lighthouse
+     * @return array{
+     *   strategy:string,
+     *   score:int,
+     *   categories:array<string,int|null>,
+     *   metrics:array<string,float|null>,
+     *   issues:list<array<string,mixed>>,
+     *   checked_at:string
+     * }
+     */
+    private function buildPagespeedSnapshot(array $lighthouse, string $strategy): array
+    {
+        $audits = $lighthouse['audits'] ?? [];
+        $categories = [];
+        foreach (['performance', 'accessibility', 'best-practices', 'seo'] as $key) {
+            $raw = data_get($lighthouse, "categories.{$key}.score");
+            $categories[$key] = $raw === null ? null : (int) round(((float) $raw) * 100);
+        }
+
+        $seconds = static function (mixed $audit) {
+            if (! is_array($audit) || ! isset($audit['numericValue'])) {
+                return null;
+            }
+
+            return round(((float) $audit['numericValue']) / 1000, 2);
+        };
+
+        $metrics = [
+            'fcp' => $seconds($audits['first-contentful-paint'] ?? null),
+            'lcp' => $seconds($audits['largest-contentful-paint'] ?? null),
+            'tbt' => isset($audits['total-blocking-time']['numericValue'])
+                ? round((float) $audits['total-blocking-time']['numericValue'], 0)
+                : null,
+            'cls' => isset($audits['cumulative-layout-shift']['numericValue'])
+                ? round((float) $audits['cumulative-layout-shift']['numericValue'], 3)
+                : null,
+            'si' => $seconds($audits['speed-index'] ?? null),
+            'inp' => isset($audits['interaction-to-next-paint']['numericValue'])
+                ? round((float) $audits['interaction-to-next-paint']['numericValue'], 0)
+                : null,
+        ];
+
+        return [
+            'strategy' => $strategy,
+            'score' => $categories['performance'] ?? 0,
+            'categories' => $categories,
+            'metrics' => $metrics,
+            'issues' => $this->extractPagespeedIssues($lighthouse),
+            'checked_at' => now()->toIso8601String(),
+        ];
     }
 
     public function gscSyncRetryAfterSeconds(SeoSite $site): int

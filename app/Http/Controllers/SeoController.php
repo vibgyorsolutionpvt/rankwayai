@@ -7,6 +7,7 @@ use App\Jobs\CrawlAndAuditSeoSiteJob;
 use App\Jobs\TrackSeoKeywordRanksJob;
 use App\Models\CmsConnection;
 use App\Models\SeoBacklink;
+use App\Models\SeoBlogPost;
 use App\Models\SeoContentDraft;
 use App\Models\SeoIssue;
 use App\Models\SeoKeyword;
@@ -63,7 +64,7 @@ class SeoController extends Controller
         $site = $siteModel ? $this->sitePayload($siteModel, detailed: true) : null;
 
         $issues = $siteModel
-            ? $siteModel->issues()->with('page:id,url')->latest()->limit(50)->get()->map(fn (SeoIssue $i) => [
+            ? $siteModel->issues()->with('page:id,url,audit_meta')->latest()->limit(50)->get()->map(fn (SeoIssue $i) => [
                 'id' => $i->id,
                 'severity' => $i->severity,
                 'code' => $i->code,
@@ -71,15 +72,28 @@ class SeoController extends Controller
                 'suggestion' => $i->suggestion,
                 'status' => $i->status,
                 'page_url' => $i->page?->url,
+                'asset_urls' => $this->issueAssetUrls($i),
             ])
             : collect();
 
         $openIssues = $issues->where('status', 'open');
         $tasks = $workspace->seoTasks()
+            ->with(['issue.page:id,url,audit_meta'])
             ->orderByRaw("CASE status WHEN 'open' THEN 0 ELSE 1 END")
             ->orderByRaw("CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END")
             ->limit(40)
-            ->get();
+            ->get()
+            ->map(fn (SeoTask $t) => [
+                'id' => $t->id,
+                'title' => $t->title,
+                'description' => $t->description,
+                'priority' => $t->priority,
+                'status' => $t->status,
+                'source' => $t->source,
+                'ai_suggestion' => $t->ai_suggestion,
+                'page_url' => $t->issue?->page?->url,
+                'asset_urls' => $t->issue ? $this->issueAssetUrls($t->issue) : [],
+            ]);
 
         $keywords = $workspace->seoKeywords()
             ->with(['ranks' => fn ($q) => $q->latest('checked_at')->limit(7)])
@@ -199,7 +213,9 @@ class SeoController extends Controller
                 ]
                 : ['summary' => null, 'items' => []],
             'local_targets' => $localTargets,
-            'architecture' => $siteModel ? $crawler->architectureMap($siteModel) : ['nodes' => [], 'edges' => []],
+            'architecture' => $siteModel
+                ? $crawler->sitemapMap($siteModel, $request->boolean('refresh_sitemap'))
+                : ['source' => 'sitemap', 'sitemap_url' => null, 'error' => null, 'nodes' => [], 'edges' => []],
             'cms_connections' => CmsConnection::query()
                 ->where('workspace_id', $workspace->id)
                 ->latest()
@@ -209,6 +225,20 @@ class SeoController extends Controller
                 ->latest()
                 ->limit(15)
                 ->get(),
+            'blog_posts' => $siteModel
+                ? SeoBlogPost::query()
+                    ->where('seo_site_id', $siteModel->id)
+                    ->orderByDesc('published_at')
+                    ->orderByDesc('id')
+                    ->limit(100)
+                    ->get()
+                    ->map(fn (SeoBlogPost $post) => $post->toArrayForUi())
+                    ->values()
+                    ->all()
+                : [],
+            'blog_share_channels' => config('seo.blog_share_channels', []),
+            'blog_synced_at' => $siteModel?->blog_posts_synced_at?->diffForHumans(),
+            'blog_feed_url' => $siteModel?->blog_feed_url,
         ]);
     }
 
@@ -357,7 +387,12 @@ class SeoController extends Controller
         $this->authorize('update', $workspace);
         abort_unless($site->workspace_id === $workspace->id, 404);
 
-        $result = $google->runPageSpeed($site);
+        $data = $request->validate([
+            'strategy' => ['nullable', 'in:mobile,desktop'],
+        ]);
+        $strategy = $data['strategy'] ?? 'mobile';
+
+        $result = $google->runPageSpeed($site, false, $strategy);
 
         if (! empty($result['needs_setup'])) {
             return redirect()
@@ -423,19 +458,68 @@ class SeoController extends Controller
         return back()->with('success', 'Keyword saved');
     }
 
+    public function researchKeywords(
+        Request $request,
+        \App\Services\Seo\SeoKeywordResearchService $research,
+    ): RedirectResponse {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+
+        $data = $request->validate([
+            'site_id' => ['nullable', 'integer'],
+            'seed' => ['nullable', 'string', 'max:120'],
+        ]);
+
+        $site = ! empty($data['site_id'])
+            ? $workspace->seoSites()->whereKey($data['site_id'])->first()
+            : $workspace->seoSites()->latest()->first();
+
+        if (! $site) {
+            return back()->with('error', 'Connect a website first.');
+        }
+
+        $result = $research->research(
+            $workspace,
+            $site,
+            $data['seed'] ?? null,
+            $request->user()?->id,
+        );
+
+        if (! $result['ok']) {
+            return back()
+                ->with('error', $result['message'])
+                ->with('keyword_research', $result['ideas']);
+        }
+
+        return back()
+            ->with('success', $result['message'])
+            ->with('keyword_research', $result['ideas']);
+    }
+
     public function trackRanks(Request $request, SeoRankTracker $tracker): RedirectResponse
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
 
-        TrackSeoKeywordRanksJob::dispatchSync($workspace->id);
+        if (! $tracker->liveReady($workspace) && (string) config('seo.providers.ranks', 'auto') !== 'stub') {
+            return back()->with('error', $tracker->unavailableMessage($workspace));
+        }
 
-        $provider = $tracker->resolveProvider($workspace)->name();
-        $message = $provider === 'stub'
-            ? 'Ranks refreshed (demo stub — set DATAFORSEO_* + paid plan for live SERP).'
-            : 'Live SERP ranks refreshed via '.$provider.'.';
+        try {
+            TrackSeoKeywordRanksJob::dispatchSync($workspace->id);
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
 
-        return back()->with('success', $message);
+        $provider = $tracker->resolveProvider($workspace)?->name() ?? 'unknown';
+        if ($provider === 'stub') {
+            return back()->with(
+                'error',
+                'Demo stub ranks updated (SEO_RANK_PROVIDER=stub). Never use stub for customer accounts — configure DataForSEO for live SERP.'
+            );
+        }
+
+        return back()->with('success', 'Live SERP ranks refreshed via '.$provider.'.');
     }
 
     public function refreshMetrics(Request $request, \App\Services\Seo\SeoKeywordMetricsService $metrics): RedirectResponse
@@ -635,12 +719,14 @@ class SeoController extends Controller
             'last_crawled_label' => $site->last_crawled_at?->diffForHumans(),
             'next_crawl_at' => $site->next_crawl_at?->diffForHumans(),
             'pagespeed_score' => $site->pagespeed_score,
+            'pagespeed_strategy' => $site->pagespeed_strategy ?? 'mobile',
             'cwv_lcp' => $site->cwv_lcp,
             'cwv_cls' => $site->cwv_cls,
             'cwv_inp' => $site->cwv_inp,
             'pagespeed_checked_at' => $site->pagespeed_checked_at?->diffForHumans(),
             'pagespeed_error' => $site->pagespeed_error,
             'pagespeed_issues' => $site->pagespeed_issues ?? [],
+            'pagespeed_report' => $site->pagespeed_report ?? null,
             'backlinks' => $site->getAttribute('backlinks'),
             'referring_domains' => $site->getAttribute('referring_domains'),
         ];
@@ -659,5 +745,25 @@ class SeoController extends Controller
         }
 
         return $payload;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function issueAssetUrls(SeoIssue $issue): array
+    {
+        if ($issue->code !== 'images_missing_alt') {
+            return [];
+        }
+
+        $srcs = $issue->page?->audit_meta['images_missing_alt_srcs'] ?? [];
+        if (! is_array($srcs)) {
+            return [];
+        }
+
+        return array_values(array_filter(
+            $srcs,
+            fn ($url) => is_string($url) && $url !== ''
+        ));
     }
 }

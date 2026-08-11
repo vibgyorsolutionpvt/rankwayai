@@ -16,8 +16,15 @@ class TrackSeoKeywordRanksJob implements ShouldQueue
     public function handle(SeoRankTracker $tracker): void
     {
         $workspace = Workspace::query()->find($this->workspaceId);
-        if ($workspace) {
-            $tracker->track($workspace);
+        if (! $workspace) {
+            return;
         }
+
+        // Scheduled/queued runs must never invent fake ranks.
+        if (! $tracker->liveReady($workspace) && (string) config('seo.providers.ranks', 'auto') !== 'stub') {
+            return;
+        }
+
+        $tracker->track($workspace);
     }
 }

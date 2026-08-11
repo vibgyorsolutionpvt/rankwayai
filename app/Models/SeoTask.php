@@ -37,4 +37,9 @@ class SeoTask extends Model
     {
         return $this->belongsTo(SeoSite::class, 'seo_site_id');
     }
+
+    public function issue(): BelongsTo
+    {
+        return $this->belongsTo(SeoIssue::class, 'seo_issue_id');
+    }
 }
