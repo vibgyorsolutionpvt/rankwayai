@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AiStudioController;
+use App\Http\Controllers\BlogController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\BillingWebhookController;
 use App\Http\Controllers\BrandKitController;
@@ -177,22 +178,32 @@ Route::middleware(['auth', 'verified', 'module'])->group(function () {
     Route::post('/seo/local-targets/{target}/track', [SeoV2Controller::class, 'trackLocal'])
         ->middleware('plan:seo_local')
         ->name('seo.local.track');
-    Route::post('/seo/cms/connections', [SeoV2Controller::class, 'storeCmsConnection'])
+    Route::get('/blog', [BlogController::class, 'index'])->name('blog.index');
+    Route::post('/blog/verba/connect', [BlogController::class, 'storeVerbaConnection'])
         ->middleware('plan:seo_cms')
-        ->name('seo.cms.store');
-    Route::post('/seo/content-drafts', [SeoV2Controller::class, 'createContentDraft'])
+        ->name('blog.verba.connect');
+    Route::post('/blog/verba/disconnect', [BlogController::class, 'disconnectVerba'])
         ->middleware('plan:seo_cms')
-        ->name('seo.content.store');
-    Route::post('/seo/content-drafts/{draft}/approve', [SeoV2Controller::class, 'approveDraft'])
+        ->name('blog.verba.disconnect');
+    Route::post('/blog/posts/{post}/verba', [BlogController::class, 'publishBlogToVerba'])
         ->middleware('plan:seo_cms')
-        ->name('seo.content.approve');
-    Route::post('/seo/content-drafts/{draft}/publish', [SeoV2Controller::class, 'publishDraft'])
+        ->name('blog.posts.verba');
+    Route::post('/blog/cms/connections', [BlogController::class, 'storeCmsConnection'])
         ->middleware('plan:seo_cms')
-        ->name('seo.content.publish');
-    Route::post('/seo/sites/{site}/blogs/sync', [SeoV2Controller::class, 'syncBlogPosts'])
-        ->name('seo.blogs.sync');
-    Route::post('/seo/blog-posts/{post}/share', [SeoV2Controller::class, 'shareBlogPost'])
-        ->name('seo.blogs.share');
+        ->name('blog.cms.store');
+    Route::post('/blog/content-drafts', [BlogController::class, 'createContentDraft'])
+        ->middleware('plan:seo_cms')
+        ->name('blog.content.store');
+    Route::post('/blog/content-drafts/{draft}/approve', [BlogController::class, 'approveDraft'])
+        ->middleware('plan:seo_cms')
+        ->name('blog.content.approve');
+    Route::post('/blog/content-drafts/{draft}/publish', [BlogController::class, 'publishDraft'])
+        ->middleware('plan:seo_cms')
+        ->name('blog.content.publish');
+    Route::post('/blog/sites/{site}/sync', [BlogController::class, 'syncBlogPosts'])
+        ->name('blog.posts.sync');
+    Route::post('/blog/posts/{post}/share', [BlogController::class, 'shareBlogPost'])
+        ->name('blog.posts.share');
 
     Route::get('/ai', [AiStudioController::class, 'index'])->name('ai.index');
     Route::post('/ai/settings', [AiStudioController::class, 'updateSettings'])->name('ai.settings');

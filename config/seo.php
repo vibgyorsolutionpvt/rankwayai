@@ -81,29 +81,10 @@ return [
 
     'blog_share_channels' => [
         [
-            'id' => 'reddit',
-            'label' => 'Reddit',
-            'blurb' => 'Submit with title + body',
-            // Text post so body prefills (link-only submit leaves body empty on new Reddit).
-            'template' => 'https://www.reddit.com/submit?title={title}&text={text}',
-        ],
-        [
-            'id' => 'hackernews',
-            'label' => 'Hacker News',
-            'blurb' => 'Submit story',
-            'template' => 'https://news.ycombinator.com/submitlink?u={url}&t={title}',
-        ],
-        [
-            'id' => 'linkedin',
-            'label' => 'LinkedIn',
-            'blurb' => 'Share update',
-            'template' => 'https://www.linkedin.com/sharing/share-offsite/?url={url}',
-        ],
-        [
-            'id' => 'x',
-            'label' => 'X',
-            'blurb' => 'Post with link',
-            'template' => 'https://twitter.com/intent/tweet?url={url}&text={title}',
+            'id' => 'whatsapp',
+            'label' => 'WhatsApp',
+            'blurb' => 'Chat share',
+            'template' => 'https://wa.me/?text={text}',
         ],
         [
             'id' => 'facebook',
@@ -112,16 +93,34 @@ return [
             'template' => 'https://www.facebook.com/sharer/sharer.php?u={url}',
         ],
         [
-            'id' => 'devto',
-            'label' => 'Dev.to',
-            'blurb' => 'New post (paste link)',
-            'template' => 'https://dev.to/new?prefill=---%0Atitle%3A%20{title}%0Apublished%3A%20false%0A---%0A%0A{url}',
+            'id' => 'x',
+            'label' => 'X',
+            'blurb' => 'Post with link',
+            'template' => 'https://twitter.com/intent/tweet?url={url}&text={title}',
         ],
         [
-            'id' => 'indiehackers',
-            'label' => 'Indie Hackers',
-            'blurb' => 'Start a discussion',
-            'template' => 'https://www.indiehackers.com/new-post',
+            'id' => 'linkedin',
+            'label' => 'LinkedIn',
+            'blurb' => 'Share update',
+            'template' => 'https://www.linkedin.com/sharing/share-offsite/?url={url}',
+        ],
+        [
+            'id' => 'threads',
+            'label' => 'Threads',
+            'blurb' => 'New thread',
+            'template' => 'https://www.threads.net/intent/post?text={text}',
+        ],
+        [
+            'id' => 'telegram',
+            'label' => 'Telegram',
+            'blurb' => 'Send message',
+            'template' => 'https://t.me/share/url?url={url}&text={title}',
+        ],
+        [
+            'id' => 'reddit',
+            'label' => 'Reddit',
+            'blurb' => 'Submit post',
+            'template' => 'https://www.reddit.com/submit?title={title}&text={text}',
         ],
     ],
 

@@ -3,10 +3,13 @@
 namespace App\Services\Seo;
 
 use App\Models\CmsConnection;
+use App\Models\SeoBlogPost;
 use App\Models\SeoContentDraft;
 use App\Models\Workspace;
 use App\Services\Ai\AiContentService;
 use App\Services\Billing\PlanAccess;
+use App\Services\Seo\Contracts\CmsPublisher;
+use App\Services\Seo\Providers\VerbaCmsPublisher;
 use App\Services\Seo\Providers\WordpressCmsPublisher;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -85,14 +88,15 @@ class SeoCmsPublishService
 
         $draft->update(['status' => 'publishing', 'cms_connection_id' => $connection->id, 'last_error' => null]);
 
-        $publisher = app(WordpressCmsPublisher::class);
-        $result = $publisher->publish($connection->credentials, [
+        $publisher = $this->publisherFor($connection);
+        $result = $publisher->publish($connection->credentials ?? [], [
             'title' => $draft->title,
             'slug' => $draft->slug,
             'body_html' => $draft->body_html,
             'status' => 'publish',
             'meta_title' => $draft->meta_title,
             'meta_description' => $draft->meta_description,
+            'new_topics' => ['SEO', 'Marketing'],
         ]);
 
         if (! ($result['ok'] ?? false)) {
@@ -112,5 +116,79 @@ class SeoCmsPublishService
         ]);
 
         return $draft->fresh();
+    }
+
+    /**
+     * Push a discovered / demo blog URL to the connected Verba page.
+     *
+     * @return array{ok:bool,url?:string,message:string}
+     */
+    public function publishBlogPost(Workspace $workspace, SeoBlogPost $post, CmsConnection $connection): array
+    {
+        if (! $this->plans->allows($workspace, 'seo_cms')) {
+            throw new RuntimeException($this->plans->denyMessage('seo_cms'));
+        }
+
+        if (($connection->provider ?? '') !== 'verba') {
+            throw new RuntimeException('Connect Verba first to publish blogs there.');
+        }
+
+        if ($post->verba_published_at !== null) {
+            return [
+                'ok' => true,
+                'url' => $post->verba_published_url,
+                'already' => true,
+                'message' => 'Already published to Verba'
+                    .(filled($post->verba_published_url) ? ': '.$post->verba_published_url : ''),
+            ];
+        }
+
+        $plain = trim(html_entity_decode(strip_tags((string) ($post->excerpt ?: '')), ENT_QUOTES | ENT_HTML5));
+        if ($plain === '') {
+            $plain = trim((string) ($post->title ?: 'Untitled'));
+        }
+
+        $host = parse_url($post->url, PHP_URL_HOST) ?: $post->url;
+        $body = '<p>'.e($plain).'</p><p><a href="'.e($post->url).'">Read on '.e((string) $host).'</a></p>';
+
+        $publisher = $this->publisherFor($connection);
+        $creds = is_array($connection->credentials) ? $connection->credentials : [];
+        $siteKey = (string) $post->seo_site_id;
+        $sitePage = $creds['site_pages'][$siteKey] ?? null;
+        if (is_array($sitePage) && filled($sitePage['slug'] ?? null)) {
+            $creds['page_slug'] = $sitePage['slug'];
+        }
+
+        $result = $publisher->publish($creds, [
+            'title' => $post->title ?: 'Untitled',
+            'body_html' => $body,
+            'new_topics' => ['SEO', 'Marketing'],
+        ]);
+
+        if (! ($result['ok'] ?? false)) {
+            return [
+                'ok' => false,
+                'message' => $result['message'] ?? 'Verba publish failed',
+            ];
+        }
+
+        $post->forceFill([
+            'verba_published_at' => now(),
+            'verba_published_url' => $result['url'] ?? null,
+        ])->save();
+
+        return [
+            'ok' => true,
+            'url' => $result['url'] ?? null,
+            'message' => 'Published to Verba'.(filled($result['url'] ?? null) ? ': '.$result['url'] : ''),
+        ];
+    }
+
+    public function publisherFor(CmsConnection $connection): CmsPublisher
+    {
+        return match ($connection->provider) {
+            'verba' => app(VerbaCmsPublisher::class),
+            default => app(WordpressCmsPublisher::class),
+        };
     }
 }

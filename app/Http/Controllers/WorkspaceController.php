@@ -9,8 +9,10 @@ use App\Http\Resources\WorkspaceMemberResource;
 use App\Http\Resources\WorkspaceResource;
 use App\Models\ActivityLog;
 use App\Models\Workspace;
+use App\Services\Billing\PlanAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class WorkspaceController extends Controller
 {
@@ -31,6 +33,13 @@ class WorkspaceController extends Controller
     public function store(StoreWorkspaceRequest $request): JsonResponse
     {
         $this->authorize('create', Workspace::class);
+
+        $plans = app(PlanAccess::class);
+        if (! $plans->canCreateWorkspace($request->user())) {
+            throw ValidationException::withMessages([
+                'name' => $plans->denyCreateWorkspaceMessage($request->user()),
+            ]);
+        }
 
         $workspace = Workspace::create([
             'name' => $request->validated('name'),

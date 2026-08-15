@@ -7,6 +7,7 @@ use App\Models\SeoBlogPost;
 use App\Models\SeoSite;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\Billing\BillingService;
 use App\Services\Seo\SeoBlogDiscoveryService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -103,6 +104,7 @@ class SeoBlogDiscoveryTest extends TestCase
         $user = User::factory()->create();
         $workspace = Workspace::factory()->create();
         $workspace->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
+        app(BillingService::class)->changePlan($workspace, 'starter', 'active');
         $site = SeoSite::query()->create([
             'workspace_id' => $workspace->id,
             'domain' => 'share.test',
@@ -118,7 +120,7 @@ class SeoBlogDiscoveryTest extends TestCase
 
         $response = $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])
-            ->post(route('seo.blogs.share', $post), ['channel' => 'reddit']);
+            ->post(route('blog.posts.share', $post), ['channel' => 'reddit']);
 
         $response->assertRedirect();
         $this->assertStringContainsString('text=', (string) session('share_open_url'));

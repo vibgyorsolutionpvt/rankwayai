@@ -47,6 +47,13 @@ final class NavModules
                 'icon' => 'seo',
                 'tone' => 'emerald',
             ],
+            'blog' => [
+                'label' => 'Blog',
+                'route' => 'blog.index',
+                'match' => 'blog.*',
+                'icon' => 'blog',
+                'tone' => 'sky',
+            ],
             'ai' => [
                 'label' => 'AI',
                 'route' => 'ai.index',

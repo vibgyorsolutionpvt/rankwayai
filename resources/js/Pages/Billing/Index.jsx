@@ -42,20 +42,28 @@ export default function Index({
     tab = 'plan',
     history_period = '7d',
     can_switch_market = false,
+    account_plan = null,
     note,
     admin_note = null,
     is_platform_admin = false,
     usage = null,
     ai_history = null,
 }) {
-    const isFree = subscription.plan === 'free';
+    const accountPlanId = account_plan?.plan || subscription.plan || 'free';
+    const coversHere = account_plan?.covers_this_workspace !== false;
+    const displayPlan =
+        subscription.plan !== 'free'
+            ? subscription.plan
+            : coversHere && accountPlanId !== 'free'
+              ? accountPlanId
+              : subscription.plan;
+    const isFree = displayPlan === 'free';
     const freeHighlights =
         plans.find((p) => p.id === 'free')?.highlights ?? [
+            '1 workspace',
             'SEO site audit crawl',
-            'Google Search Console',
-            'PageSpeed Insights',
-            'DataForSEO ranks & keyword metrics',
             'Billing & workspace settings',
+            'No external APIs (GSC, PageSpeed, social…)',
         ];
     const currency = subscription.billing_currency || (market === 'in' ? 'INR' : 'USD');
     const subInterval = subscription.billing_interval || 'month';
@@ -190,10 +198,13 @@ export default function Index({
                                     Current plan
                                 </div>
                                 <div className="mt-1 font-display text-3xl font-bold capitalize text-ink">
-                                    {subscription.plan}
+                                    {displayPlan}
                                 </div>
                                 <div className="mt-1 text-sm text-ink-muted">
-                                    {subscription.seats} seats · {formatMoney(charged, currency)}/
+                                    {account_plan
+                                        ? `${account_plan.workspaces_used || 0}/${account_plan.workspace_limit || 1} workspaces`
+                                        : `${subscription.seats} seats`}{' '}
+                                    · {formatMoney(charged, currency)}/
                                     {subInterval === 'year' ? 'yr' : 'mo'}
                                     {market === 'in' ? ' · India' : ' · International'}
                                     {!isFree
@@ -202,6 +213,16 @@ export default function Index({
                                           }`
                                         : ''}
                                 </div>
+                                {account_plan &&
+                                subscription.plan === 'free' &&
+                                accountPlanId !== 'free' &&
+                                coversHere ? (
+                                    <p className="mt-2 text-sm text-signal-strong">
+                                        Covered by your account {accountPlanId} plan
+                                        ({account_plan.workspaces_used}/
+                                        {account_plan.workspace_limit} workspaces).
+                                    </p>
+                                ) : null}
                                 {isFree ? (
                                     <div className="mt-4 grid gap-4 sm:grid-cols-2">
                                         <div>
@@ -419,7 +440,7 @@ export default function Index({
                             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                                 {plans.map((plan) => {
                                     const active =
-                                        subscription.plan === plan.id &&
+                                        displayPlan === plan.id &&
                                         (plan.id === 'free' || subInterval === interval);
                                     const isYear = interval === 'year' && plan.id !== 'free';
                                     return (

@@ -19,6 +19,10 @@ class SeoBlogShareService
 
     public function shareUrl(SeoBlogPost $post, string $channel): string
     {
+        if ($channel === 'copy') {
+            return $post->url;
+        }
+
         $channels = collect($this->channels())->keyBy('id');
         $def = $channels->get($channel);
         if (! $def || empty($def['template'])) {
@@ -26,12 +30,11 @@ class SeoBlogShareService
         }
 
         $plainTitle = $post->title ?: 'Worth a read';
-        $excerpt = trim((string) $post->excerpt);
+        $excerpt = trim(strip_tags((string) $post->excerpt));
         if ($excerpt === '') {
             $excerpt = $plainTitle.' — quick read, feedback welcome.';
         }
 
-        // Body for Reddit / text composers (link posts leave this empty unless we send it).
         $body = $excerpt."\n\n".$post->url;
 
         $url = rawurlencode($post->url);

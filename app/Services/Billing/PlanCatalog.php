@@ -101,6 +101,29 @@ class PlanCatalog
     }
 
     /**
+     * How many workspaces an account plan may cover.
+     */
+    public static function workspaceLimit(string $plan): int
+    {
+        return match ($plan) {
+            'starter' => 2,
+            'growth' => 5,
+            'agency' => 50,
+            default => 1,
+        };
+    }
+
+    public static function planRank(string $plan): int
+    {
+        return match ($plan) {
+            'agency' => 4,
+            'growth' => 3,
+            'starter' => 2,
+            default => 1,
+        };
+    }
+
+    /**
      * Bullet points shown on pricing / billing cards (keep Free in sync with Current Plan).
      *
      * @return list<string>
@@ -109,15 +132,15 @@ class PlanCatalog
     {
         return match ($plan) {
             'free' => [
+                '1 workspace',
                 'SEO site audit crawl',
-                'Google Search Console',
-                'PageSpeed Insights',
-                'DataForSEO ranks & keyword metrics',
                 'Billing & workspace settings',
+                'No external APIs (GSC, PageSpeed, social…)',
             ],
             'starter' => [
                 'Everything in Free',
-                '1 workspace',
+                '2 workspaces',
+                'GSC, PageSpeed & keyword APIs',
                 'AI studio with plan credits',
                 'Social publish + WhatsApp / Email / RCS',
                 '500 channel sends/mo',
@@ -165,8 +188,8 @@ class PlanCatalog
         $isYear = $interval === self::INTERVAL_YEAR;
 
         $blurbs = [
-            'free' => 'SEO toolkit on us — upgrade when you need channels & AI',
-            'starter' => 'Full product access for a single workspace',
+            'free' => 'SEO crawl on us — upgrade when you need APIs, channels & AI',
+            'starter' => 'Full product access for up to 2 workspaces',
             'growth' => 'More workspaces, AI budget, and channel volume',
             'agency' => 'Scale across many brands and high send volume',
         ];

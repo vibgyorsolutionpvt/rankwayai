@@ -132,7 +132,7 @@ export default function WorkspacePanel({
                     )}
 
                     <form
-                        className="grid gap-3 rounded-md border border-line bg-mist/40 p-3 sm:grid-cols-[1fr_auto] sm:items-end"
+                        className="rounded-md border border-line bg-mist/40 p-3"
                         onSubmit={(e) => {
                             e.preventDefault();
                             createForm.post(route('workspaces.store'), {
@@ -140,21 +140,26 @@ export default function WorkspacePanel({
                             });
                         }}
                     >
-                        <div>
-                            <InputLabel htmlFor="settings-ws-name" value="New workspace" />
-                            <TextInput
-                                id="settings-ws-name"
-                                className="mt-1.5 block w-full"
-                                value={createForm.data.name}
-                                onChange={(e) => createForm.setData('name', e.target.value)}
-                                placeholder="Company or brand name"
-                                required
-                            />
-                            <InputError className="mt-2" message={createForm.errors.name} />
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                            <div className="min-w-0 flex-1">
+                                <InputLabel htmlFor="settings-ws-name" value="New workspace" />
+                                <TextInput
+                                    id="settings-ws-name"
+                                    className="mt-1.5 block w-full"
+                                    value={createForm.data.name}
+                                    onChange={(e) => createForm.setData('name', e.target.value)}
+                                    placeholder="Company or brand name"
+                                    required
+                                />
+                            </div>
+                            <PrimaryButton
+                                processing={createForm.processing}
+                                className="w-full shrink-0 sm:w-auto"
+                            >
+                                Create workspace
+                            </PrimaryButton>
                         </div>
-                        <PrimaryButton processing={createForm.processing}>
-                            Create workspace
-                        </PrimaryButton>
+                        <InputError className="mt-2" message={createForm.errors.name} />
                     </form>
                 </div>
             </section>
