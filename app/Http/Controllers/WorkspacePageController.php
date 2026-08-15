@@ -10,6 +10,7 @@ use App\Models\ActivityLog;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Access\ModuleAccess;
+use App\Services\Billing\PlanAccess;
 use App\Support\NavModules;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -62,6 +63,13 @@ class WorkspacePageController extends Controller
     public function store(StoreWorkspaceRequest $request): RedirectResponse
     {
         $this->authorize('create', Workspace::class);
+
+        $plans = app(PlanAccess::class);
+        if (! $plans->canCreateWorkspace($request->user())) {
+            throw ValidationException::withMessages([
+                'name' => $plans->denyCreateWorkspaceMessage($request->user()),
+            ]);
+        }
 
         $workspace = Workspace::create([
             'name' => $request->validated('name'),

@@ -31,8 +31,8 @@ class FreePlanAccessTest extends TestCase
             $plans->modulesFor($workspace)
         );
         $this->assertTrue($plans->allows($workspace, 'seo_audit'));
-        $this->assertTrue($plans->allows($workspace, 'seo_apis'));
-        $this->assertTrue($plans->allows($workspace, 'seo_metrics'));
+        $this->assertFalse($plans->allows($workspace, 'seo_apis'));
+        $this->assertFalse($plans->allows($workspace, 'seo_metrics'));
         $this->assertFalse($plans->allows($workspace, 'channel_send'));
         $this->assertFalse($plans->allows($workspace, 'social_publish'));
         $this->assertFalse($plans->allows($workspace, 'ai'));
@@ -119,5 +119,31 @@ class FreePlanAccessTest extends TestCase
             ->get(route('crm.index'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page->component('Crm/Index'));
+    }
+
+    public function test_starter_plan_covers_second_owned_workspace(): void
+    {
+        $user = User::factory()->create(['is_superadmin' => false]);
+        $primary = Workspace::factory()->create(['name' => 'Primary']);
+        $primary->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
+        app(BillingService::class)->changePlan($primary, 'starter', 'active');
+
+        $second = Workspace::factory()->create(['name' => 'Second Brand']);
+        $second->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
+        app(BillingService::class)->changePlan($second, 'free', 'active');
+
+        $plans = app(PlanAccess::class);
+        $this->assertTrue($plans->hasUnlockedAccess($primary));
+        $this->assertTrue($plans->hasUnlockedAccess($second));
+        $this->assertTrue($plans->allows($second, 'seo_apis'));
+        $this->assertTrue($plans->allows($second, 'social_publish'));
+
+        $third = Workspace::factory()->create(['name' => 'Third Brand']);
+        $third->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
+        app(BillingService::class)->changePlan($third, 'free', 'active');
+
+        $this->assertFalse($plans->hasUnlockedAccess($third));
+        $this->assertFalse($plans->allows($third, 'seo_apis'));
+        $this->assertFalse($plans->canCreateWorkspace($user));
     }
 }

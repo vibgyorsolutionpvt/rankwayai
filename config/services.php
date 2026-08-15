@@ -84,6 +84,12 @@ return [
         'url' => env('BROWSERLESS_URL'),
     ],
 
+    // Verba HTTP API (pages + posts) — Sanctum Bearer tokens
+    'verba' => [
+        'base_url' => env('VERBA_BASE_URL', 'http://127.0.0.1:8000'),
+        'public_url' => env('VERBA_PUBLIC_URL', env('VERBA_BASE_URL', 'http://127.0.0.1:8000')),
+    ],
+
     'cashfree' => [
         'env' => env('CASHFREE_ENV', 'sandbox'), // sandbox | production
         'client_id' => env('CASHFREE_CLIENT_ID'),

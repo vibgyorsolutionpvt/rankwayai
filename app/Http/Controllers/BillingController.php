@@ -9,6 +9,7 @@ use App\Services\Billing\BillingService;
 use App\Services\Billing\CreditPackCatalog;
 use App\Services\Billing\CreditRechargeService;
 use App\Services\Billing\IpCountryResolver;
+use App\Services\Billing\PlanAccess;
 use App\Services\Billing\PlanCatalog;
 use App\Services\Billing\UsageMeterService;
 use App\Services\Integrations\ProviderStatus;
@@ -21,10 +22,11 @@ class BillingController extends Controller
 {
     use ResolvesWorkspace;
 
-    public function index(Request $request, BillingService $billing, UsageMeterService $usage): Response
+    public function index(Request $request, BillingService $billing, UsageMeterService $usage, PlanAccess $plans): Response
     {
         $workspace = $this->workspace($request);
         $subscription = $billing->subscription($workspace);
+        $account = $plans->accountEntitlementForWorkspace($workspace);
         $isAdmin = (bool) $request->user()?->is_superadmin;
         $market = $this->resolveMarket($request, $subscription, $isAdmin);
 
@@ -42,6 +44,13 @@ class BillingController extends Controller
         return Inertia::render('Billing/Index', [
             'workspace' => ['id' => $workspace->id, 'name' => $workspace->name],
             'subscription' => $subscription,
+            'account_plan' => [
+                'plan' => $account['plan'],
+                'status' => $account['status'],
+                'workspace_limit' => $account['limit'],
+                'workspaces_used' => $account['used'],
+                'covers_this_workspace' => in_array((int) $workspace->id, $account['covered_ids'], true),
+            ],
             'market' => $market,
             'interval' => $interval,
             'tab' => $tab,

@@ -89,7 +89,7 @@ export default function Index({
     const { errors, flash } = usePage().props;
     const initialTab = (() => {
         const q = new URLSearchParams(window.location.search).get('tab');
-        return TABS.some((t) => t.id === q) ? q : 'fix';
+        return TABS.some((t) => t.id === q) ? q : 'speed';
     })();
     const [tab, setTab] = useState(initialTab);
     const [addingSite, setAddingSite] = useState(sites.length === 0);

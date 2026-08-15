@@ -56,6 +56,13 @@ function NavIcon({ name, className = 'h-4 w-4' }) {
                     <path d="M20 20l-3.5-3.5" />
                 </svg>
             );
+        case 'blog':
+            return (
+                <svg {...common}>
+                    <path d="M5 4h14v16H5z" />
+                    <path d="M8 8h8M8 12h8M8 16h5" />
+                </svg>
+            );
         case 'workspace':
             return (
                 <svg {...common}>

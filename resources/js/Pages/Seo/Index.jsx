@@ -17,9 +17,10 @@ const TABS = [
     { id: 'fix', label: 'Fix' },
     { id: 'keywords', label: 'Keywords' },
     { id: 'grow', label: 'Grow' },
-    { id: 'publish', label: 'Publish' },
     { id: 'map', label: 'Site map' },
 ];
+
+const GSC_QUERIES_PER_PAGE = 10;
 
 function formatRetryWait(seconds) {
     if (!seconds || seconds <= 0) {
@@ -27,6 +28,50 @@ function formatRetryWait(seconds) {
     }
     const mins = Math.max(1, Math.ceil(seconds / 60));
     return mins === 1 ? '1 minute' : `${mins} minutes`;
+}
+
+function ClientPager({ page, totalPages, onChange }) {
+    if (totalPages <= 1) {
+        return null;
+    }
+
+    const pages = Array.from({ length: totalPages }, (_, i) => i + 1);
+
+    return (
+        <div className="flex flex-wrap items-center justify-center gap-1.5 border-t border-line px-4 py-3">
+            <button
+                type="button"
+                disabled={page <= 1}
+                onClick={() => onChange(page - 1)}
+                className="min-w-9 rounded-lg border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink-muted transition hover:border-signal/40 hover:text-ink disabled:opacity-40"
+            >
+                Prev
+            </button>
+            {pages.map((n) => (
+                <button
+                    key={n}
+                    type="button"
+                    onClick={() => onChange(n)}
+                    className={
+                        'min-w-9 rounded-lg px-3 py-1.5 text-xs font-semibold transition ' +
+                        (n === page
+                            ? 'bg-ink text-white shadow-sm'
+                            : 'border border-line bg-white text-ink-muted hover:border-signal/40 hover:text-ink')
+                    }
+                >
+                    {n}
+                </button>
+            ))}
+            <button
+                type="button"
+                disabled={page >= totalPages}
+                onClick={() => onChange(page + 1)}
+                className="min-w-9 rounded-lg border border-line bg-white px-3 py-1.5 text-xs font-semibold text-ink-muted transition hover:border-signal/40 hover:text-ink disabled:opacity-40"
+            >
+                Next
+            </button>
+        </div>
+    );
 }
 
 const severityTone = {
@@ -297,27 +342,18 @@ export default function Index({
     backlinks = { summary: null, items: [] },
     local_targets = [],
     architecture = { nodes: [], edges: [] },
-    cms_connections = [],
-    content_drafts = [],
-    blog_posts = [],
-    blog_share_channels = [],
-    blog_synced_at = null,
-    blog_feed_url = null,
     pagespeed_quota = null,
 }) {
     const { errors, flash } = usePage().props;
     const initialTab = (() => {
         const q = new URLSearchParams(window.location.search).get('tab');
-        return TABS.some((t) => t.id === q) ? q : 'fix';
+        return TABS.some((t) => t.id === q) ? q : 'speed';
     })();
     const [tab, setTab] = useState(initialTab);
     const [addingSite, setAddingSite] = useState(sites.length === 0);
     const [addingKeyword, setAddingKeyword] = useState(false);
     const [buildingTodos, setBuildingTodos] = useState(false);
     const [scanning, setScanning] = useState(false);
-    const [syncingBlogs, setSyncingBlogs] = useState(false);
-    const [sharingBlogId, setSharingBlogId] = useState(null);
-    const [shareMenuPostId, setShareMenuPostId] = useState(null);
     const [reportPeriod, setReportPeriod] = useState('weekly');
     const [reportStart, setReportStart] = useState('');
     const [reportEnd, setReportEnd] = useState('');
@@ -328,6 +364,19 @@ export default function Index({
     const [researchSeed, setResearchSeed] = useState('');
     const [researching, setResearching] = useState(false);
     const [researchIdeas, setResearchIdeas] = useState([]);
+    const [gscPage, setGscPage] = useState(1);
+
+    const gscQueries = Array.isArray(site?.gsc_queries) ? site.gsc_queries : [];
+    const gscTotalPages = Math.max(1, Math.ceil(gscQueries.length / GSC_QUERIES_PER_PAGE));
+    const gscPageSafe = Math.min(gscPage, gscTotalPages);
+    const gscPageRows = useMemo(() => {
+        const start = (gscPageSafe - 1) * GSC_QUERIES_PER_PAGE;
+        return gscQueries.slice(start, start + GSC_QUERIES_PER_PAGE);
+    }, [gscQueries, gscPageSafe]);
+
+    useEffect(() => {
+        setGscPage(1);
+    }, [site?.id, gscQueries.length]);
 
     useEffect(() => {
         if (Array.isArray(flash?.keyword_research)) {
@@ -336,17 +385,10 @@ export default function Index({
         }
     }, [flash?.keyword_research]);
 
-    useEffect(() => {
-        if (flash?.share_open_url) {
-            window.open(flash.share_open_url, '_blank', 'noopener,noreferrer');
-        }
-    }, [flash?.share_open_url]);
-
     const seoApisLocked = plan && !plan.features?.seo_apis;
     const seoMetricsLocked = plan && !plan.features?.seo_metrics;
     const seoBacklinksLocked = plan && !plan.features?.seo_backlinks;
     const seoLocalLocked = plan && !plan.features?.seo_local;
-    const seoCmsLocked = plan && !plan.features?.seo_cms;
     const seoJsLocked = plan && !plan.features?.seo_js_crawl;
 
     const gscCooldownLabel = formatRetryWait(site?.gsc_sync_retry_after);
@@ -414,14 +456,6 @@ export default function Index({
         business_name: workspace?.name || '',
         site_id: site?.id || '',
     });
-    const cmsForm = useForm({
-        base_url: '',
-        username: '',
-        app_password: '',
-        label: 'WordPress',
-    });
-    const draftForm = useForm({ keyword: '', seo_keyword_id: '' });
-
     const openTasks = useMemo(() => tasks.filter((t) => t.status === 'open').slice(0, 12), [tasks]);
     const openIssues = useMemo(
         () => issues.filter((i) => i.status === 'open' || !i.status),
@@ -1367,7 +1401,7 @@ export default function Index({
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-line">
-                                                {(site?.gsc_queries || []).length === 0 ? (
+                                                {gscQueries.length === 0 ? (
                                                     <tr>
                                                         <td
                                                             colSpan={6}
@@ -1379,7 +1413,7 @@ export default function Index({
                                                         </td>
                                                     </tr>
                                                 ) : (
-                                                    (site.gsc_queries || []).map((row) => (
+                                                    gscPageRows.map((row) => (
                                                         <tr key={row.query}>
                                                             <td className="px-4 py-2.5 font-medium text-ink">
                                                                 {row.query}
@@ -1421,6 +1455,11 @@ export default function Index({
                                             </tbody>
                                         </table>
                                     </div>
+                                    <ClientPager
+                                        page={gscPageSafe}
+                                        totalPages={gscTotalPages}
+                                        onChange={setGscPage}
+                                    />
                                     {site?.gsc_summary?.start ? (
                                         <p className="border-t border-line px-4 py-2 text-[11px] text-ink-muted">
                                             Window {site.gsc_summary.start} → {site.gsc_summary.end}
@@ -2090,282 +2129,6 @@ export default function Index({
                                     </ul>
                                 </section>
                                 </div>
-                            </div>
-                        ) : null}
-
-                        {tab === 'publish' ? (
-                            <div className="space-y-4">
-                                <section className="atlas-panel overflow-hidden">
-                                    <PanelTitle
-                                        title="Your blogs"
-                                        subtitle="Fetch from RSS or /blog sitemap URLs, then share to Reddit and other sites for backlinks (your account)."
-                                        action={
-                                            <SecondaryButton
-                                                type="button"
-                                                disabled={!site}
-                                                processing={syncingBlogs}
-                                                onClick={() => {
-                                                    if (!site) return;
-                                                    setSyncingBlogs(true);
-                                                    router.post(
-                                                        route('seo.blogs.sync', site.id),
-                                                        {},
-                                                        {
-                                                            preserveScroll: true,
-                                                            onFinish: () => setSyncingBlogs(false),
-                                                        },
-                                                    );
-                                                }}
-                                            >
-                                                Fetch blogs
-                                            </SecondaryButton>
-                                        }
-                                    />
-                                    <div className="border-b border-line px-4 py-2 text-xs text-ink-muted">
-                                        {blog_feed_url
-                                            ? `Feed: ${blog_feed_url}`
-                                            : 'Looks for RSS (/feed, /rss.xml, …) then sitemap /blog paths.'}
-                                        {blog_synced_at ? ` · Synced ${blog_synced_at}` : ''}
-                                    </div>
-                                    <ul className="divide-y divide-line">
-                                        {blog_posts.length === 0 ? (
-                                            <li className="px-4 py-10 text-center text-sm text-ink-muted">
-                                                No blogs listed yet. Click Fetch blogs — needs RSS or
-                                                URLs like /blog/... in your sitemap.
-                                            </li>
-                                        ) : (
-                                            blog_posts.map((post) => (
-                                                <li
-                                                    key={post.id}
-                                                    className="flex flex-wrap items-start justify-between gap-3 px-4 py-3"
-                                                >
-                                                    <div className="min-w-0 flex-1">
-                                                        <a
-                                                            href={post.url}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            className="font-semibold text-ink hover:underline"
-                                                        >
-                                                            {post.title}
-                                                        </a>
-                                                        <div className="mt-0.5 truncate text-xs text-ink-muted">
-                                                            {post.url}
-                                                        </div>
-                                                        <div className="mt-1 text-[11px] uppercase tracking-wide text-ink-muted">
-                                                            {post.source}
-                                                            {post.published_at
-                                                                ? ` · ${post.published_at}`
-                                                                : ''}
-                                                            {post.share_count
-                                                                ? ` · ${post.share_count} share(s)`
-                                                                : ''}
-                                                            {post.last_shared_at
-                                                                ? ` · last ${post.last_shared_at}`
-                                                                : ''}
-                                                        </div>
-                                                    </div>
-                                                    <div className="relative">
-                                                        <PrimaryButton
-                                                            type="button"
-                                                            processing={sharingBlogId === post.id}
-                                                            onClick={() =>
-                                                                setShareMenuPostId((id) =>
-                                                                    id === post.id ? null : post.id,
-                                                                )
-                                                            }
-                                                        >
-                                                            Share for backlinks
-                                                        </PrimaryButton>
-                                                        {shareMenuPostId === post.id ? (
-                                                            <div className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-line bg-white p-1 shadow-lg">
-                                                                {blog_share_channels.map((ch) => (
-                                                                    <button
-                                                                        key={ch.id}
-                                                                        type="button"
-                                                                        className="flex w-full flex-col rounded-lg px-3 py-2 text-left hover:bg-surface"
-                                                                        onClick={() => {
-                                                                            setSharingBlogId(post.id);
-                                                                            setShareMenuPostId(null);
-                                                                            router.post(
-                                                                                route(
-                                                                                    'seo.blogs.share',
-                                                                                    post.id,
-                                                                                ),
-                                                                                {
-                                                                                    channel: ch.id,
-                                                                                },
-                                                                                {
-                                                                                    preserveScroll: true,
-                                                                                    onFinish: () =>
-                                                                                        setSharingBlogId(
-                                                                                            null,
-                                                                                        ),
-                                                                                },
-                                                                            );
-                                                                        }}
-                                                                    >
-                                                                        <span className="text-sm font-semibold text-ink">
-                                                                            {ch.label}
-                                                                        </span>
-                                                                        <span className="text-[11px] text-ink-muted">
-                                                                            {ch.blurb}
-                                                                        </span>
-                                                                    </button>
-                                                                ))}
-                                                            </div>
-                                                        ) : null}
-                                                    </div>
-                                                </li>
-                                            ))
-                                        )}
-                                    </ul>
-                                </section>
-
-                                {!seoCmsLocked ? (
-                                    <section className="atlas-panel overflow-hidden">
-                                        <PanelTitle title="WordPress (optional)" />
-                                        <div className="grid gap-4 border-b border-line p-4 lg:grid-cols-2">
-                                            <form
-                                                className="space-y-2"
-                                                onSubmit={(e) => {
-                                                    e.preventDefault();
-                                                    cmsForm.post(route('seo.cms.store'), {
-                                                        onSuccess: () => cmsForm.reset(),
-                                                    });
-                                                }}
-                                            >
-                                                <h4 className="text-sm font-bold text-ink">
-                                                    Connect WordPress
-                                                </h4>
-                                                <TextInput
-                                                    placeholder="https://yoursite.com"
-                                                    value={cmsForm.data.base_url}
-                                                    onChange={(e) =>
-                                                        cmsForm.setData('base_url', e.target.value)
-                                                    }
-                                                    required
-                                                />
-                                                <TextInput
-                                                    placeholder="Username"
-                                                    value={cmsForm.data.username}
-                                                    onChange={(e) =>
-                                                        cmsForm.setData('username', e.target.value)
-                                                    }
-                                                    required
-                                                />
-                                                <TextInput
-                                                    type="password"
-                                                    placeholder="Application password"
-                                                    value={cmsForm.data.app_password}
-                                                    onChange={(e) =>
-                                                        cmsForm.setData(
-                                                            'app_password',
-                                                            e.target.value,
-                                                        )
-                                                    }
-                                                    required
-                                                />
-                                                <PrimaryButton processing={cmsForm.processing}>
-                                                    Connect
-                                                </PrimaryButton>
-                                            </form>
-                                            <form
-                                                className="space-y-2"
-                                                onSubmit={(e) => {
-                                                    e.preventDefault();
-                                                    draftForm.post(route('seo.content.store'), {
-                                                        onSuccess: () =>
-                                                            draftForm.reset('keyword'),
-                                                    });
-                                                }}
-                                            >
-                                                <h4 className="text-sm font-bold text-ink">
-                                                    New draft
-                                                </h4>
-                                                <TextInput
-                                                    placeholder="Topic / keyword"
-                                                    value={draftForm.data.keyword}
-                                                    onChange={(e) =>
-                                                        draftForm.setData(
-                                                            'keyword',
-                                                            e.target.value,
-                                                        )
-                                                    }
-                                                    required
-                                                />
-                                                <PrimaryButton processing={draftForm.processing}>
-                                                    Create draft
-                                                </PrimaryButton>
-                                            </form>
-                                        </div>
-                                        <ul className="divide-y divide-line">
-                                            {content_drafts.length === 0 ? (
-                                                <li className="px-4 py-8 text-center text-sm text-ink-muted">
-                                                    No WordPress drafts.
-                                                </li>
-                                            ) : (
-                                                content_drafts.map((d) => (
-                                                    <li
-                                                        key={d.id}
-                                                        className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-                                                    >
-                                                        <div>
-                                                            <div className="font-semibold text-ink">
-                                                                {d.title}
-                                                            </div>
-                                                            <div className="text-xs uppercase text-ink-muted">
-                                                                {d.status}
-                                                                {d.published_url
-                                                                    ? ` · ${d.published_url}`
-                                                                    : ''}
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex gap-2">
-                                                            {d.status === 'draft' ||
-                                                            d.status === 'failed' ? (
-                                                                <SecondaryButton
-                                                                    type="button"
-                                                                    onClick={() =>
-                                                                        router.post(
-                                                                            route(
-                                                                                'seo.content.approve',
-                                                                                d.id,
-                                                                            ),
-                                                                        )
-                                                                    }
-                                                                >
-                                                                    Approve
-                                                                </SecondaryButton>
-                                                            ) : null}
-                                                            {(d.status === 'approved' ||
-                                                                d.status === 'draft') &&
-                                                            cms_connections[0] ? (
-                                                                <PrimaryButton
-                                                                    type="button"
-                                                                    onClick={() =>
-                                                                        router.post(
-                                                                            route(
-                                                                                'seo.content.publish',
-                                                                                d.id,
-                                                                            ),
-                                                                            {
-                                                                                cms_connection_id:
-                                                                                    cms_connections[0]
-                                                                                        .id,
-                                                                            },
-                                                                        )
-                                                                    }
-                                                                >
-                                                                    Publish
-                                                                </PrimaryButton>
-                                                            ) : null}
-                                                        </div>
-                                                    </li>
-                                                ))
-                                            )}
-                                        </ul>
-                                    </section>
-                                ) : null}
                             </div>
                         ) : null}
 

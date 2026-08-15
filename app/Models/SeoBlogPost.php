@@ -18,6 +18,8 @@ class SeoBlogPost extends Model
         'source',
         'share_count',
         'last_shared_at',
+        'verba_published_at',
+        'verba_published_url',
     ];
 
     protected function casts(): array
@@ -25,6 +27,7 @@ class SeoBlogPost extends Model
         return [
             'published_at' => 'datetime',
             'last_shared_at' => 'datetime',
+            'verba_published_at' => 'datetime',
         ];
     }
 
@@ -49,6 +52,9 @@ class SeoBlogPost extends Model
             'source' => $this->source,
             'share_count' => (int) $this->share_count,
             'last_shared_at' => $this->last_shared_at?->diffForHumans(),
+            'verba_published' => $this->verba_published_at !== null,
+            'verba_published_url' => $this->verba_published_url,
+            'verba_published_at' => $this->verba_published_at?->diffForHumans(),
         ];
     }
 }

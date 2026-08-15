@@ -5,10 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Controllers\Concerns\ResolvesWorkspace;
 use App\Jobs\CrawlAndAuditSeoSiteJob;
 use App\Jobs\TrackSeoKeywordRanksJob;
-use App\Models\CmsConnection;
 use App\Models\SeoBacklink;
-use App\Models\SeoBlogPost;
-use App\Models\SeoContentDraft;
 use App\Models\SeoIssue;
 use App\Models\SeoKeyword;
 use App\Models\SeoLocalTarget;
@@ -216,29 +213,6 @@ class SeoController extends Controller
             'architecture' => $siteModel
                 ? $crawler->sitemapMap($siteModel, $request->boolean('refresh_sitemap'))
                 : ['source' => 'sitemap', 'sitemap_url' => null, 'error' => null, 'nodes' => [], 'edges' => []],
-            'cms_connections' => CmsConnection::query()
-                ->where('workspace_id', $workspace->id)
-                ->latest()
-                ->get(['id', 'provider', 'label', 'base_url', 'status', 'last_tested_at']),
-            'content_drafts' => SeoContentDraft::query()
-                ->where('workspace_id', $workspace->id)
-                ->latest()
-                ->limit(15)
-                ->get(),
-            'blog_posts' => $siteModel
-                ? SeoBlogPost::query()
-                    ->where('seo_site_id', $siteModel->id)
-                    ->orderByDesc('published_at')
-                    ->orderByDesc('id')
-                    ->limit(100)
-                    ->get()
-                    ->map(fn (SeoBlogPost $post) => $post->toArrayForUi())
-                    ->values()
-                    ->all()
-                : [],
-            'blog_share_channels' => config('seo.blog_share_channels', []),
-            'blog_synced_at' => $siteModel?->blog_posts_synced_at?->diffForHumans(),
-            'blog_feed_url' => $siteModel?->blog_feed_url,
         ]);
     }
 
