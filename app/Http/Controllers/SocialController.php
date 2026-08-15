@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class SocialController extends Controller
 {
@@ -401,7 +402,37 @@ class SocialController extends Controller
         return back()->with('success', 'Post deleted');
     }
 
-    public function connectStub(Request $request, SocialConnectionService $connections, PlanAccess $plans): RedirectResponse
+    public function oauthStart(Request $request, string $platform, SocialConnectionService $connections, PlanAccess $plans): RedirectResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+
+        if (! in_array($platform, ['facebook', 'instagram', 'linkedin', 'x'], true)) {
+            return redirect()->route('social.index')->with('error', 'Unknown platform.');
+        }
+
+        if (! $plans->allows($workspace, 'social_oauth')) {
+            return redirect()->route('social.index')->with('error', $plans->denyMessage('social_oauth'));
+        }
+
+        $accountType = $request->string('account_type')->toString() ?: 'page';
+        if (! in_array($accountType, ['page', 'profile'], true)) {
+            $accountType = 'page';
+        }
+
+        $url = $connections->oauthAuthorizeUrl($workspace, $platform, $accountType);
+        if (! $url) {
+            return redirect()->route('social.index')->with(
+                'error',
+                'Add Meta / LinkedIn / X API keys under Settings → Providers first.'
+            );
+        }
+
+        // Plain HTTP redirect (not Inertia) — avoids Facebook CORS/OPTIONS 400.
+        return redirect()->away($url);
+    }
+
+    public function connectStub(Request $request, SocialConnectionService $connections, PlanAccess $plans): SymfonyResponse
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
@@ -422,7 +453,8 @@ class SocialController extends Controller
 
             $url = $connections->oauthAuthorizeUrl($workspace, $data['platform'], $accountType);
             if ($url) {
-                return redirect()->away($url);
+                // Never 302 to Facebook from an Inertia/Axios visit (CORS). Force top-level navigation.
+                return Inertia::location($url);
             }
         }
 

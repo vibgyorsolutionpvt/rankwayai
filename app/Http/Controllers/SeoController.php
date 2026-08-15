@@ -230,6 +230,14 @@ class SeoController extends Controller
         $domain = DomainNormalizer::normalize($data['domain']);
         abort_if($domain === '', 422, 'Enter a valid domain.');
 
+        $existing = SeoSite::query()->where('workspace_id', $workspace->id)->first();
+        if ($existing && $existing->domain !== $domain) {
+            return back()->with(
+                'error',
+                'This workspace already has '.$existing->domain.'. One workspace = one website. Create another workspace for a new domain.'
+            );
+        }
+
         $site = SeoSite::query()->updateOrCreate(
             ['workspace_id' => $workspace->id, 'domain' => $domain],
             [

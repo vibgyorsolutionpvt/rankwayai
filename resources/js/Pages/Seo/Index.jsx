@@ -503,30 +503,34 @@ export default function Index({
                     </div>
                 ) : null}
 
-                <div className="atlas-panel flex flex-wrap items-end justify-between gap-3 p-4">
+                    <div className="atlas-panel flex flex-wrap items-end justify-between gap-3 p-4">
                     <div className="min-w-0 flex-1 sm:max-w-xs">
                         <InputLabel value="Website" />
                         <div className="mt-1.5">
                             {sites.length > 0 ? (
-                                <SelectMenu
-                                    value={site?.id || ''}
-                                    onChange={(id) => switchSite(id)}
-                                    placeholder="Choose a site"
-                                    options={sites.map((item) => ({
-                                        value: item.id,
-                                        label: item.domain,
-                                    }))}
-                                />
+                                sites.length === 1 ? (
+                                    <p className="rounded-lg border border-line bg-white px-3 py-2 text-sm font-semibold text-ink">
+                                        {sites[0].domain}
+                                    </p>
+                                ) : (
+                                    <SelectMenu
+                                        value={site?.id || ''}
+                                        onChange={(id) => switchSite(id)}
+                                        placeholder="Choose a site"
+                                        options={sites.map((item) => ({
+                                            value: item.id,
+                                            label: item.domain,
+                                        }))}
+                                    />
+                                )
                             ) : (
                                 <p className="text-sm text-ink-muted">
-                                    No website in <span className="font-semibold text-ink">{workspace.name}</span>.
+                                    No website in{' '}
+                                    <span className="font-semibold text-ink">{workspace.name}</span>.
                                 </p>
                             )}
                         </div>
                     </div>
-                    <SecondaryButton type="button" onClick={() => setAddingSite((v) => !v)}>
-                        {addingSite ? 'Cancel' : 'Add website'}
-                    </SecondaryButton>
                 </div>
 
                 {sites.length === 0 && other_workspaces_with_sites.length > 0 ? (
@@ -558,7 +562,7 @@ export default function Index({
                     </section>
                 ) : null}
 
-                {addingSite || sites.length === 0 ? (
+                {sites.length === 0 ? (
                     <form
                         className="atlas-panel space-y-3 p-4"
                         onSubmit={(e) => {
