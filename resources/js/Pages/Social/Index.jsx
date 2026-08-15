@@ -833,6 +833,17 @@ export default function Index({
                             className="atlas-panel space-y-3 p-4"
                             onSubmit={(e) => {
                                 e.preventDefault();
+                                if (accountForm.data.use_oauth) {
+                                    // Full browser navigation — never Axios/Inertia XHR to Facebook.
+                                    const platform = encodeURIComponent(
+                                        accountForm.data.platform || 'facebook',
+                                    );
+                                    const accountType = encodeURIComponent(
+                                        accountForm.data.account_type || 'page',
+                                    );
+                                    window.location.href = `/social/oauth/${platform}/start?account_type=${accountType}`;
+                                    return;
+                                }
                                 accountForm.post(route('social.accounts.store'), {
                                     onSuccess: () => accountForm.reset('account_name'),
                                 });

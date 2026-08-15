@@ -125,6 +125,9 @@ Route::middleware(['auth', 'verified', 'module'])->group(function () {
     Route::post('/social/posts/{post}/posters', [SocialController::class, 'generatePosters'])->name('social.posts.posters');
     Route::delete('/social/posts/{post}', [SocialController::class, 'destroyPost'])->name('social.posts.destroy');
     Route::post('/social/accounts', [SocialController::class, 'connectStub'])->name('social.accounts.store');
+    Route::get('/social/oauth/{platform}/start', [SocialController::class, 'oauthStart'])
+        ->whereIn('platform', ['facebook', 'instagram', 'linkedin', 'x'])
+        ->name('social.oauth.start');
     Route::get('/social/oauth/{platform}/callback', [SocialController::class, 'oauthCallback'])->name('social.oauth.callback');
     Route::post('/social/accounts/{account}/reconnect', [SocialController::class, 'reconnect'])->name('social.accounts.reconnect');
     Route::delete('/social/accounts/{account}', [SocialController::class, 'disconnect'])->name('social.accounts.destroy');
