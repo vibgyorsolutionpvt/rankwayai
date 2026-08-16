@@ -75,15 +75,15 @@ class SocialConnectionService
         return match ($platform) {
             'facebook', 'instagram' => 'https://www.facebook.com/v19.0/dialog/oauth?'.http_build_query([
                 'client_id' => $this->integrations->socialCredential($workspace, 'meta', 'app_id'),
-                'redirect_uri' => route('social.oauth.callback', ['platform' => $platform]),
+                'redirect_uri' => $this->oauthRedirectUri($platform),
                 'state' => $state,
                 'scope' => $platform === 'instagram'
-                    ? 'pages_show_list,pages_read_engagement,instagram_basic,instagram_content_publish,business_management'
-                    : 'pages_show_list,pages_read_engagement,pages_manage_posts,business_management',
+                    ? 'pages_show_list,instagram_basic,instagram_content_publish'
+                    : 'pages_show_list,pages_manage_posts',
             ]),
-            'threads' => 'https://threads.com/oauth/authorize?'.http_build_query([
+            'threads' => 'https://threads.net/oauth/authorize?'.http_build_query([
                 'client_id' => $this->integrations->socialCredential($workspace, 'meta', 'threads_app_id'),
-                'redirect_uri' => route('social.oauth.callback', ['platform' => 'threads']),
+                'redirect_uri' => $this->oauthRedirectUri('threads'),
                 'scope' => 'threads_basic,threads_content_publish',
                 'response_type' => 'code',
                 'state' => $state,
@@ -91,14 +91,14 @@ class SocialConnectionService
             'linkedin' => 'https://www.linkedin.com/oauth/v2/authorization?'.http_build_query([
                 'response_type' => 'code',
                 'client_id' => $this->integrations->socialCredential($workspace, 'linkedin', 'client_id'),
-                'redirect_uri' => route('social.oauth.callback', ['platform' => 'linkedin']),
+                'redirect_uri' => $this->oauthRedirectUri('linkedin'),
                 'state' => $state,
                 'scope' => 'w_member_social r_organization_social',
             ]),
             'x' => 'https://twitter.com/i/oauth2/authorize?'.http_build_query([
                 'response_type' => 'code',
                 'client_id' => $this->integrations->socialCredential($workspace, 'x', 'client_id'),
-                'redirect_uri' => route('social.oauth.callback', ['platform' => 'x']),
+                'redirect_uri' => $this->oauthRedirectUri('x'),
                 'scope' => 'tweet.read tweet.write users.read offline.access',
                 'state' => $state,
                 'code_challenge' => 'challenge',
@@ -106,6 +106,13 @@ class SocialConnectionService
             ]),
             default => null,
         };
+    }
+
+    public function oauthRedirectUri(string $platform): string
+    {
+        $root = rtrim((string) config('app.url'), '/');
+
+        return $root.'/social/oauth/'.$platform.'/callback';
     }
 
     /**
@@ -353,7 +360,7 @@ class SocialConnectionService
         $response = Http::asForm()->post(self::GRAPH.'/oauth/access_token', [
             'client_id' => $appId,
             'client_secret' => $appSecret,
-            'redirect_uri' => route('social.oauth.callback', ['platform' => $platform]),
+            'redirect_uri' => $this->oauthRedirectUri($platform),
             'code' => $code,
         ]);
 
@@ -433,7 +440,7 @@ class SocialConnectionService
 
         $clientId = (string) $this->integrations->socialCredential($workspace, 'meta', 'threads_app_id');
         $clientSecret = (string) $this->integrations->socialCredential($workspace, 'meta', 'threads_app_secret');
-        $redirectUri = route('social.oauth.callback', ['platform' => 'threads']);
+        $redirectUri = $this->oauthRedirectUri('threads');
 
         $response = Http::asForm()->post('https://graph.threads.net/oauth/access_token', [
             'client_id' => $clientId,
@@ -502,7 +509,7 @@ class SocialConnectionService
         $response = Http::asForm()->post('https://www.linkedin.com/oauth/v2/accessToken', [
             'grant_type' => 'authorization_code',
             'code' => $code,
-            'redirect_uri' => route('social.oauth.callback', ['platform' => 'linkedin']),
+            'redirect_uri' => $this->oauthRedirectUri('linkedin'),
             'client_id' => $this->integrations->socialCredential($workspace, 'linkedin', 'client_id'),
             'client_secret' => $this->integrations->socialCredential($workspace, 'linkedin', 'client_secret'),
         ]);
@@ -530,7 +537,7 @@ class SocialConnectionService
             ->post('https://api.twitter.com/2/oauth2/token', [
                 'grant_type' => 'authorization_code',
                 'code' => $code,
-                'redirect_uri' => route('social.oauth.callback', ['platform' => 'x']),
+                'redirect_uri' => $this->oauthRedirectUri('x'),
                 'code_verifier' => 'challenge',
             ]);
 
