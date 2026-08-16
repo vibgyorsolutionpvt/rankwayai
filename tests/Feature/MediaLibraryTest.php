@@ -7,6 +7,7 @@ use App\Jobs\ProcessMediaAssetJob;
 use App\Models\MediaAsset;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\Billing\BillingService;
 use App\Services\Media\ImageVariantService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -23,6 +24,7 @@ class MediaLibraryTest extends TestCase
         $user = User::factory()->create();
         $workspace = Workspace::factory()->create();
         $workspace->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
+        app(BillingService::class)->changePlan($workspace, 'starter', 'active');
 
         return [$user, $workspace];
     }
@@ -69,12 +71,14 @@ class MediaLibraryTest extends TestCase
             ->patch(route('media.update', $asset), [
                 'folder' => 'Brand',
                 'tags' => 'logo, primary',
+                'original_name' => 'logo-primary.jpg',
             ])
             ->assertRedirect();
 
         $asset->refresh();
         $this->assertSame('Brand', $asset->folder);
         $this->assertSame(['logo', 'primary'], $asset->tags);
+        $this->assertSame('logo-primary.jpg', $asset->original_name);
 
         $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])
@@ -112,5 +116,47 @@ class MediaLibraryTest extends TestCase
         $this->assertSame('ready', $asset->status);
         $this->assertArrayHasKey('thumb', $asset->variants ?? []);
         Storage::disk('public')->assertExists($asset->variants['thumb']);
+    }
+
+    public function test_upload_rejects_files_over_two_megabytes(): void
+    {
+        Storage::fake('public');
+        Queue::fake();
+        config(['media.disk' => 'public', 'media.max_kb' => 2048]);
+
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $file = UploadedFile::fake()->create('hero.jpg', 2049, 'image/jpeg');
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->from(route('media.index'))
+            ->post(route('media.store'), [
+                'files' => [$file],
+            ])
+            ->assertRedirect(route('media.index'))
+            ->assertSessionHasErrors('files.0');
+
+        $this->assertSame(0, MediaAsset::query()->count());
+    }
+
+    public function test_upload_rejects_non_image_files(): void
+    {
+        Storage::fake('public');
+        Queue::fake();
+        config(['media.disk' => 'public']);
+
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $file = UploadedFile::fake()->create('notes.pdf', 200, 'application/pdf');
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->from(route('media.index'))
+            ->post(route('media.store'), [
+                'files' => [$file],
+            ])
+            ->assertRedirect(route('media.index'))
+            ->assertSessionHasErrors('files.0');
+
+        $this->assertSame(0, MediaAsset::query()->count());
     }
 }

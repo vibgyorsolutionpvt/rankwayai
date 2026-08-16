@@ -244,6 +244,33 @@ class WorkspacePageController extends Controller
         return back()->with('success', 'Workspace modules updated');
     }
 
+    public function updateSocialPlatforms(Request $request, Workspace $workspace): RedirectResponse
+    {
+        $this->authorize('manageMembers', $workspace);
+
+        $data = $request->validate([
+            'platforms' => ['nullable', 'array'],
+            'platforms.*' => ['string', 'in:'.implode(',', \App\Support\SocialPlatforms::keys())],
+            'inherit_all' => ['sometimes', 'boolean'],
+        ]);
+
+        if (! empty($data['inherit_all'])) {
+            $workspace->forceFill(['enabled_social_platforms' => null])->save();
+        } else {
+            $allowed = array_values(array_intersect(
+                \App\Support\SocialPlatforms::normalize($data['platforms'] ?? []) ?? [],
+                \App\Support\SocialPlatforms::globallyEnabledKeys()
+            ));
+            $workspace->forceFill(['enabled_social_platforms' => $allowed])->save();
+        }
+
+        ActivityLog::record($workspace, $request->user(), 'workspace.social_platforms_updated', [
+            'platforms' => $workspace->fresh()->enabled_social_platforms,
+        ]);
+
+        return back()->with('success', 'SMM platforms updated');
+    }
+
     public function updateMemberModules(
         Request $request,
         Workspace $workspace,

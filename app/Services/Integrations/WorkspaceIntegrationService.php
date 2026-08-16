@@ -291,6 +291,7 @@ class WorkspaceIntegrationService
         return [
             'facebook' => $this->isConnected($workspace, 'meta') ? 'oauth' : 'sandbox',
             'instagram' => $this->isConnected($workspace, 'meta') ? 'oauth' : 'sandbox',
+            'threads' => $this->isConnected($workspace, 'meta') ? 'oauth' : 'sandbox',
             'linkedin' => $this->isConnected($workspace, 'linkedin') ? 'oauth' : 'sandbox',
             'x' => $this->isConnected($workspace, 'x') ? 'oauth' : 'sandbox',
         ];
@@ -301,6 +302,14 @@ class WorkspaceIntegrationService
         $val = $this->credential($workspace, $provider, $key);
         if (filled($val)) {
             return (string) $val;
+        }
+
+        // Threads App ID/secret fall back to Meta App ID/secret when not set separately.
+        if ($provider === 'meta' && $key === 'threads_app_id') {
+            return $this->socialCredential($workspace, 'meta', 'app_id');
+        }
+        if ($provider === 'meta' && $key === 'threads_app_secret') {
+            return $this->socialCredential($workspace, 'meta', 'app_secret');
         }
 
         return match ($provider.'.'.$key) {

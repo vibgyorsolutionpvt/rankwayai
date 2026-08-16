@@ -13,6 +13,7 @@ use App\Services\Billing\BillingService;
 use App\Services\Billing\PlanCatalog;
 use App\Services\Workspaces\ProvisionClientWorkspace;
 use App\Support\NavModules;
+use App\Support\SocialPlatforms;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
@@ -30,6 +31,7 @@ class PlatformAdminController extends Controller
         return Inertia::render('Admin/Dashboard', [
             'stats' => $this->stats(),
             'menus' => $modules->platformMenuStates(),
+            'socialPlatforms' => SocialPlatforms::platformStates(),
             'recentUsers' => User::query()
                 ->orderByDesc('created_at')
                 ->limit(8)
@@ -404,6 +406,24 @@ class PlatformAdminController extends Controller
         return back()->with(
             'success',
             ($data['enabled'] ? 'Enabled' : 'Disabled').' '.$key.' for all clients'
+        );
+    }
+
+    public function updateSocialPlatform(Request $request, string $key): RedirectResponse
+    {
+        abort_unless(in_array($key, SocialPlatforms::keys(), true), 404);
+
+        $data = $request->validate([
+            'enabled' => ['required', 'boolean'],
+        ]);
+
+        SocialPlatforms::setPlatformEnabled($key, (bool) $data['enabled']);
+
+        $label = SocialPlatforms::catalog()[$key]['label'] ?? $key;
+
+        return back()->with(
+            'success',
+            ($data['enabled'] ? 'Enabled' : 'Disabled').' '.$label.' for all clients'
         );
     }
 

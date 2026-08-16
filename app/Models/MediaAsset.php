@@ -41,12 +41,21 @@ class MediaAsset extends Model
 
     public function url(?string $variant = null): ?string
     {
+        // Allow remote HTTPS URLs stored directly (useful for Instagram Graph publish).
+        if (is_string($this->path) && (str_starts_with($this->path, 'https://') || str_starts_with($this->path, 'http://'))) {
+            return $this->path;
+        }
+
         $path = $variant && ! empty($this->variants[$variant])
             ? $this->variants[$variant]
             : $this->path;
 
         if (! $path) {
             return null;
+        }
+
+        if (is_string($path) && (str_starts_with($path, 'https://') || str_starts_with($path, 'http://'))) {
+            return $path;
         }
 
         return Storage::disk($this->disk)->url($path);

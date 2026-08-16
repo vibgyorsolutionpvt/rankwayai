@@ -21,13 +21,13 @@ export default function SelectMenu({
             <div className={`relative ${className}`}>
                 <ListboxButton
                     className={
-                        'relative flex w-full items-center gap-2 rounded-md border border-line bg-white py-2.5 pl-3 pr-10 text-left text-sm font-semibold text-ink shadow-sm transition ' +
+                        'relative flex w-full items-center gap-2 rounded-md border border-line bg-white py-2.5 pl-3 pr-10 text-left text-sm font-medium text-ink shadow-sm transition ' +
                         'hover:border-signal/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal/30 ' +
                         'disabled:cursor-not-allowed disabled:opacity-50 ' +
                         buttonClassName
                     }
                 >
-                    <span className="block truncate font-sans tracking-tight">
+                    <span className="block truncate">
                         {selected?.label || placeholder}
                     </span>
                     <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2.5 text-ink-muted">
@@ -57,19 +57,19 @@ export default function SelectMenu({
                                 key={opt.value}
                                 value={opt.value}
                                 className={({ focus, selected: isSelected }) =>
-                                    'relative cursor-pointer select-none px-3 py-2.5 transition ' +
-                                    (focus ? 'bg-signal-soft/70 text-signal-strong' : 'text-ink') +
-                                    (isSelected ? ' font-bold' : ' font-medium')
+                                    'relative cursor-pointer select-none px-3 py-2.5 font-medium text-ink transition ' +
+                                    (focus ? 'bg-signal-soft/70 text-signal-strong' : '') +
+                                    (isSelected ? ' bg-mist/60' : '')
                                 }
                             >
                                 {({ selected: isSelected }) => (
                                     <div className="flex items-center justify-between gap-3">
                                         <div className="min-w-0">
-                                            <div className="truncate font-sans tracking-tight">
+                                            <div className="truncate">
                                                 {opt.label}
                                             </div>
                                             {opt.meta ? (
-                                                <div className="mt-0.5 truncate text-xs font-medium text-ink-muted">
+                                                <div className="mt-0.5 truncate text-xs font-normal text-ink-muted">
                                                     {opt.meta}
                                                 </div>
                                             ) : null}

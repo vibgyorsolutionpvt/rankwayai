@@ -35,6 +35,7 @@ export default function Index({
     members = [],
     roles = [],
     moduleCatalog = null,
+    socialPlatformCatalog = null,
     billing = {},
     account = {},
 }) {
@@ -113,6 +114,7 @@ export default function Index({
                         members={members}
                         roles={roles}
                         moduleCatalog={moduleCatalog}
+                        socialPlatformCatalog={socialPlatformCatalog}
                     />
                 ) : null}
 

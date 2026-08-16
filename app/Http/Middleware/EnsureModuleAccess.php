@@ -43,7 +43,7 @@ class EnsureModuleAccess
         if ($planLocked) {
             $label = NavModules::catalog()[$module]['label'] ?? ucfirst($module);
 
-            if ($request->inertia() || $request->expectsJson() || $request->isMethod('GET')) {
+            if ($request->header('X-Inertia') || $request->inertia() || $request->expectsJson() || $request->isMethod('GET')) {
                 return Inertia::render('Billing/PlanGate', [
                     'module' => $module,
                     'moduleLabel' => $label,
@@ -52,8 +52,9 @@ class EnsureModuleAccess
                 ])->toResponse($request);
             }
 
+            // Non-Inertia POST (e.g. some multipart edge cases): still return a clear flash.
             return redirect()
-                ->route('billing.index')
+                ->back()
                 ->with('error', "{$label} needs a paid plan or credit top-up.");
         }
 

@@ -10,6 +10,7 @@ use App\Models\SocialAccount;
 use App\Models\SocialPost;
 use App\Services\Billing\PlanAccess;
 use App\Services\Social\SocialConnectionService;
+use App\Support\SocialPlatforms;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -44,7 +45,7 @@ class SocialController extends Controller
         }
 
         $platform = (string) $request->query('platform', 'all');
-        if (! in_array($platform, ['all', 'facebook', 'instagram', 'linkedin', 'x'], true)) {
+        if (! in_array($platform, ['all', 'facebook', 'instagram', 'threads', 'linkedin', 'x'], true)) {
             $platform = 'all';
         }
 
@@ -138,7 +139,11 @@ class SocialController extends Controller
 
         return Inertia::render('Social/Index', [
             'workspace' => ['id' => $workspace->id, 'name' => $workspace->name],
-            'accounts' => $workspace->socialAccounts()->orderBy('platform')->get()->map(fn (SocialAccount $a) => [
+            'accounts' => $workspace->socialAccounts()
+                ->orderByRaw("CASE WHEN status = 'connected' THEN 0 ELSE 1 END")
+                ->orderBy('platform')
+                ->get()
+                ->map(fn (SocialAccount $a) => [
                 'id' => $a->id,
                 'platform' => $a->platform,
                 'account_type' => $a->account_type ?? 'page',
@@ -163,7 +168,64 @@ class SocialController extends Controller
             ],
             'posterSizes' => array_keys(\App\Services\Social\PosterTemplateService::SIZES),
             'plan' => $plans->summary($workspace),
+            'pendingPagePick' => $this->pendingPagePickForWorkspace($request, $workspace->id),
+            'enabledPlatforms' => SocialPlatforms::enabled($workspace->enabled_social_platforms),
         ]);
+    }
+
+    /**
+     * @return array{platform:string, pages:list<array{id:string,name:string,instagram:?array{id:string,username:string}}>, suggested_id:?string}|null
+     */
+    private function pendingPagePickForWorkspace(Request $request, int $workspaceId): ?array
+    {
+        $pending = $request->session()->get('social_pending_page_pick');
+        if (! is_array($pending) || (int) ($pending['workspace_id'] ?? 0) !== $workspaceId) {
+            return null;
+        }
+
+        $pages = collect($pending['pages'] ?? [])->map(fn (array $p) => [
+            'id' => (string) $p['id'],
+            'name' => (string) $p['name'],
+            'instagram' => $p['instagram'] ?? null,
+        ])->values()->all();
+
+        if ($pages === []) {
+            return null;
+        }
+
+        $workspaceName = strtolower((string) (\App\Models\Workspace::query()->find($workspaceId)?->name ?? ''));
+        $preferred = strtolower(trim((string) ($pending['preferred_name'] ?? '')));
+        $hint = $preferred !== '' ? $preferred : $workspaceName;
+
+        $suggested = null;
+        if ($hint !== '') {
+            $matched = app(SocialConnectionService::class)->matchMetaPage(
+                array_map(fn (array $p) => [
+                    'id' => $p['id'],
+                    'name' => $p['name'],
+                    'access_token' => '',
+                    'instagram' => $p['instagram'] ?? null,
+                ], $pages),
+                $hint,
+                (string) ($pending['platform'] ?? 'facebook')
+            );
+            $suggested = $matched;
+        }
+
+        if (! $suggested) {
+            $suggested = collect($pages)->first(function (array $p) use ($hint) {
+                $name = strtolower($p['name']);
+
+                return $hint !== '' && (str_contains($name, $hint) || str_contains($hint, $name));
+            });
+        }
+
+        return [
+            'platform' => (string) ($pending['platform'] ?? 'facebook'),
+            'pages' => $pages,
+            'suggested_id' => $suggested['id'] ?? null,
+            'preferred_name' => $preferred !== '' ? (string) $pending['preferred_name'] : null,
+        ];
     }
 
     public function store(Request $request): RedirectResponse
@@ -204,9 +266,14 @@ class SocialController extends Controller
                 return back()->with('success', 'Post saved as draft — approval required before publish.');
             }
 
-            PublishSocialPostJob::dispatch($post->id);
+            PublishSocialPostJob::dispatchSync($post->id);
 
-            return back()->with('success', 'Publishing started.');
+            $fresh = $post->fresh();
+            if ($fresh?->status === 'published') {
+                return back()->with('success', 'Published to connected platforms.');
+            }
+
+            return back()->with('error', $fresh?->failure_reason ?: 'Publish failed — check connected accounts.');
         }
 
         if ($data['delivery'] === 'schedule') {
@@ -261,9 +328,14 @@ class SocialController extends Controller
                 return back()->with('success', 'Post updated — still needs approval before publish.');
             }
 
-            PublishSocialPostJob::dispatch($post->id);
+            PublishSocialPostJob::dispatchSync($post->id);
 
-            return back()->with('success', 'Post updated and publishing started.');
+            $fresh = $post->fresh();
+            if ($fresh?->status === 'published') {
+                return back()->with('success', 'Published to connected platforms.');
+            }
+
+            return back()->with('error', $fresh?->failure_reason ?: 'Publish failed — check connected accounts.');
         }
 
         if ($data['delivery'] === 'schedule') {
@@ -285,11 +357,12 @@ class SocialController extends Controller
             'title' => ['nullable', 'string', 'max:120'],
             'body' => ['required', 'string', 'max:5000'],
             'platforms' => ['required', 'array', 'min:1'],
-            'platforms.*' => ['in:facebook,instagram,linkedin,x'],
+            'platforms.*' => ['in:facebook,instagram,threads,linkedin,x'],
             'scheduled_at' => ['nullable', 'date'],
             'delivery' => ['required', 'in:now,schedule,draft'],
             'requires_approval' => ['boolean'],
             'media_asset_id' => ['nullable', 'integer'],
+            'public_media_url' => ['nullable', 'url', 'max:2048'],
             'brand_kit_id' => ['nullable', 'integer'],
             'generate_posters' => ['boolean'],
         ]);
@@ -310,7 +383,34 @@ class SocialController extends Controller
         }
 
         $workspace = $this->workspace($request);
-        if (! empty($data['media_asset_id'])) {
+
+        $enabledPlatforms = SocialPlatforms::enabled($workspace->enabled_social_platforms);
+        $data['platforms'] = array_values(array_intersect($data['platforms'], $enabledPlatforms));
+        if ($data['platforms'] === []) {
+            abort(422, 'No enabled SMM platforms selected. Turn platforms on under Settings → Workspace.');
+        }
+
+        $publicUrl = trim((string) ($data['public_media_url'] ?? ''));
+        unset($data['public_media_url']);
+
+        if ($publicUrl !== '') {
+            if (! str_starts_with($publicUrl, 'https://')) {
+                abort(422, 'Public media URL must be https (Instagram/Meta cannot fetch http/localhost).');
+            }
+
+            $asset = MediaAsset::query()->create([
+                'workspace_id' => $workspace->id,
+                'uploaded_by' => $request->user()->id,
+                'disk' => 'public',
+                'path' => $publicUrl,
+                'original_name' => basename(parse_url($publicUrl, PHP_URL_PATH) ?: 'remote-image.jpg'),
+                'mime_type' => 'image/jpeg',
+                'size' => 0,
+                'folder' => 'Remote',
+                'status' => 'ready',
+            ]);
+            $data['media_asset_id'] = $asset->id;
+        } elseif (! empty($data['media_asset_id'])) {
             abort_unless(
                 MediaAsset::query()
                     ->where('workspace_id', $workspace->id)
@@ -318,6 +418,12 @@ class SocialController extends Controller
                     ->exists(),
                 422
             );
+        } else {
+            $data['media_asset_id'] = null;
+        }
+
+        if (in_array('instagram', $data['platforms'], true) && empty($data['media_asset_id'])) {
+            abort(422, 'Instagram posts need an image — pick media or paste a public https image URL.');
         }
 
         if (! empty($data['brand_kit_id'])) {
@@ -359,9 +465,14 @@ class SocialController extends Controller
             return back()->with('error', $plans->denyMessage('social_publish'));
         }
 
-        PublishSocialPostJob::dispatch($post->id);
+        PublishSocialPostJob::dispatchSync($post->id);
 
-        return back()->with('success', 'Publish job queued');
+        $fresh = $post->fresh();
+        if ($fresh?->status === 'published') {
+            return back()->with('success', 'Published to connected platforms.');
+        }
+
+        return back()->with('error', $fresh?->failure_reason ?: 'Publish failed — check connected accounts.');
     }
 
     public function retry(Request $request, SocialPost $post, PlanAccess $plans): RedirectResponse
@@ -375,9 +486,14 @@ class SocialController extends Controller
         }
 
         $post->update(['status' => 'scheduled', 'failure_reason' => null]);
-        PublishSocialPostJob::dispatch($post->id);
+        PublishSocialPostJob::dispatchSync($post->id);
 
-        return back()->with('success', 'Retry queued');
+        $fresh = $post->fresh();
+        if ($fresh?->status === 'published') {
+            return back()->with('success', 'Published to connected platforms.');
+        }
+
+        return back()->with('error', $fresh?->failure_reason ?: 'Publish failed — check connected accounts.');
     }
 
     public function generatePosters(Request $request, SocialPost $post): RedirectResponse
@@ -407,8 +523,16 @@ class SocialController extends Controller
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
 
-        if (! in_array($platform, ['facebook', 'instagram', 'linkedin', 'x'], true)) {
+        if (! in_array($platform, ['facebook', 'instagram', 'threads', 'linkedin', 'x'], true)) {
             return redirect()->route('social.index')->with('error', 'Unknown platform.');
+        }
+
+        $enabled = SocialPlatforms::enabled($workspace->enabled_social_platforms);
+        if (! in_array($platform, $enabled, true)) {
+            return redirect()->route('social.index')->with(
+                'error',
+                ucfirst($platform).' is hidden for this workspace. Enable it under Settings → Workspace → SMM platforms.'
+            );
         }
 
         if (! $plans->allows($workspace, 'social_oauth')) {
@@ -420,7 +544,12 @@ class SocialController extends Controller
             $accountType = 'page';
         }
 
-        $url = $connections->oauthAuthorizeUrl($workspace, $platform, $accountType);
+        $preferredName = trim($request->string('account_name')->toString());
+        if ($preferredName === '') {
+            $preferredName = $workspace->name;
+        }
+
+        $url = $connections->oauthAuthorizeUrl($workspace, $platform, $accountType, $preferredName);
         if (! $url) {
             return redirect()->route('social.index')->with(
                 'error',
@@ -438,11 +567,19 @@ class SocialController extends Controller
         $this->authorize('update', $workspace);
 
         $data = $request->validate([
-            'platform' => ['required', 'in:facebook,instagram,linkedin,x'],
+            'platform' => ['required', 'in:facebook,instagram,threads,linkedin,x'],
             'account_name' => ['required', 'string', 'max:120'],
             'account_type' => ['nullable', 'in:page,profile'],
             'use_oauth' => ['boolean'],
         ]);
+
+        $enabled = SocialPlatforms::enabled($workspace->enabled_social_platforms);
+        if (! in_array($data['platform'], $enabled, true)) {
+            return back()->with(
+                'error',
+                ucfirst($data['platform']).' is hidden for this workspace. Enable it under Settings → Workspace → SMM platforms.'
+            );
+        }
 
         $accountType = $data['account_type'] ?? 'page';
 
@@ -451,7 +588,12 @@ class SocialController extends Controller
                 return back()->with('error', $plans->denyMessage('social_oauth'));
             }
 
-            $url = $connections->oauthAuthorizeUrl($workspace, $data['platform'], $accountType);
+            $url = $connections->oauthAuthorizeUrl(
+                $workspace,
+                $data['platform'],
+                $accountType,
+                $data['account_name']
+            );
             if ($url) {
                 // Never 302 to Facebook from an Inertia/Axios visit (CORS). Force top-level navigation.
                 return Inertia::location($url);
@@ -476,25 +618,102 @@ class SocialController extends Controller
         }
 
         $workspace = \App\Models\Workspace::query()->findOrFail($data['workspace_id']);
-        abort_unless($workspace->hasMember($request->user()), 403);
+        $this->authorize('update', $workspace);
 
         if (! $plans->allows($workspace, 'social_oauth')) {
             return redirect()->route('social.index')->with('error', $plans->denyMessage('social_oauth'));
         }
 
         $code = (string) $request->query('code', '');
+        $code = str_replace('#_', '', $code);
+        $code = rtrim($code, '#');
         if ($code === '') {
             return redirect()->route('social.index')->with('error', 'OAuth cancelled');
         }
 
-        $connections->handleOAuthCallback(
+        $result = $connections->handleOAuthCallback(
             $workspace,
             $platform,
             $code,
-            $data['account_type'] ?? 'page'
+            $data['account_type'] ?? 'page',
+            $data['preferred_name'] ?? null
         );
 
-        return redirect()->route('social.index')->with('success', ucfirst($platform).' OAuth connected');
+        if (($result['status'] ?? '') === 'pick_page') {
+            $request->session()->put('social_pending_page_pick', [
+                'workspace_id' => $workspace->id,
+                'platform' => $platform,
+                'account_type' => $data['account_type'] ?? 'page',
+                'expires_in' => $result['expires_in'] ?? 5184000,
+                'pages' => $result['pages'] ?? [],
+                'preferred_name' => $result['preferred_name'] ?? ($data['preferred_name'] ?? null),
+            ]);
+
+            return redirect()->route('social.index', ['view' => 'accounts'])
+                ->with('success', 'Select which Facebook Page to connect for this workspace.');
+        }
+
+        $request->session()->forget('social_pending_page_pick');
+
+        if (($result['status'] ?? '') === 'connected') {
+            $name = $result['account']->account_name ?? ucfirst($platform);
+
+            return redirect()->route('social.index', ['view' => 'accounts'])
+                ->with('success', $name.' connected');
+        }
+
+        return redirect()->route('social.index', ['view' => 'accounts'])
+            ->with('error', $result['message'] ?? (ucfirst($platform).' OAuth failed'));
+    }
+
+    public function selectOAuthPage(Request $request, SocialConnectionService $connections, PlanAccess $plans): RedirectResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+
+        if (! $plans->allows($workspace, 'social_oauth')) {
+            return back()->with('error', $plans->denyMessage('social_oauth'));
+        }
+
+        $pending = $request->session()->get('social_pending_page_pick');
+        if (! is_array($pending) || (int) ($pending['workspace_id'] ?? 0) !== $workspace->id) {
+            return redirect()->route('social.index', ['view' => 'accounts'])
+                ->with('error', 'Page selection expired — connect Facebook again.');
+        }
+
+        $data = $request->validate([
+            'page_id' => ['required', 'string', 'max:64'],
+        ]);
+
+        $page = collect($pending['pages'] ?? [])->first(
+            fn ($p) => is_array($p) && (string) ($p['id'] ?? '') === $data['page_id']
+        );
+
+        if (! $page) {
+            return back()->with('error', 'Invalid page selection.');
+        }
+
+        $platform = (string) ($pending['platform'] ?? 'facebook');
+        $account = $connections->connectMetaPage(
+            $workspace,
+            $platform,
+            (string) ($pending['account_type'] ?? 'page'),
+            $page,
+            (int) ($pending['expires_in'] ?? 5184000)
+        );
+
+        $request->session()->forget('social_pending_page_pick');
+
+        return redirect()->route('social.index', ['view' => 'accounts'])
+            ->with('success', $account->account_name.' connected — posts will go to this page.');
+    }
+
+    public function cancelOAuthPagePick(Request $request): RedirectResponse
+    {
+        $request->session()->forget('social_pending_page_pick');
+
+        return redirect()->route('social.index', ['view' => 'accounts'])
+            ->with('success', 'Page selection cancelled.');
     }
 
     public function reconnect(Request $request, SocialAccount $account): RedirectResponse
@@ -517,6 +736,17 @@ class SocialController extends Controller
         $account->markDisconnected();
 
         return back()->with('success', 'Account disconnected');
+    }
+
+    public function destroyAccount(Request $request, SocialAccount $account): RedirectResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+        abort_unless($account->workspace_id === $workspace->id, 404);
+
+        $account->delete();
+
+        return back()->with('success', 'Account removed');
     }
 
     /**

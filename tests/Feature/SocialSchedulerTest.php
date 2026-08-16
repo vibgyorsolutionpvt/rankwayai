@@ -119,13 +119,24 @@ class SocialSchedulerTest extends TestCase
     {
         [$user, $workspace] = $this->memberWithWorkspace();
 
-        $account = SocialAccount::query()->create([
+        \Illuminate\Support\Facades\Http::fake([
+            'graph.facebook.com/*' => \Illuminate\Support\Facades\Http::sequence()
+                ->push(['id' => '111_222'], 200)
+                ->push(['permalink_url' => 'https://www.facebook.com/111/posts/222'], 200),
+        ]);
+
+        SocialAccount::query()->create([
             'workspace_id' => $workspace->id,
             'platform' => 'facebook',
             'account_name' => 'Page',
-            'status' => 'disconnected',
+            'account_type' => 'page',
+            'connection_mode' => 'oauth',
+            'status' => 'connected',
+            'health' => 'healthy',
+            'external_id' => '111',
+            'access_token' => 'page-token-test',
+            'connected_at' => now(),
         ]);
-        $account->markConnected();
 
         $post = SocialPost::query()->create([
             'workspace_id' => $workspace->id,

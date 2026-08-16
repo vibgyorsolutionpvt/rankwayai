@@ -3,7 +3,13 @@ import Toggle from '@/Components/Toggle';
 import { moduleTone, toneForModule } from '@/Components/moduleTones';
 import { Head, Link, router } from '@inertiajs/react';
 
-export default function Dashboard({ stats, menus = [], recentUsers = [], recentWorkspaces = [] }) {
+export default function Dashboard({
+    stats,
+    menus = [],
+    socialPlatforms = [],
+    recentUsers = [],
+    recentWorkspaces = [],
+}) {
     return (
         <AuthenticatedLayout
             header={
@@ -79,6 +85,57 @@ export default function Dashboard({ stats, menus = [], recentUsers = [], recentW
                                             onChange={(enabled) =>
                                                 router.patch(
                                                     route('admin.menus.update', menu.key),
+                                                    { enabled },
+                                                    { preserveScroll: true },
+                                                )
+                                            }
+                                        />
+                                        <span className="text-[9px] font-semibold uppercase tracking-wide text-ink-muted">
+                                            {on ? 'Show' : 'Hide'}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </section>
+
+                <section className="atlas-panel overflow-hidden">
+                    <div className="border-b border-line/70 px-6 py-5">
+                        <h3 className="font-display text-lg font-bold text-ink">SMM platforms</h3>
+                        <p className="mt-1 text-sm text-ink-muted">
+                            Disable a network to hide it from every client SMM Connect / Compose.
+                            Workspaces can only show platforms that are enabled here.
+                        </p>
+                    </div>
+                    <div className="grid gap-2 p-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+                        {socialPlatforms.map((item) => {
+                            const tone = moduleTone(item.tone || 'ink');
+                            const on = item.enabled;
+                            return (
+                                <div
+                                    key={item.key}
+                                    className={
+                                        'flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 shadow-sm transition ' +
+                                        (on ? tone.card : tone.off)
+                                    }
+                                >
+                                    <div className="min-w-0 shrink-0">
+                                        <span
+                                            className={
+                                                'inline-flex rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ' +
+                                                tone.chip
+                                            }
+                                        >
+                                            {item.label}
+                                        </span>
+                                    </div>
+                                    <div className="flex shrink-0 flex-col items-center gap-0.5">
+                                        <Toggle
+                                            checked={on}
+                                            onChange={(enabled) =>
+                                                router.patch(
+                                                    route('admin.social-platforms.update', item.key),
                                                     { enabled },
                                                     { preserveScroll: true },
                                                 )
