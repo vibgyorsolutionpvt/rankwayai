@@ -47,5 +47,13 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Vite::prefetch(concurrency: 3);
+
+        $root = rtrim((string) config('app.url'), '/');
+        if ($root !== '') {
+            \Illuminate\Support\Facades\URL::forceRootUrl($root);
+        }
+        if (str_starts_with($root, 'https://')) {
+            \Illuminate\Support\Facades\URL::forceScheme('https');
+        }
     }
 }
