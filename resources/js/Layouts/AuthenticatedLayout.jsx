@@ -179,7 +179,7 @@ export default function AuthenticatedLayout({ header, children }) {
     const navItems = useMemo(() => {
         const allowed = plan?.modules || null;
         const markLocked = (item) => {
-            const unlocked = plan.unlocked ?? plan.paid;
+            const unlocked = plan?.unlocked ?? plan?.paid;
             const locked =
                 Boolean(plan) &&
                 unlocked === false &&

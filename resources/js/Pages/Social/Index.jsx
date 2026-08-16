@@ -12,11 +12,20 @@ import { confirmAsk } from '@/Components/ConfirmProvider';
 import Toggle from '@/Components/Toggle';
 import { useEffect, useMemo, useState } from 'react';
 
-const platformOptions = ['facebook', 'instagram', 'linkedin', 'x'];
+const platformOptions = ['facebook', 'instagram', 'threads', 'linkedin', 'x'];
+
+const platformLabels = {
+    facebook: 'Facebook',
+    instagram: 'Instagram',
+    threads: 'Threads',
+    linkedin: 'LinkedIn',
+    x: 'X (Twitter)',
+};
 
 const platformTone = {
     facebook: 'bg-blue-100 text-blue-800 border-blue-200',
     instagram: 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200',
+    threads: 'bg-zinc-900 text-white border-zinc-800',
     linkedin: 'bg-sky-100 text-sky-800 border-sky-200',
     x: 'bg-zinc-200 text-zinc-800 border-zinc-300',
 };
@@ -103,7 +112,16 @@ export default function Index({
     calendar,
     posterSizes = [],
     connectionModes = {},
+    pendingPagePick = null,
+    enabledPlatforms = null,
 }) {
+    const availablePlatforms = useMemo(() => {
+        if (!Array.isArray(enabledPlatforms) || enabledPlatforms.length === 0) {
+            return platformOptions;
+        }
+        return platformOptions.filter((p) => enabledPlatforms.includes(p));
+    }, [enabledPlatforms]);
+
     const filters = {
         view: serverFilters.view || 'posts',
         status: serverFilters.status || 'all',
@@ -124,20 +142,63 @@ export default function Index({
         delivery: 'draft',
         requires_approval: false,
         media_asset_id: '',
+        public_media_url: '',
         brand_kit_id: defaultBrandKitId ? String(defaultBrandKitId) : '',
         generate_posters: true,
     });
     const accountForm = useForm({
-        platform: 'instagram',
-        account_name: '',
+        platform: 'facebook',
+        account_name: workspace?.name || '',
         account_type: 'page',
-        use_oauth: false,
+        use_oauth: (connectionModes.facebook || 'sandbox') === 'oauth',
     });
+
+    useEffect(() => {
+        if (!availablePlatforms.length) return;
+        if (!availablePlatforms.includes(accountForm.data.platform)) {
+            const next = availablePlatforms[0];
+            accountForm.setData({
+                ...accountForm.data,
+                platform: next,
+                use_oauth: (connectionModes[next] || 'sandbox') === 'oauth',
+            });
+        }
+        const platforms = (postForm.data.platforms || []).filter((p) =>
+            availablePlatforms.includes(p),
+        );
+        if (platforms.length !== postForm.data.platforms.length) {
+            postForm.setData(
+                'platforms',
+                platforms.length ? platforms : [availablePlatforms[0]],
+            );
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [availablePlatforms.join(',')]);
+
+    // Workspace switch / mode change: refresh connect form defaults (useForm does not).
+    useEffect(() => {
+        accountForm.setData({
+            platform: 'facebook',
+            account_name: workspace?.name || '',
+            account_type: 'page',
+            use_oauth: (connectionModes.facebook || 'sandbox') === 'oauth',
+        });
+        accountForm.clearErrors();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- only sync on workspace/mode change
+    }, [workspace?.id, workspace?.name, connectionModes.facebook]);
 
     const [activePreview, setActivePreview] = useState(postForm.data.platforms[0] || 'instagram');
     const [editingPostId, setEditingPostId] = useState(null);
     const [searchDraft, setSearchDraft] = useState(filters.q);
     const [openActionsId, setOpenActionsId] = useState(null);
+    const [selectedPageId, setSelectedPageId] = useState(
+        pendingPagePick?.suggested_id || pendingPagePick?.pages?.[0]?.id || '',
+    );
+
+    useEffect(() => {
+        if (!pendingPagePick?.pages?.length) return;
+        setSelectedPageId(pendingPagePick.suggested_id || pendingPagePick.pages[0].id);
+    }, [pendingPagePick]);
 
     const brandKitOptions = useMemo(
         () =>
@@ -173,6 +234,7 @@ export default function Index({
         delivery: 'draft',
         requires_approval: false,
         media_asset_id: '',
+        public_media_url: '',
         brand_kit_id: defaultBrandKitId ? String(defaultBrandKitId) : '',
         generate_posters: true,
     });
@@ -195,6 +257,7 @@ export default function Index({
             delivery,
             requires_approval: !!post.requires_approval,
             media_asset_id: post.media_asset_id ? String(post.media_asset_id) : '',
+            public_media_url: '',
             brand_kit_id: kitId ? String(kitId) : '',
             generate_posters: false,
         });
@@ -238,6 +301,8 @@ export default function Index({
         null;
 
     const connectedCount = accounts.filter((a) => a.status === 'connected').length;
+    const connectedAccounts = accounts.filter((a) => a.status === 'connected');
+    const disconnectedAccounts = accounts.filter((a) => a.status !== 'connected');
     const todayKey = useMemo(() => {
         const d = new Date();
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -266,10 +331,22 @@ export default function Index({
             return;
         }
 
+        if (
+            postForm.data.platforms.includes('instagram') &&
+            !postForm.data.media_asset_id &&
+            !String(postForm.data.public_media_url || '').trim()
+        ) {
+            const msg = 'Instagram needs an image — pick media or paste a public https URL.';
+            postForm.setError('media_asset_id', msg);
+            toast.error(msg);
+            return;
+        }
+
         postForm.clearErrors();
         postForm.transform((data) => ({
             ...data,
             media_asset_id: data.media_asset_id ? Number(data.media_asset_id) : null,
+            public_media_url: data.public_media_url || null,
             brand_kit_id: data.brand_kit_id ? Number(data.brand_kit_id) : null,
             scheduled_at: data.delivery === 'schedule' ? data.scheduled_at || null : null,
             requires_approval: !!data.requires_approval,
@@ -295,18 +372,22 @@ export default function Index({
     return (
         <AuthenticatedLayout
             header={
-                <div className="flex flex-wrap items-end justify-between gap-3">
-                    <div>
-                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-ink-muted">
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                        <div className="truncate text-xs font-semibold uppercase tracking-[0.16em] text-ink-muted">
                             {workspace.name}
                         </div>
                         <div className="flex items-center gap-1.5">
-                            <h2 className="font-display text-2xl font-bold text-ink">SMM</h2>
+                            <h2 className="font-display text-2xl font-bold leading-tight text-ink">SMM</h2>
                             <HelpGuide help={HELP.social} />
                         </div>
                     </div>
                     {view !== 'compose' ? (
-                        <PrimaryButton type="button" onClick={beginCompose}>
+                        <PrimaryButton
+                            type="button"
+                            onClick={beginCompose}
+                            className="shrink-0 self-center"
+                        >
                             New post
                         </PrimaryButton>
                     ) : null}
@@ -314,6 +395,74 @@ export default function Index({
             }
         >
             <Head title="SMM" />
+
+            {pendingPagePick?.pages?.length ? (
+                <div className="fixed inset-0 z-[80] flex items-center justify-center bg-ink/40 p-4">
+                    <div className="w-full max-w-md rounded-lg border border-line bg-white p-4 shadow-xl">
+                        <h3 className="font-display text-lg font-bold text-ink">
+                            Choose {pendingPagePick.platform === 'instagram' ? 'Instagram' : 'Facebook'} page
+                        </h3>
+                        <p className="mt-1 text-sm text-ink-muted">
+                            Workspace <span className="font-semibold text-ink">{workspace.name}</span> —
+                            pick the correct page. Wrong page = posts go to the wrong brand.
+                        </p>
+                        <ul className="mt-3 max-h-72 space-y-2 overflow-y-auto">
+                            {pendingPagePick.pages.map((page) => {
+                                const selected = selectedPageId === page.id;
+                                const suggested = pendingPagePick.suggested_id === page.id;
+                                return (
+                                    <li key={page.id}>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedPageId(page.id)}
+                                            className={
+                                                'flex w-full items-start justify-between gap-2 rounded-md border px-3 py-2 text-left text-sm transition ' +
+                                                (selected
+                                                    ? 'border-signal bg-signal-soft/60'
+                                                    : 'border-line bg-white hover:border-signal/40')
+                                            }
+                                        >
+                                            <span>
+                                                <span className="font-semibold text-ink">{page.name}</span>
+                                                {page.instagram?.username ? (
+                                                    <span className="mt-0.5 block text-xs text-ink-muted">
+                                                        IG @{page.instagram.username}
+                                                    </span>
+                                                ) : null}
+                                            </span>
+                                            {suggested ? (
+                                                <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-emerald-800">
+                                                    Likely match
+                                                </span>
+                                            ) : null}
+                                        </button>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                        <div className="mt-4 flex flex-wrap justify-end gap-2">
+                            <SecondaryButton
+                                type="button"
+                                onClick={() => router.post(route('social.oauth.cancel-page-pick'))}
+                            >
+                                Cancel
+                            </SecondaryButton>
+                            <PrimaryButton
+                                type="button"
+                                disabled={!selectedPageId}
+                                onClick={() =>
+                                    router.post(route('social.oauth.select-page'), {
+                                        page_id: selectedPageId,
+                                    })
+                                }
+                            >
+                                Connect this page
+                            </PrimaryButton>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+
             <div className="atlas-shell space-y-4">
                 {Object.keys(postForm.errors).length > 0 && view === 'compose' ? (
                     <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -360,7 +509,7 @@ export default function Index({
                 </div>
 
                 {view === 'posts' ? (
-                    <section className="atlas-panel overflow-hidden">
+                    <section className="atlas-panel overflow-visible">
                         <div className="space-y-3 border-b border-line px-4 py-3">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div>
@@ -426,9 +575,9 @@ export default function Index({
                                         onChange={(v) => applyFilters({ platform: v || 'all' })}
                                         options={[
                                             { value: 'all', label: 'All platforms' },
-                                            ...platformOptions.map((p) => ({
+                                            ...availablePlatforms.map((p) => ({
                                                 value: p,
-                                                label: p,
+                                                label: platformLabels[p] || p,
                                             })),
                                         ]}
                                     />
@@ -465,7 +614,10 @@ export default function Index({
                                 postRows.map((post) => (
                                     <li
                                         key={post.id}
-                                        className="grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,1.6fr)_110px_140px_130px_44px] md:items-center md:gap-3"
+                                        className={
+                                            'grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,1.6fr)_110px_140px_130px_44px] md:items-center md:gap-3 ' +
+                                            (openActionsId === post.id ? 'relative z-30' : '')
+                                        }
                                     >
                                         <div className="min-w-0">
                                             <div className="truncate font-semibold text-ink">
@@ -499,14 +651,20 @@ export default function Index({
                                                         (platformTone[p] || '')
                                                     }
                                                 >
-                                                    {p === 'instagram' ? 'IG' : p === 'facebook' ? 'FB' : p}
+                                                    {p === 'instagram'
+                                                        ? 'IG'
+                                                        : p === 'facebook'
+                                                          ? 'FB'
+                                                          : p === 'threads'
+                                                            ? 'TH'
+                                                            : p}
                                                 </span>
                                             ))}
                                         </div>
                                         <div className="text-xs text-ink-muted">
                                             {post.scheduled_at || post.published_at || '—'}
                                         </div>
-                                        <div className="relative justify-self-end">
+                                        <div className="relative z-10 justify-self-end">
                                             <button
                                                 type="button"
                                                 aria-label="Actions"
@@ -522,7 +680,7 @@ export default function Index({
                                             </button>
                                             {openActionsId === post.id ? (
                                                 <div
-                                                    className="absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-md border border-line bg-white shadow-lg"
+                                                    className="absolute right-0 bottom-full z-50 mb-1 w-44 rounded-md border border-line bg-white py-1 shadow-lg"
                                                     onClick={(e) => e.stopPropagation()}
                                                 >
                                                     {['draft', 'scheduled', 'failed'].includes(
@@ -797,7 +955,9 @@ export default function Index({
                                                                             ? 'IG'
                                                                             : platform === 'facebook'
                                                                               ? 'FB'
-                                                                              : platform}
+                                                                              : platform === 'threads'
+                                                                                ? 'TH'
+                                                                                : platform}
                                                                     </span>
                                                                 ) : null}
                                                             </span>
@@ -841,25 +1001,35 @@ export default function Index({
                                     const accountType = encodeURIComponent(
                                         accountForm.data.account_type || 'page',
                                     );
-                                    window.location.href = `/social/oauth/${platform}/start?account_type=${accountType}`;
+                                    const accountName = encodeURIComponent(
+                                        accountForm.data.account_name || workspace?.name || '',
+                                    );
+                                    window.location.href = `/social/oauth/${platform}/start?account_type=${accountType}&account_name=${accountName}`;
                                     return;
                                 }
                                 accountForm.post(route('social.accounts.store'), {
-                                    onSuccess: () => accountForm.reset('account_name'),
+                                    onSuccess: () =>
+                                        accountForm.setData('account_name', workspace?.name || ''),
                                 });
                             }}
                         >
                             <h3 className="font-display text-lg font-bold text-ink">Connect account</h3>
                             <p className="text-sm text-ink-muted">
-                                Starts in test mode. When Meta / LinkedIn / X keys are set, connect for
-                                real.
+                                Type the exact Facebook/Instagram page name (e.g. Vibgyor Holidays). With
+                                “Connect for real” ON, we match that Meta page — not just the first one.
                             </p>
                             <SelectMenu
                                 value={accountForm.data.platform}
-                                onChange={(v) => accountForm.setData('platform', v)}
-                                options={platformOptions.map((p) => ({
+                                onChange={(v) => {
+                                    accountForm.setData({
+                                        ...accountForm.data,
+                                        platform: v,
+                                        use_oauth: (connectionModes[v] || 'sandbox') === 'oauth',
+                                    });
+                                }}
+                                options={availablePlatforms.map((p) => ({
                                     value: p,
-                                    label: p,
+                                    label: platformLabels[p] || p,
                                     meta:
                                         (connectionModes[p] || 'sandbox') === 'oauth'
                                             ? 'live ready'
@@ -874,12 +1044,22 @@ export default function Index({
                                     { value: 'profile', label: 'Personal profile' },
                                 ]}
                             />
-                            <TextInput
-                                placeholder="Page / account name"
-                                value={accountForm.data.account_name}
-                                onChange={(e) => accountForm.setData('account_name', e.target.value)}
-                                required
-                            />
+                            <div>
+                                <InputLabel value="Facebook / Instagram / Threads account name" />
+                                <TextInput
+                                    className="mt-1 w-full"
+                                    placeholder="e.g. Vibgyor Holidays or @handle"
+                                    value={accountForm.data.account_name}
+                                    onChange={(e) =>
+                                        accountForm.setData('account_name', e.target.value)
+                                    }
+                                    required
+                                />
+                                <p className="mt-1 text-xs text-ink-muted">
+                                    FB/IG: match Page name. Threads: your Threads handle. Toggle ON for
+                                    live connect.
+                                </p>
+                            </div>
                             <Toggle
                                 checked={!!accountForm.data.use_oauth}
                                 onChange={(v) => accountForm.setData('use_oauth', v)}
@@ -889,88 +1069,176 @@ export default function Index({
                                 }
                                 label="Connect for real (needs API keys)"
                             />
-                            <PrimaryButton processing={accountForm.processing}>
-                                Connect account
-                            </PrimaryButton>
+                            <div>
+                                <PrimaryButton processing={accountForm.processing}>
+                                    Connect account
+                                </PrimaryButton>
+                            </div>
                         </form>
 
-                        <div className="atlas-panel overflow-hidden">
-                            <div className="border-b border-line px-4 py-3 font-display text-lg font-bold text-ink">
-                                Connected ({accounts.length})
-                            </div>
-                            <ul className="divide-y divide-line">
-                                {accounts.length === 0 ? (
-                                    <li className="px-4 py-8 text-sm text-ink-muted">
-                                        No accounts yet. Connect one to publish.
-                                    </li>
-                                ) : (
-                                    accounts.map((account) => (
-                                        <li key={account.id} className="px-4 py-3 text-sm">
-                                            <div className="flex items-center justify-between gap-2">
-                                                <span className="font-semibold capitalize text-ink">
-                                                    {account.platform} · {account.account_name}
-                                                    <span className="ms-1 text-xs font-medium normal-case text-ink-muted">
-                                                        ({account.account_type || 'page'} ·{' '}
-                                                        {account.connection_mode === 'oauth'
-                                                            ? 'live'
-                                                            : 'test mode'})
-                                                    </span>
-                                                </span>
-                                                <span
-                                                    className={
-                                                        'rounded-md border px-1.5 py-0.5 text-[10px] font-bold uppercase ' +
-                                                        (healthTone[account.health] ||
-                                                            healthTone.unknown)
-                                                    }
-                                                >
-                                                    {account.status}/{account.health}
-                                                </span>
-                                            </div>
-                                            {account.last_error ? (
-                                                <div className="mt-1 text-xs text-rose-600">
-                                                    {account.last_error}
-                                                </div>
-                                            ) : null}
-                                            <div className="mt-2 flex flex-wrap gap-2">
-                                                <SecondaryButton
-                                                    type="button"
-                                                    onClick={() =>
-                                                        router.post(
-                                                            route(
-                                                                'social.accounts.reconnect',
-                                                                account.id,
-                                                            ),
-                                                        )
-                                                    }
-                                                >
-                                                    Reconnect
-                                                </SecondaryButton>
-                                                <button
-                                                    type="button"
-                                                    title="Disconnect"
-                                                    aria-label="Disconnect"
-                                                    onClick={async () => {
-                                                        const ok = await confirmAsk({
-                                                            title: 'Disconnect account?',
-                                                            message:
-                                                                'This social account will be removed from the workspace.',
-                                                            confirmLabel: 'Disconnect',
-                                                        });
-                                                        if (ok) {
-                                                            router.delete(
-                                                                route('social.accounts.destroy', account.id),
-                                                            );
-                                                        }
-                                                    }}
-                                                    className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100"
-                                                >
-                                                    <TrashIcon />
-                                                </button>
-                                            </div>
+                        <div className="space-y-4">
+                            <div className="atlas-panel overflow-hidden">
+                                <div className="border-b border-line px-4 py-3 font-display text-lg font-bold text-ink">
+                                    Connected ({connectedAccounts.length})
+                                </div>
+                                <ul className="divide-y divide-line">
+                                    {connectedAccounts.length === 0 ? (
+                                        <li className="px-4 py-8 text-sm text-ink-muted">
+                                            No connected accounts. Connect one to publish.
                                         </li>
-                                    ))
-                                )}
-                            </ul>
+                                    ) : (
+                                        connectedAccounts.map((account) => (
+                                            <li key={account.id} className="px-4 py-3 text-sm">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <span className="font-semibold capitalize text-ink">
+                                                        {account.platform} · {account.account_name}
+                                                        <span className="ms-1 text-xs font-medium normal-case text-ink-muted">
+                                                            ({account.account_type || 'page'} ·{' '}
+                                                            {account.connection_mode === 'oauth'
+                                                                ? 'live'
+                                                                : 'test mode'})
+                                                        </span>
+                                                    </span>
+                                                    <span
+                                                        className={
+                                                            'rounded-md border px-1.5 py-0.5 text-[10px] font-bold uppercase ' +
+                                                            (healthTone[account.health] ||
+                                                                healthTone.unknown)
+                                                        }
+                                                    >
+                                                        {account.status}/{account.health}
+                                                    </span>
+                                                </div>
+                                                {account.last_error ? (
+                                                    <div className="mt-1 text-xs text-rose-600">
+                                                        {account.last_error}
+                                                    </div>
+                                                ) : null}
+                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                    <SecondaryButton
+                                                        type="button"
+                                                        onClick={async () => {
+                                                            const ok = await confirmAsk({
+                                                                title: 'Disconnect account?',
+                                                                message:
+                                                                    'Status will become disconnected. You can reconnect later.',
+                                                                confirmLabel: 'Disconnect',
+                                                            });
+                                                            if (ok) {
+                                                                router.post(
+                                                                    route(
+                                                                        'social.accounts.disconnect',
+                                                                        account.id,
+                                                                    ),
+                                                                );
+                                                            }
+                                                        }}
+                                                    >
+                                                        Disconnect
+                                                    </SecondaryButton>
+                                                    <button
+                                                        type="button"
+                                                        title="Remove permanently"
+                                                        aria-label="Remove permanently"
+                                                        onClick={async () => {
+                                                            const ok = await confirmAsk({
+                                                                title: 'Remove account?',
+                                                                message:
+                                                                    'This deletes the account from this workspace.',
+                                                                confirmLabel: 'Remove',
+                                                            });
+                                                            if (ok) {
+                                                                router.delete(
+                                                                    route(
+                                                                        'social.accounts.destroy',
+                                                                        account.id,
+                                                                    ),
+                                                                );
+                                                            }
+                                                        }}
+                                                        className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100"
+                                                    >
+                                                        <TrashIcon />
+                                                    </button>
+                                                </div>
+                                            </li>
+                                        ))
+                                    )}
+                                </ul>
+                            </div>
+
+                            {disconnectedAccounts.length > 0 ? (
+                                <div className="atlas-panel overflow-hidden">
+                                    <div className="border-b border-line px-4 py-3 font-display text-lg font-bold text-ink">
+                                        Disconnected ({disconnectedAccounts.length})
+                                    </div>
+                                    <ul className="divide-y divide-line">
+                                        {disconnectedAccounts.map((account) => (
+                                            <li key={account.id} className="px-4 py-3 text-sm">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <span className="font-semibold capitalize text-ink-muted">
+                                                        {account.platform} · {account.account_name}
+                                                    </span>
+                                                    <span
+                                                        className={
+                                                            'rounded-md border px-1.5 py-0.5 text-[10px] font-bold uppercase ' +
+                                                            (healthTone[account.health] ||
+                                                                healthTone.unknown)
+                                                        }
+                                                    >
+                                                        {account.status}
+                                                    </span>
+                                                </div>
+                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                    <SecondaryButton
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const platform = encodeURIComponent(
+                                                                account.platform || 'facebook',
+                                                            );
+                                                            const accountType = encodeURIComponent(
+                                                                account.account_type || 'page',
+                                                            );
+                                                            const accountName = encodeURIComponent(
+                                                                account.account_name ||
+                                                                    workspace?.name ||
+                                                                    '',
+                                                            );
+                                                            window.location.href = `/social/oauth/${platform}/start?account_type=${accountType}&account_name=${accountName}`;
+                                                        }}
+                                                    >
+                                                        Reconnect
+                                                    </SecondaryButton>
+                                                    <button
+                                                        type="button"
+                                                        title="Remove permanently"
+                                                        aria-label="Remove permanently"
+                                                        onClick={async () => {
+                                                            const ok = await confirmAsk({
+                                                                title: 'Remove account?',
+                                                                message:
+                                                                    'This deletes the account from this workspace.',
+                                                                confirmLabel: 'Remove',
+                                                            });
+                                                            if (ok) {
+                                                                router.delete(
+                                                                    route(
+                                                                        'social.accounts.destroy',
+                                                                        account.id,
+                                                                    ),
+                                                                );
+                                                            }
+                                                        }}
+                                                        className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100"
+                                                    >
+                                                        <TrashIcon />
+                                                    </button>
+                                                </div>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            ) : null}
                         </div>
                     </section>
                 ) : null}
@@ -1016,7 +1284,7 @@ export default function Index({
                                 />
                             </div>
                             <div className="flex flex-wrap gap-2">
-                                {platformOptions.map((platform) => {
+                                {availablePlatforms.map((platform) => {
                                     const checked = postForm.data.platforms.includes(platform);
                                     return (
                                         <label
@@ -1047,11 +1315,23 @@ export default function Index({
                                 })}
                             </div>
                             <div>
-                                <InputLabel value="Media (optional)" />
+                                <InputLabel
+                                    value={
+                                        postForm.data.platforms.includes('instagram')
+                                            ? 'Media (required for Instagram)'
+                                            : 'Media (optional)'
+                                    }
+                                />
                                 <div className="mt-1.5">
                                     <SelectMenu
                                         value={postForm.data.media_asset_id}
-                                        onChange={(v) => postForm.setData('media_asset_id', v)}
+                                        onChange={(v) => {
+                                            postForm.setData({
+                                                ...postForm.data,
+                                                media_asset_id: v,
+                                                public_media_url: v ? '' : postForm.data.public_media_url,
+                                            });
+                                        }}
                                         placeholder="No media"
                                         options={[
                                             { value: '', label: 'No media' },
@@ -1063,6 +1343,30 @@ export default function Index({
                                         ]}
                                     />
                                 </div>
+                                {postForm.data.platforms.includes('instagram') ? (
+                                    <div className="mt-2">
+                                        <InputLabel value="Or public https image URL (for local IG test)" />
+                                        <TextInput
+                                            className="mt-1 w-full"
+                                            type="url"
+                                            placeholder="https://…/image.jpg"
+                                            value={postForm.data.public_media_url || ''}
+                                            onChange={(e) =>
+                                                postForm.setData({
+                                                    ...postForm.data,
+                                                    public_media_url: e.target.value,
+                                                    media_asset_id: e.target.value
+                                                        ? ''
+                                                        : postForm.data.media_asset_id,
+                                                })
+                                            }
+                                        />
+                                        <p className="mt-1 text-xs text-ink-muted">
+                                            Meta cannot fetch localhost images. Paste a public https
+                                            image URL when testing IG locally.
+                                        </p>
+                                    </div>
+                                ) : null}
                             </div>
                             <div>
                                 <InputLabel value="Delivery" />

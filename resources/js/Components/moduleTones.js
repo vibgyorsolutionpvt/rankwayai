@@ -15,6 +15,16 @@ export const MODULE_TONES = {
         chip: 'bg-sky-100 text-sky-800',
         off: 'border-sky-100 bg-sky-50/40 opacity-70',
     },
+    blue: {
+        card: 'border-blue-200 bg-gradient-to-br from-blue-50 to-white',
+        chip: 'bg-blue-100 text-blue-800',
+        off: 'border-blue-100 bg-blue-50/40 opacity-70',
+    },
+    zinc: {
+        card: 'border-zinc-300 bg-gradient-to-br from-zinc-100 to-white',
+        chip: 'bg-zinc-200 text-zinc-900',
+        off: 'border-zinc-200 bg-zinc-50/60 opacity-70',
+    },
     fuchsia: {
         card: 'border-fuchsia-200 bg-gradient-to-br from-fuchsia-50 to-white',
         chip: 'bg-fuchsia-100 text-fuchsia-800',

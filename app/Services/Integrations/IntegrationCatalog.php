@@ -19,11 +19,13 @@ class IntegrationCatalog
             [
                 'id' => 'meta',
                 'category' => 'social',
-                'label' => 'Meta (Facebook / Instagram)',
-                'blurb' => 'OAuth app for Facebook Pages & Instagram Business.',
+                'label' => 'Meta (Facebook / Instagram / Threads)',
+                'blurb' => 'OAuth app for Facebook Pages, Instagram Business, and Threads.',
                 'fields' => [
                     ['key' => 'app_id', 'label' => 'App ID', 'required' => true],
                     ['key' => 'app_secret', 'label' => 'App secret', 'secret' => true, 'required' => true],
+                    ['key' => 'threads_app_id', 'label' => 'Threads App ID', 'placeholder' => 'App Settings → Basic (optional if same as App ID)'],
+                    ['key' => 'threads_app_secret', 'label' => 'Threads App secret', 'secret' => true, 'placeholder' => 'Optional if same as App secret'],
                 ],
             ],
             [

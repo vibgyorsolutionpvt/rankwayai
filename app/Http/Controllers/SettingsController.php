@@ -11,6 +11,7 @@ use App\Services\Billing\BillingService;
 use App\Services\Integrations\IntegrationCatalog;
 use App\Services\Integrations\WorkspaceIntegrationService;
 use App\Support\NavModules;
+use App\Support\SocialPlatforms;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -48,6 +49,7 @@ class SettingsController extends Controller
 
         $members = [];
         $moduleCatalog = null;
+        $socialPlatformCatalog = null;
         if ($active) {
             $request->session()->put('active_workspace_id', $active['id']);
             $activeModel = Workspace::query()->findOrFail($active['id']);
@@ -71,6 +73,22 @@ class SettingsController extends Controller
                         'tone' => $meta['tone'],
                         'globally_enabled' => in_array($key, $global, true),
                         'workspace_enabled' => in_array($key, $workspaceKeys, true),
+                    ])
+                    ->values()
+                    ->all(),
+            ];
+
+            $globalPlatforms = SocialPlatforms::globallyEnabledKeys();
+            $enabledPlatforms = SocialPlatforms::enabled($activeModel->enabled_social_platforms);
+            $socialPlatformCatalog = [
+                'workspace_platforms' => $activeModel->enabled_social_platforms,
+                'items' => collect(SocialPlatforms::catalog())
+                    ->map(fn (array $meta, string $key) => [
+                        'key' => $key,
+                        'label' => $meta['label'],
+                        'tone' => $meta['tone'],
+                        'globally_enabled' => in_array($key, $globalPlatforms, true),
+                        'enabled' => in_array($key, $enabledPlatforms, true),
                     ])
                     ->values()
                     ->all(),
@@ -101,6 +119,7 @@ class SettingsController extends Controller
             'members' => $members,
             'roles' => WorkspaceRole::values(),
             'moduleCatalog' => $moduleCatalog,
+            'socialPlatformCatalog' => $socialPlatformCatalog,
             'billing' => [
                 'plan' => $subscription->plan,
                 'seats' => (int) $subscription->seats,

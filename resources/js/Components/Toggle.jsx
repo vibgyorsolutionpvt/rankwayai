@@ -11,7 +11,7 @@ export default function Toggle({ checked = false, onChange, label, disabled = fa
                 }
             }}
             className={
-                'inline-flex items-center gap-3 text-left focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 ' +
+                'flex w-full items-center gap-3 text-left focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 ' +
                 className
             }
         >
@@ -29,7 +29,7 @@ export default function Toggle({ checked = false, onChange, label, disabled = fa
                     }
                 />
             </span>
-            {label ? <span className="text-sm font-medium text-ink">{label}</span> : null}
+            {label ? <span className="min-w-0 flex-1 text-sm font-medium text-ink">{label}</span> : null}
         </button>
     );
 }

@@ -22,6 +22,7 @@ export default function WorkspacePanel({
     members = [],
     roles = [],
     moduleCatalog = null,
+    socialPlatformCatalog = null,
 }) {
     const { auth } = usePage().props;
     const createForm = useForm({ name: '' });
@@ -40,6 +41,19 @@ export default function WorkspacePanel({
         return moduleCatalog.workspace_modules;
     }, [moduleCatalog]);
 
+    const socialSelected = useMemo(() => {
+        if (!socialPlatformCatalog) return [];
+        if (
+            socialPlatformCatalog.workspace_platforms === null ||
+            socialPlatformCatalog.workspace_platforms === undefined
+        ) {
+            return socialPlatformCatalog.items
+                .filter((i) => i.globally_enabled !== false)
+                .map((i) => i.key);
+        }
+        return socialPlatformCatalog.workspace_platforms;
+    }, [socialPlatformCatalog]);
+
     const saveWorkspaceModules = (nextKeys) => {
         if (!activeWorkspace) return;
         router.put(
@@ -54,6 +68,22 @@ export default function WorkspacePanel({
         if (enabled) set.add(key);
         else set.delete(key);
         saveWorkspaceModules([...set]);
+    };
+
+    const saveSocialPlatforms = (nextKeys) => {
+        if (!activeWorkspace) return;
+        router.put(
+            route('workspaces.social-platforms.update', activeWorkspace.id),
+            { platforms: nextKeys, inherit_all: false },
+            { preserveScroll: true },
+        );
+    };
+
+    const toggleSocialPlatform = (key, enabled) => {
+        const set = new Set(socialSelected);
+        if (enabled) set.add(key);
+        else set.delete(key);
+        saveSocialPlatforms([...set]);
     };
 
     const saveMemberModules = (memberId, nextKeys, inheritAll = false) => {
@@ -209,6 +239,64 @@ export default function WorkspacePanel({
                                             disabled={locked}
                                             onChange={(enabled) =>
                                                 toggleWorkspaceModule(item.key, enabled)
+                                            }
+                                        />
+                                        <span className="text-[9px] font-semibold uppercase tracking-wide text-ink-muted">
+                                            {locked ? 'Off' : on ? 'Show' : 'Hide'}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </section>
+            ) : null}
+
+            {activeWorkspace && socialPlatformCatalog && canManage ? (
+                <section className="atlas-panel overflow-hidden">
+                    <div className="border-b border-line px-4 py-3.5">
+                        <h3 className="font-display text-base font-bold text-ink">
+                            SMM platforms
+                        </h3>
+                        <p className="mt-0.5 text-sm text-ink-muted">
+                            Choose which social networks appear in Connect / Compose. Items turned
+                            off by platform admin stay locked.
+                        </p>
+                    </div>
+                    <div className="grid gap-2 p-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-5">
+                        {socialPlatformCatalog.items.map((item) => {
+                            const on = socialSelected.includes(item.key);
+                            const locked = item.globally_enabled === false;
+                            const tone = moduleTone(item.tone || 'ink');
+                            return (
+                                <div
+                                    key={item.key}
+                                    className={
+                                        'flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 shadow-sm transition ' +
+                                        (locked || !on ? tone.off : tone.card)
+                                    }
+                                >
+                                    <div className="min-w-0 shrink-0">
+                                        <span
+                                            className={
+                                                'inline-flex rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ' +
+                                                tone.chip
+                                            }
+                                        >
+                                            {item.label}
+                                        </span>
+                                        {locked ? (
+                                            <div className="mt-0.5 text-[9px] font-medium text-rose-600">
+                                                Locked
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                    <div className="flex shrink-0 flex-col items-center gap-0.5">
+                                        <Toggle
+                                            checked={on && !locked}
+                                            disabled={locked}
+                                            onChange={(enabled) =>
+                                                toggleSocialPlatform(item.key, enabled)
                                             }
                                         />
                                         <span className="text-[9px] font-semibold uppercase tracking-wide text-ink-muted">

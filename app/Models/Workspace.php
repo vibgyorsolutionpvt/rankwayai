@@ -20,12 +20,14 @@ class Workspace extends Model
         'name',
         'slug',
         'enabled_modules',
+        'enabled_social_platforms',
     ];
 
     protected function casts(): array
     {
         return [
             'enabled_modules' => 'array',
+            'enabled_social_platforms' => 'array',
         ];
     }
 

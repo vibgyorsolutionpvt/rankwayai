@@ -39,6 +39,10 @@ class WorkspacePolicy
 
     public function manageMembers(User $user, Workspace $workspace): bool
     {
+        if ($user->is_superadmin) {
+            return true;
+        }
+
         $role = $workspace->roleFor($user);
 
         return $role?->canManageMembers() ?? false;
