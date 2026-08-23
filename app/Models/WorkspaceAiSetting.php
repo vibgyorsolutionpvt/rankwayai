@@ -14,6 +14,7 @@ class WorkspaceAiSetting extends Model
         'topup_credits',
         'template_first',
         'tone',
+        'caption_word_limit',
         'industry',
         'location',
         'hashtag_packs',

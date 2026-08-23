@@ -7,7 +7,7 @@ import Toggle from '@/Components/Toggle';
 import { moduleTone, toneForModule } from '@/Components/moduleTones';
 import { confirmAsk } from '@/Components/ConfirmProvider';
 import { router, useForm, usePage } from '@inertiajs/react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 const roleTone = {
     owner: 'bg-ink text-white',
@@ -26,12 +26,31 @@ export default function WorkspacePanel({
 }) {
     const { auth } = usePage().props;
     const createForm = useForm({ name: '' });
+    const profileForm = useForm({
+        industry: activeWorkspace?.industry || '',
+        city: activeWorkspace?.city || '',
+        phone: activeWorkspace?.phone || '',
+        email: activeWorkspace?.email || '',
+        website: activeWorkspace?.website || '',
+    });
     const inviteForm = useForm({ email: '', name: '', role: 'editor' });
     const [editingMemberId, setEditingMemberId] = useState(null);
 
     const canManage =
         activeWorkspace?.role === 'owner' || activeWorkspace?.role === 'admin';
     const inviteRoles = roles.filter((role) => role !== 'owner');
+
+    useEffect(() => {
+        profileForm.setData({
+            industry: activeWorkspace?.industry || '',
+            city: activeWorkspace?.city || '',
+            phone: activeWorkspace?.phone || '',
+            email: activeWorkspace?.email || '',
+            website: activeWorkspace?.website || '',
+        });
+        profileForm.clearErrors();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeWorkspace?.id]);
 
     const workspaceSelected = useMemo(() => {
         if (!moduleCatalog) return [];
@@ -160,6 +179,95 @@ export default function WorkspacePanel({
                             })}
                         </div>
                     )}
+
+                    {activeWorkspace && canManage ? (
+                        <form
+                            className="rounded-md border border-line bg-white p-4"
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                profileForm.patch(
+                                    route('workspaces.profile.update', activeWorkspace.id),
+                                    { preserveScroll: true },
+                                );
+                            }}
+                        >
+                            <div className="font-display text-sm font-bold text-ink">
+                                Business profile
+                            </div>
+                            <p className="mt-0.5 text-xs text-ink-muted">
+                                Used by AI posts — business type, city, and contact details.
+                            </p>
+                            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                                <div>
+                                    <InputLabel value="Business type *" />
+                                    <TextInput
+                                        className="mt-1 w-full"
+                                        placeholder="Travel agency, IT company…"
+                                        value={profileForm.data.industry}
+                                        onChange={(e) =>
+                                            profileForm.setData('industry', e.target.value)
+                                        }
+                                        required
+                                    />
+                                    <InputError
+                                        message={profileForm.errors.industry}
+                                        className="mt-1"
+                                    />
+                                </div>
+                                <div>
+                                    <InputLabel value="City *" />
+                                    <TextInput
+                                        className="mt-1 w-full"
+                                        placeholder="Lucknow, Mumbai…"
+                                        value={profileForm.data.city}
+                                        onChange={(e) => profileForm.setData('city', e.target.value)}
+                                        required
+                                    />
+                                    <InputError message={profileForm.errors.city} className="mt-1" />
+                                </div>
+                                <div>
+                                    <InputLabel value="Mobile / WhatsApp" />
+                                    <TextInput
+                                        className="mt-1 w-full"
+                                        placeholder="+91 98XXXX XXXX"
+                                        value={profileForm.data.phone}
+                                        onChange={(e) =>
+                                            profileForm.setData('phone', e.target.value)
+                                        }
+                                    />
+                                    <InputError message={profileForm.errors.phone} className="mt-1" />
+                                </div>
+                                <div>
+                                    <InputLabel value="Email" />
+                                    <TextInput
+                                        className="mt-1 w-full"
+                                        type="email"
+                                        placeholder="hello@yourbusiness.com"
+                                        value={profileForm.data.email}
+                                        onChange={(e) =>
+                                            profileForm.setData('email', e.target.value)
+                                        }
+                                    />
+                                    <InputError message={profileForm.errors.email} className="mt-1" />
+                                </div>
+                                <div className="sm:col-span-2">
+                                    <InputLabel value="Website" />
+                                    <TextInput
+                                        className="mt-1 w-full"
+                                        placeholder="https://yourbusiness.com"
+                                        value={profileForm.data.website}
+                                        onChange={(e) =>
+                                            profileForm.setData('website', e.target.value)
+                                        }
+                                    />
+                                    <InputError message={profileForm.errors.website} className="mt-1" />
+                                </div>
+                            </div>
+                            <PrimaryButton className="mt-3" processing={profileForm.processing}>
+                                Save profile
+                            </PrimaryButton>
+                        </form>
+                    ) : null}
 
                     <form
                         className="rounded-md border border-line bg-mist/40 p-3"

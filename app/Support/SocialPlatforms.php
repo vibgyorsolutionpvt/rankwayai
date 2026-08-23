@@ -116,6 +116,16 @@ class SocialPlatforms
         )));
     }
 
+    /**
+     * All scheduled social posts require an image before save/publish.
+     *
+     * @param  list<string>|null  $platforms
+     */
+    public static function requiresImage(?array $platforms): bool
+    {
+        return count(self::normalize($platforms) ?? []) > 0;
+    }
+
     private static function ensurePlatformRows(): void
     {
         $existing = PlatformSocialPlatform::query()->pluck('key')->all();

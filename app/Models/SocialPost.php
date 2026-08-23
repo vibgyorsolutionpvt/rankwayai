@@ -64,6 +64,8 @@ class SocialPost extends Model
 
     public function toLibraryArray(): array
     {
+        $publisher = app(\App\Services\Social\SocialPublisherService::class);
+
         return [
             'id' => $this->id,
             'title' => $this->title,
@@ -81,6 +83,11 @@ class SocialPost extends Model
             'media_asset_id' => $this->media_asset_id,
             'brand_kit_id' => $this->brand_kit_id,
             'media_url' => $this->media?->url(),
+            'has_attached_media' => $publisher->hasAttachedMedia($this),
+            'has_public_image' => $publisher->hasPublicImage($this),
+            'failed_platforms' => $publisher->failedPlatforms($this),
+            'has_publish_failures' => $publisher->hasPublishFailures($this),
+            'platform_statuses' => $publisher->platformStatuses($this),
             'calendar_day' => $this->scheduled_at?->toDateString()
                 ?: $this->published_at?->toDateString()
                 ?: $this->created_at?->toDateString(),

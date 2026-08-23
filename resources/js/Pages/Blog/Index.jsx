@@ -1,15 +1,19 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import InputError from '@/Components/InputError';
+import RichTextEditor from '@/Components/RichTextEditor';
 import PanelTitle from '@/Components/PanelTitle';
 import PrimaryButton from '@/Components/PrimaryButton';
 import SecondaryButton from '@/Components/SecondaryButton';
 import SelectMenu from '@/Components/SelectMenu';
 import TextInput from '@/Components/TextInput';
+import { toast } from '@/Components/ToastProvider';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
 
 const TABS = [
+    { id: 'write', label: 'Write' },
     { id: 'posts', label: 'Posts' },
-    { id: 'verba', label: 'Verba' },
+    { id: 'askefy', label: 'Askefy' },
     { id: 'wordpress', label: 'WordPress' },
 ];
 
@@ -134,7 +138,7 @@ export default function Index({
     sites = [],
     site = null,
     plan = null,
-    verba = {
+    askefy = {
         connected: false,
         connection_id: null,
         base_url: '',
@@ -145,7 +149,8 @@ export default function Index({
         pages: [],
     },
     cms_connections = [],
-    content_drafts = [],
+    content_drafts = { data: [], links: [], meta: { total: 0 } },
+    draft_filters = { status: 'all', counts: {} },
     blog_posts = { data: [], links: [], meta: {} },
     blog_share_channels = [],
     blog_synced_at = null,
@@ -154,6 +159,14 @@ export default function Index({
     const { flash, auth } = usePage().props;
     const account = auth?.user || {};
     const seoCmsLocked = plan && !plan.features?.seo_cms;
+    const draftRows = Array.isArray(content_drafts?.data)
+        ? content_drafts.data
+        : Array.isArray(content_drafts)
+          ? content_drafts
+          : [];
+    const draftTotal = content_drafts?.meta?.total ?? draftRows.length;
+    const draftLinks = content_drafts?.links || [];
+    const draftCounts = draft_filters?.counts || {};
     const posts = Array.isArray(blog_posts?.data)
         ? blog_posts.data
         : Array.isArray(blog_posts)
@@ -164,16 +177,19 @@ export default function Index({
 
     const initialTab = (() => {
         const q = new URLSearchParams(window.location.search).get('tab');
-        return TABS.some((t) => t.id === q) ? q : 'posts';
+        return TABS.some((t) => t.id === q) ? q : 'write';
     })();
     const [tab, setTab] = useState(initialTab);
-    const [verbaMode, setVerbaMode] = useState('signup');
+    const [askefyMode, setAskefyMode] = useState('signup');
     const [syncingBlogs, setSyncingBlogs] = useState(false);
     const [sharingBlogId, setSharingBlogId] = useState(null);
     const [shareMenuPostId, setShareMenuPostId] = useState(null);
-    const [publishingVerbaId, setPublishingVerbaId] = useState(null);
+    const [publishingAskefyId, setPublishingAskefyId] = useState(null);
+    const [reviewingDraft, setReviewingDraft] = useState(null);
+    const [editorMode, setEditorMode] = useState('review');
+    const [savingReview, setSavingReview] = useState(false);
 
-    const verbaForm = useForm({
+    const askefyForm = useForm({
         mode: 'signup',
         name: account.name || workspace?.name || '',
         email: account.email || '',
@@ -188,10 +204,17 @@ export default function Index({
         label: 'WordPress',
     });
     const draftForm = useForm({ keyword: '', seo_keyword_id: '' });
+    const reviewForm = useForm({
+        title: '',
+        body_html: '',
+        meta_title: '',
+        meta_description: '',
+        mark_reviewed: true,
+    });
 
-    const verbaConnectionId =
-        verba?.connection_id ||
-        cms_connections.find((c) => c.provider === 'verba')?.id ||
+    const askefyConnectionId =
+        askefy?.connection_id ||
+        cms_connections.find((c) => c.provider === 'askefy' || c.provider === 'verba')?.id ||
         null;
     const wordpressConnectionId =
         cms_connections.find((c) => c.provider === 'wordpress')?.id || null;
@@ -201,6 +224,109 @@ export default function Index({
             window.open(flash.share_open_url, '_blank', 'noopener,noreferrer');
         }
     }, [flash?.share_open_url]);
+
+    const openReview = (draft) => {
+        setReviewingDraft(draft);
+        setEditorMode('review');
+        reviewForm.setData({
+            title: draft.title || '',
+            body_html: draft.body_html || '',
+            meta_title: draft.meta_title || '',
+            meta_description: draft.meta_description || '',
+            mark_reviewed: true,
+        });
+        reviewForm.clearErrors();
+    };
+
+    const openEdit = (draft) => {
+        setReviewingDraft(draft);
+        setEditorMode('edit');
+        reviewForm.setData({
+            title: draft.title || '',
+            body_html: draft.body_html || '',
+            meta_title: draft.meta_title || '',
+            meta_description: draft.meta_description || '',
+            mark_reviewed: false,
+        });
+        reviewForm.clearErrors();
+    };
+
+    const closeReview = () => {
+        setReviewingDraft(null);
+        setEditorMode('review');
+        reviewForm.reset();
+        reviewForm.clearErrors();
+    };
+
+    const saveReview = () => {
+        if (!reviewingDraft?.id) {
+            toast.error('Draft not found. Open it again from the list.');
+            return;
+        }
+
+        const title = String(reviewForm.data.title || '').trim();
+        const bodyHtml = String(reviewForm.data.body_html || '').trim();
+        const markReviewed = editorMode === 'review';
+
+        if (!title) {
+            reviewForm.setError('title', 'Title is required.');
+            toast.error('Title is required.');
+            return;
+        }
+
+        if (!bodyHtml || bodyHtml === '<p></p>') {
+            reviewForm.setError('body_html', 'Article body is required.');
+            toast.error('Article body is required.');
+            return;
+        }
+
+        reviewForm.clearErrors();
+        setSavingReview(true);
+
+        router.patch(
+            route('blog.content.update', reviewingDraft.id),
+            {
+                title,
+                body_html: bodyHtml,
+                meta_title: reviewForm.data.meta_title || '',
+                meta_description: reviewForm.data.meta_description || '',
+                mark_reviewed: markReviewed,
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    closeReview();
+                },
+                onError: (errors) => {
+                    Object.entries(errors || {}).forEach(([key, message]) => {
+                        reviewForm.setError(key, message);
+                    });
+                    const first =
+                        errors?.title ||
+                        errors?.body_html ||
+                        errors?.meta_title ||
+                        errors?.meta_description ||
+                        'Could not save draft.';
+                    toast.error(
+                        typeof first === 'string' ? first : 'Could not save draft.',
+                    );
+                },
+                onFinish: () => setSavingReview(false),
+            },
+        );
+    };
+
+    const applyDraftFilter = (status) => {
+        router.get(
+            route('blog.index'),
+            {
+                tab: 'write',
+                site: site?.id,
+                ...(status !== 'all' ? { draft_status: status } : {}),
+            },
+            { preserveState: true, preserveScroll: true },
+        );
+    };
 
     const switchTab = (id) => {
         setTab(id);
@@ -261,12 +387,17 @@ export default function Index({
                                 }`}
                             >
                                 {t.label}
+                                {t.id === 'write' && draftTotal > 0 ? (
+                                    <span className="ml-1.5 text-[10px] font-bold tabular-nums text-ink-muted">
+                                        {draftTotal}
+                                    </span>
+                                ) : null}
                                 {t.id === 'posts' && postTotal > 0 ? (
                                     <span className="ml-1.5 text-[10px] font-bold tabular-nums text-ink-muted">
                                         {postTotal}
                                     </span>
                                 ) : null}
-                                {t.id === 'verba' && verba?.connected ? (
+                                {t.id === 'askefy' && askefy?.connected ? (
                                     <span className="ml-1.5 text-[10px] font-bold text-emerald-600">
                                         on
                                     </span>
@@ -275,6 +406,382 @@ export default function Index({
                         ))}
                     </div>
                 </div>
+
+                {tab === 'write' ? (
+                    <section className="atlas-panel overflow-hidden">
+                        {reviewingDraft && !seoCmsLocked ? (
+                            <div className="flex max-h-[calc(100svh-8rem)] flex-col">
+                                <div className="sticky top-0 z-10 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line bg-white px-4 py-3">
+                                    <div>
+                                        <div className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                                            {editorMode === 'edit'
+                                                ? 'Edit after approve'
+                                                : 'Review before approve'}
+                                        </div>
+                                        <div className="font-display text-lg font-bold text-ink">
+                                            {editorMode === 'edit'
+                                                ? 'Edit article'
+                                                : 'Review article'}
+                                        </div>
+                                        {editorMode === 'edit' ? (
+                                            <p className="mt-1 text-xs text-amber-700">
+                                                Save ke baad dubara review → approve → publish.
+                                            </p>
+                                        ) : null}
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <SecondaryButton type="button" onClick={closeReview}>
+                                            Back to list
+                                        </SecondaryButton>
+                                        <PrimaryButton
+                                            type="button"
+                                            processing={savingReview}
+                                            onClick={saveReview}
+                                        >
+                                            {savingReview
+                                                ? 'Saving…'
+                                                : editorMode === 'edit'
+                                                  ? 'Save changes'
+                                                  : 'Save & mark reviewed'}
+                                        </PrimaryButton>
+                                    </div>
+                                </div>
+
+                                {(reviewForm.errors.title ||
+                                    reviewForm.errors.body_html ||
+                                    reviewForm.errors.meta_title ||
+                                    reviewForm.errors.meta_description) && (
+                                    <div className="shrink-0 space-y-1 border-b border-danger/20 bg-danger-soft px-4 py-2">
+                                        <InputError message={reviewForm.errors.title} />
+                                        <InputError message={reviewForm.errors.body_html} />
+                                        <InputError message={reviewForm.errors.meta_title} />
+                                        <InputError
+                                            message={reviewForm.errors.meta_description}
+                                        />
+                                    </div>
+                                )}
+
+                                <div className="shrink-0 space-y-3 border-b border-line bg-mist/20 px-4 py-3">
+                                    <div>
+                                        <label className="text-xs font-semibold text-ink-muted">
+                                            Title
+                                        </label>
+                                        <TextInput
+                                            className="mt-1 w-full"
+                                            value={reviewForm.data.title}
+                                            onChange={(e) =>
+                                                reviewForm.setData('title', e.target.value)
+                                            }
+                                        />
+                                    </div>
+                                    <div className="grid gap-3 sm:grid-cols-2">
+                                        <div>
+                                            <label className="text-xs font-semibold text-ink-muted">
+                                                Meta title
+                                            </label>
+                                            <TextInput
+                                                className="mt-1 w-full"
+                                                value={reviewForm.data.meta_title}
+                                                onChange={(e) =>
+                                                    reviewForm.setData(
+                                                        'meta_title',
+                                                        e.target.value,
+                                                    )
+                                                }
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-semibold text-ink-muted">
+                                                Meta description
+                                            </label>
+                                            <TextInput
+                                                className="mt-1 w-full"
+                                                value={reviewForm.data.meta_description}
+                                                onChange={(e) =>
+                                                    reviewForm.setData(
+                                                        'meta_description',
+                                                        e.target.value,
+                                                    )
+                                                }
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                                    <RichTextEditor
+                                        value={reviewForm.data.body_html}
+                                        onChange={(html) =>
+                                            reviewForm.setData('body_html', html)
+                                        }
+                                        placeholder="Write or edit the article body…"
+                                    />
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                <PanelTitle title="Write with AI" />
+                                {seoCmsLocked ? (
+                                    <div className="border-t border-line px-4 py-6 text-sm text-ink-muted">
+                                        Blog writing needs a paid plan or credit top-up.{' '}
+                                        <a
+                                            href={route('billing.index')}
+                                            className="font-semibold text-signal-strong"
+                                        >
+                                            Billing →
+                                        </a>
+                                    </div>
+                                ) : (
+                                    <>
+                                <div className="border-t border-line p-4 sm:p-5">
+                                    <form
+                                        className="mx-auto max-w-xl space-y-3"
+                                        onSubmit={(e) => {
+                                            e.preventDefault();
+                                            draftForm.post(route('blog.content.store'), {
+                                                onSuccess: () => draftForm.reset('keyword'),
+                                            });
+                                        }}
+                                    >
+                                        <p className="text-sm text-ink-muted">
+                                            <strong>1 Review</strong> → <strong>2 Approve</strong>{' '}
+                                            → <strong>3 Publish</strong> (Askefy preferred; WordPress
+                                            optional — pehle connect karo).
+                                        </p>
+                                        <TextInput
+                                            className="w-full"
+                                            placeholder="Topic / keyword (e.g. Goa family trip packages from Noida)"
+                                            value={draftForm.data.keyword}
+                                            onChange={(e) =>
+                                                draftForm.setData('keyword', e.target.value)
+                                            }
+                                            required
+                                        />
+                                        <div className="flex flex-wrap items-center gap-3">
+                                            <PrimaryButton processing={draftForm.processing}>
+                                                {draftForm.processing
+                                                    ? 'Writing…'
+                                                    : 'Generate AI draft'}
+                                            </PrimaryButton>
+                                            {!askefyConnectionId && !wordpressConnectionId ? (
+                                                <span className="text-xs text-amber-700">
+                                                    Publish ke liye pehle Askefy connect karo
+                                                    (WordPress optional).
+                                                </span>
+                                            ) : !askefyConnectionId && wordpressConnectionId ? (
+                                                <span className="text-xs text-ink-muted">
+                                                    Askefy connect karo for preferred publish —
+                                                    WordPress bhi available hai.
+                                                </span>
+                                            ) : null}
+                                        </div>
+                                    </form>
+                                </div>
+
+                                <div className="flex flex-wrap gap-1 border-t border-line px-4 py-2">
+                                    {[
+                                        { id: 'all', label: 'All' },
+                                        { id: 'needs_review', label: 'Needs review' },
+                                        { id: 'draft', label: 'Drafts' },
+                                        { id: 'approved', label: 'Approved' },
+                                        { id: 'published', label: 'Published' },
+                                        { id: 'failed', label: 'Failed' },
+                                    ].map((f) => {
+                                        const active =
+                                            (draft_filters?.status || 'all') === f.id;
+                                        const count = draftCounts[f.id] ?? 0;
+                                        return (
+                                            <button
+                                                key={f.id}
+                                                type="button"
+                                                onClick={() => applyDraftFilter(f.id)}
+                                                className={
+                                                    'rounded-md border px-2.5 py-1 text-xs font-semibold ' +
+                                                    (active
+                                                        ? 'border-signal bg-signal-soft/70 text-ink'
+                                                        : 'border-line bg-white text-ink-muted hover:border-signal/40')
+                                                }
+                                            >
+                                                {f.label}
+                                                <span className="ms-1 tabular-nums opacity-70">
+                                                    {count}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+
+                                <ul className="divide-y divide-line border-t border-line">
+                                    {draftRows.length === 0 ? (
+                                        <li className="px-4 py-10 text-center text-sm text-ink-muted">
+                                            Is filter mein koi draft nahi — upar topic se generate
+                                            karo.
+                                        </li>
+                                    ) : (
+                                        draftRows.map((d) => (
+                                            <li
+                                                key={d.id}
+                                                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+                                            >
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="font-semibold text-ink">
+                                                        {d.title}
+                                                    </div>
+                                                    {d.excerpt ? (
+                                                        <p className="mt-0.5 line-clamp-2 text-sm text-ink-muted">
+                                                            {d.excerpt}
+                                                        </p>
+                                                    ) : null}
+                                                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs uppercase text-ink-muted">
+                                                        <span>{d.status}</span>
+                                                        <span>·</span>
+                                                        <span
+                                                            className={
+                                                                d.is_reviewed
+                                                                    ? 'text-emerald-700'
+                                                                    : 'font-semibold text-amber-700'
+                                                            }
+                                                        >
+                                                            {d.is_reviewed
+                                                                ? 'Reviewed'
+                                                                : 'Needs review'}
+                                                        </span>
+                                                        {d.word_count ? (
+                                                            <>
+                                                                <span>·</span>
+                                                                <span>{d.word_count} words</span>
+                                                            </>
+                                                        ) : null}
+                                                        {d.published_url ? (
+                                                            <>
+                                                                <span>·</span>
+                                                                <span className="normal-case">
+                                                                    {d.published_url}
+                                                                </span>
+                                                            </>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {!d.is_reviewed &&
+                                                    d.status !== 'published' ? (
+                                                        <SecondaryButton
+                                                            type="button"
+                                                            onClick={() => openReview(d)}
+                                                        >
+                                                            Review
+                                                        </SecondaryButton>
+                                                    ) : null}
+                                                    {d.status === 'approved' ? (
+                                                        <SecondaryButton
+                                                            type="button"
+                                                            onClick={() => openEdit(d)}
+                                                        >
+                                                            Edit
+                                                        </SecondaryButton>
+                                                    ) : null}
+                                                    {(d.status === 'draft' ||
+                                                        d.status === 'failed') &&
+                                                    d.is_reviewed ? (
+                                                        <>
+                                                            <SecondaryButton
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    router.post(
+                                                                        route(
+                                                                            'blog.content.approve',
+                                                                            d.id,
+                                                                        ),
+                                                                    )
+                                                                }
+                                                            >
+                                                                Approve
+                                                            </SecondaryButton>
+                                                            <span className="self-center text-xs font-semibold text-signal-strong">
+                                                                Step 2 — phir Publish
+                                                            </span>
+                                                        </>
+                                                    ) : null}
+                                                    {d.status === 'approved' &&
+                                                    !askefyConnectionId &&
+                                                    !wordpressConnectionId ? (
+                                                        <span className="self-center text-xs font-semibold text-amber-700">
+                                                            Step 3 — Askefy tab se connect karo
+                                                            (preferred)
+                                                        </span>
+                                                    ) : null}
+                                                    {d.status === 'approved' &&
+                                                    askefyConnectionId ? (
+                                                        <PrimaryButton
+                                                            type="button"
+                                                            onClick={() =>
+                                                                router.post(
+                                                                    route(
+                                                                        'blog.content.publish',
+                                                                        d.id,
+                                                                    ),
+                                                                    {
+                                                                        cms_connection_id:
+                                                                            askefyConnectionId,
+                                                                    },
+                                                                )
+                                                            }
+                                                        >
+                                                            Publish Askefy
+                                                        </PrimaryButton>
+                                                    ) : null}
+                                                    {d.status === 'approved' &&
+                                                    wordpressConnectionId ? (
+                                                        askefyConnectionId ? (
+                                                            <SecondaryButton
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    router.post(
+                                                                        route(
+                                                                            'blog.content.publish',
+                                                                            d.id,
+                                                                        ),
+                                                                        {
+                                                                            cms_connection_id:
+                                                                                wordpressConnectionId,
+                                                                        },
+                                                                    )
+                                                                }
+                                                            >
+                                                                Publish WP
+                                                            </SecondaryButton>
+                                                        ) : (
+                                                            <PrimaryButton
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    router.post(
+                                                                        route(
+                                                                            'blog.content.publish',
+                                                                            d.id,
+                                                                        ),
+                                                                        {
+                                                                            cms_connection_id:
+                                                                                wordpressConnectionId,
+                                                                        },
+                                                                    )
+                                                                }
+                                                            >
+                                                                Publish WP
+                                                            </PrimaryButton>
+                                                        )
+                                                    ) : null}
+                                                </div>
+                                            </li>
+                                        ))
+                                    )}
+                                </ul>
+                                <Pagination links={draftLinks} />
+                                    </>
+                                )}
+                            </>
+                        )}
+                    </section>
+                ) : null}
 
                 {tab === 'posts' ? (
                     <section className="atlas-panel overflow-hidden">
@@ -369,51 +876,51 @@ export default function Index({
 
                                         <div className="mt-auto space-y-2 pt-4">
                                             <div className="grid grid-cols-2 gap-2">
-                                                {post.verba_published ? (
-                                                    post.verba_published_url ? (
+                                                {post.askefy_published ? (
+                                                    post.askefy_published_url ? (
                                                         <a
-                                                            href={post.verba_published_url}
+                                                            href={post.askefy_published_url}
                                                             target="_blank"
                                                             rel="noreferrer"
                                                             className="inline-flex w-full items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 transition hover:bg-emerald-100"
                                                         >
-                                                            Published on Verba
+                                                            Published on Askefy
                                                         </a>
                                                     ) : (
                                                         <span className="inline-flex w-full items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
-                                                            Published on Verba
+                                                            Published on Askefy
                                                         </span>
                                                     )
                                                 ) : (
                                                     <PrimaryButton
                                                         type="button"
                                                         disabled={
-                                                            seoCmsLocked || !verba?.connected
+                                                            seoCmsLocked || !askefy?.connected
                                                         }
                                                         processing={
-                                                            publishingVerbaId === post.id
+                                                            publishingAskefyId === post.id
                                                         }
                                                         className="w-full rounded-full px-3"
                                                         onClick={() => {
                                                             setShareMenuPostId(null);
-                                                            setPublishingVerbaId(post.id);
+                                                            setPublishingAskefyId(post.id);
                                                             router.post(
                                                                 route(
-                                                                    'blog.posts.verba',
+                                                                    'blog.posts.askefy',
                                                                     post.id,
                                                                 ),
                                                                 {},
                                                                 {
                                                                     preserveScroll: true,
                                                                     onFinish: () =>
-                                                                        setPublishingVerbaId(
+                                                                        setPublishingAskefyId(
                                                                             null,
                                                                         ),
                                                                 },
                                                             );
                                                         }}
                                                     >
-                                                        Publish to Verba
+                                                        Publish to Askefy
                                                     </PrimaryButton>
                                                 )}
                                                 <div
@@ -537,17 +1044,18 @@ export default function Index({
                     </section>
                 ) : null}
 
-                {tab === 'verba' ? (
+                {tab === 'askefy' ? (
                     <section className="atlas-panel overflow-hidden">
                         <PanelTitle
-                            title="Verba"
+                            title="Askefy"
+                            subtitle="Preferred publish destination from RankwayAI"
                             action={
-                                verba?.connected ? (
+                                askefy?.connected ? (
                                     <SecondaryButton
                                         type="button"
                                         disabled={seoCmsLocked}
                                         onClick={() =>
-                                            router.post(route('blog.verba.disconnect'))
+                                            router.post(route('blog.askefy.disconnect'))
                                         }
                                     >
                                         Disconnect
@@ -555,23 +1063,23 @@ export default function Index({
                                 ) : null
                             }
                         />
-                        {seoCmsLocked && !verba?.connected ? (
+                        {seoCmsLocked && !askefy?.connected ? (
                             <div className="border-t border-line px-4 py-6 text-sm text-ink-muted">
                                 Needs paid plan or credit top-up.
                             </div>
                         ) : null}
-                        {verba?.connected ? (
+                        {askefy?.connected ? (
                             <div className="space-y-3 border-t border-line p-4">
                                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
                                     Connected
-                                    {verba.email ? ` · ${verba.email}` : ''}
-                                    {Array.isArray(verba.pages) && verba.pages.length > 0
-                                        ? ` · ${verba.pages.length} page(s)`
+                                    {askefy.email ? ` · ${askefy.email}` : ''}
+                                    {Array.isArray(askefy.pages) && askefy.pages.length > 0
+                                        ? ` · ${askefy.pages.length} page(s)`
                                         : ''}
                                 </div>
-                                {Array.isArray(verba.pages) && verba.pages.length > 0 ? (
+                                {Array.isArray(askefy.pages) && askefy.pages.length > 0 ? (
                                     <ul className="divide-y divide-line rounded-xl border border-line">
-                                        {verba.pages.map((p) => (
+                                        {askefy.pages.map((p) => (
                                             <li
                                                 key={`${p.domain}-${p.slug}`}
                                                 className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
@@ -593,14 +1101,14 @@ export default function Index({
                                 className="space-y-5 border-t border-line p-4"
                                 onSubmit={(e) => {
                                     e.preventDefault();
-                                    verbaForm.transform((data) => ({
+                                    askefyForm.transform((data) => ({
                                         ...data,
-                                        mode: verbaMode,
+                                        mode: askefyMode,
                                     }));
-                                    verbaForm.post(route('blog.verba.connect'), {
+                                    askefyForm.post(route('blog.askefy.connect'), {
                                         preserveScroll: true,
                                         onSuccess: () =>
-                                            verbaForm.reset(
+                                            askefyForm.reset(
                                                 'password',
                                                 'password_confirmation',
                                             ),
@@ -611,13 +1119,13 @@ export default function Index({
                                     <button
                                         type="button"
                                         className={`rounded-lg border px-3 py-1.5 font-semibold ${
-                                            verbaMode === 'signup'
+                                            askefyMode === 'signup'
                                                 ? 'border-ink bg-ink text-white'
                                                 : 'border-line text-ink-muted'
                                         }`}
                                         onClick={() => {
-                                            setVerbaMode('signup');
-                                            verbaForm.setData('mode', 'signup');
+                                            setAskefyMode('signup');
+                                            askefyForm.setData('mode', 'signup');
                                         }}
                                     >
                                         New signup
@@ -625,13 +1133,13 @@ export default function Index({
                                     <button
                                         type="button"
                                         className={`rounded-lg border px-3 py-1.5 font-semibold ${
-                                            verbaMode === 'login'
+                                            askefyMode === 'login'
                                                 ? 'border-ink bg-ink text-white'
                                                 : 'border-line text-ink-muted'
                                         }`}
                                         onClick={() => {
-                                            setVerbaMode('login');
-                                            verbaForm.setData('mode', 'login');
+                                            setAskefyMode('login');
+                                            askefyForm.setData('mode', 'login');
                                         }}
                                     >
                                         Login
@@ -643,10 +1151,10 @@ export default function Index({
                                         Your account
                                     </h4>
                                     <div className="grid gap-3 md:grid-cols-2">
-                                        {verbaMode === 'signup' ? (
+                                        {askefyMode === 'signup' ? (
                                             <TextInput
                                                 placeholder="Full name"
-                                                value={verbaForm.data.name}
+                                                value={askefyForm.data.name}
                                                 readOnly
                                                 className="bg-mist/60"
                                             />
@@ -654,26 +1162,26 @@ export default function Index({
                                         <TextInput
                                             type="email"
                                             placeholder="Email"
-                                            value={verbaForm.data.email}
+                                            value={askefyForm.data.email}
                                             readOnly
                                             className="bg-mist/60"
                                         />
                                         <TextInput
                                             type="password"
                                             placeholder="Password (min 8)"
-                                            value={verbaForm.data.password}
+                                            value={askefyForm.data.password}
                                             onChange={(e) =>
-                                                verbaForm.setData('password', e.target.value)
+                                                askefyForm.setData('password', e.target.value)
                                             }
                                             required
                                         />
-                                        {verbaMode === 'signup' ? (
+                                        {askefyMode === 'signup' ? (
                                             <TextInput
                                                 type="password"
                                                 placeholder="Confirm password"
-                                                value={verbaForm.data.password_confirmation}
+                                                value={askefyForm.data.password_confirmation}
                                                 onChange={(e) =>
-                                                    verbaForm.setData(
+                                                    askefyForm.setData(
                                                         'password_confirmation',
                                                         e.target.value,
                                                     )
@@ -712,10 +1220,10 @@ export default function Index({
                                 </div>
 
                                 <PrimaryButton
-                                    processing={verbaForm.processing}
+                                    processing={askefyForm.processing}
                                     disabled={sites.length === 0}
                                 >
-                                    {verbaMode === 'signup'
+                                    {askefyMode === 'signup'
                                         ? 'Signup + create pages'
                                         : 'Login + sync pages'}
                                 </PrimaryButton>
@@ -726,163 +1234,77 @@ export default function Index({
 
                 {tab === 'wordpress' ? (
                     <section className="atlas-panel overflow-hidden">
-                        <PanelTitle title="WordPress" />
+                        <PanelTitle
+                            title="WordPress"
+                            subtitle="Optional — Askefy is the preferred publish destination"
+                        />
                         {seoCmsLocked ? (
                             <div className="border-t border-line px-4 py-6 text-sm text-ink-muted">
                                 Needs paid plan or credit top-up.
                             </div>
                         ) : (
-                            <>
-                                <div className="grid gap-4 border-t border-line p-4 lg:grid-cols-2">
-                                    <form
-                                        className="space-y-2"
-                                        onSubmit={(e) => {
-                                            e.preventDefault();
-                                            cmsForm.post(route('blog.cms.store'), {
-                                                onSuccess: () => cmsForm.reset(),
-                                            });
-                                        }}
-                                    >
-                                        <h4 className="text-sm font-bold text-ink">Connect</h4>
-                                        <TextInput
-                                            placeholder="https://yoursite.com"
-                                            value={cmsForm.data.base_url}
-                                            onChange={(e) =>
-                                                cmsForm.setData('base_url', e.target.value)
-                                            }
-                                            required
-                                        />
-                                        <TextInput
-                                            placeholder="Username"
-                                            value={cmsForm.data.username}
-                                            onChange={(e) =>
-                                                cmsForm.setData('username', e.target.value)
-                                            }
-                                            required
-                                        />
-                                        <TextInput
-                                            type="password"
-                                            placeholder="Application password"
-                                            value={cmsForm.data.app_password}
-                                            onChange={(e) =>
-                                                cmsForm.setData('app_password', e.target.value)
-                                            }
-                                            required
-                                        />
-                                        <PrimaryButton processing={cmsForm.processing}>
-                                            Connect
-                                        </PrimaryButton>
-                                    </form>
-                                    <form
-                                        className="space-y-2"
-                                        onSubmit={(e) => {
-                                            e.preventDefault();
-                                            draftForm.post(route('blog.content.store'), {
-                                                onSuccess: () => draftForm.reset('keyword'),
-                                            });
-                                        }}
-                                    >
-                                        <h4 className="text-sm font-bold text-ink">New draft</h4>
-                                        <TextInput
-                                            placeholder="Topic / keyword"
-                                            value={draftForm.data.keyword}
-                                            onChange={(e) =>
-                                                draftForm.setData('keyword', e.target.value)
-                                            }
-                                            required
-                                        />
-                                        <PrimaryButton processing={draftForm.processing}>
-                                            Create draft
-                                        </PrimaryButton>
-                                    </form>
-                                </div>
-                                <ul className="divide-y divide-line border-t border-line">
-                                    {content_drafts.length === 0 ? (
-                                        <li className="px-4 py-8 text-center text-sm text-ink-muted">
-                                            No drafts yet.
-                                        </li>
-                                    ) : (
-                                        content_drafts.map((d) => (
-                                            <li
-                                                key={d.id}
-                                                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-                                            >
-                                                <div>
-                                                    <div className="font-semibold text-ink">
-                                                        {d.title}
-                                                    </div>
-                                                    <div className="text-xs uppercase text-ink-muted">
-                                                        {d.status}
-                                                        {d.published_url
-                                                            ? ` · ${d.published_url}`
-                                                            : ''}
-                                                    </div>
-                                                </div>
-                                                <div className="flex gap-2">
-                                                    {d.status === 'draft' ||
-                                                    d.status === 'failed' ? (
-                                                        <SecondaryButton
-                                                            type="button"
-                                                            onClick={() =>
-                                                                router.post(
-                                                                    route(
-                                                                        'blog.content.approve',
-                                                                        d.id,
-                                                                    ),
-                                                                )
-                                                            }
-                                                        >
-                                                            Approve
-                                                        </SecondaryButton>
-                                                    ) : null}
-                                                    {(d.status === 'approved' ||
-                                                        d.status === 'draft') &&
-                                                    wordpressConnectionId ? (
-                                                        <PrimaryButton
-                                                            type="button"
-                                                            onClick={() =>
-                                                                router.post(
-                                                                    route(
-                                                                        'blog.content.publish',
-                                                                        d.id,
-                                                                    ),
-                                                                    {
-                                                                        cms_connection_id:
-                                                                            wordpressConnectionId,
-                                                                    },
-                                                                )
-                                                            }
-                                                        >
-                                                            Publish WP
-                                                        </PrimaryButton>
-                                                    ) : null}
-                                                    {(d.status === 'approved' ||
-                                                        d.status === 'draft') &&
-                                                    verbaConnectionId ? (
-                                                        <PrimaryButton
-                                                            type="button"
-                                                            onClick={() =>
-                                                                router.post(
-                                                                    route(
-                                                                        'blog.content.publish',
-                                                                        d.id,
-                                                                    ),
-                                                                    {
-                                                                        cms_connection_id:
-                                                                            verbaConnectionId,
-                                                                    },
-                                                                )
-                                                            }
-                                                        >
-                                                            Publish Verba
-                                                        </PrimaryButton>
-                                                    ) : null}
-                                                </div>
-                                            </li>
-                                        ))
-                                    )}
-                                </ul>
-                            </>
+                            <div className="border-t border-line p-4 sm:max-w-lg">
+                                {wordpressConnectionId ? (
+                                    <p className="mb-3 text-sm text-emerald-800">
+                                        WordPress connected — optional destination. Prefer Askefy
+                                        when both are connected. AI drafts from the{' '}
+                                        <button
+                                            type="button"
+                                            className="font-semibold underline"
+                                            onClick={() => switchTab('write')}
+                                        >
+                                            Write
+                                        </button>{' '}
+                                        tab can still publish here.
+                                    </p>
+                                ) : null}
+                                <form
+                                    className="space-y-2"
+                                    onSubmit={(e) => {
+                                        e.preventDefault();
+                                        cmsForm.post(route('blog.cms.store'), {
+                                            onSuccess: () => cmsForm.reset(),
+                                        });
+                                    }}
+                                >
+                                    <h4 className="text-sm font-bold text-ink">
+                                        {wordpressConnectionId
+                                            ? 'Reconnect WordPress'
+                                            : 'Connect WordPress'}
+                                    </h4>
+                                    <p className="text-xs text-ink-muted">
+                                        Sirf CMS connection. Article AI Write tab se banta hai.
+                                    </p>
+                                    <TextInput
+                                        placeholder="https://yoursite.com"
+                                        value={cmsForm.data.base_url}
+                                        onChange={(e) =>
+                                            cmsForm.setData('base_url', e.target.value)
+                                        }
+                                        required
+                                    />
+                                    <TextInput
+                                        placeholder="Username"
+                                        value={cmsForm.data.username}
+                                        onChange={(e) =>
+                                            cmsForm.setData('username', e.target.value)
+                                        }
+                                        required
+                                    />
+                                    <TextInput
+                                        type="password"
+                                        placeholder="Application password"
+                                        value={cmsForm.data.app_password}
+                                        onChange={(e) =>
+                                            cmsForm.setData('app_password', e.target.value)
+                                        }
+                                        required
+                                    />
+                                    <PrimaryButton processing={cmsForm.processing}>
+                                        Connect
+                                    </PrimaryButton>
+                                </form>
+                            </div>
                         )}
                     </section>
                 ) : null}

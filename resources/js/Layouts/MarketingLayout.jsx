@@ -6,6 +6,7 @@ import { Link, usePage } from '@inertiajs/react';
 
 const NAV = [
     { href: '/about', label: 'About', routeName: 'about' },
+    { href: '/website-rank-checker', label: 'Rank check', routeName: 'website-rank-checker' },
     { href: '/pricing', label: 'Pricing', routeName: 'pricing' },
     { href: '/contact', label: 'Contact', routeName: 'contact' },
 ];

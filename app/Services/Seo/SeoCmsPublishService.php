@@ -9,7 +9,7 @@ use App\Models\Workspace;
 use App\Services\Ai\AiContentService;
 use App\Services\Billing\PlanAccess;
 use App\Services\Seo\Contracts\CmsPublisher;
-use App\Services\Seo\Providers\VerbaCmsPublisher;
+use App\Services\Seo\Providers\AskefyCmsPublisher;
 use App\Services\Seo\Providers\WordpressCmsPublisher;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -21,59 +21,55 @@ class SeoCmsPublishService
         private AiContentService $ai,
     ) {}
 
-    public function createDraftFromKeyword(Workspace $workspace, string $keyword, ?int $keywordId = null): SeoContentDraft
-    {
+    public function createDraftFromKeyword(
+        Workspace $workspace,
+        string $keyword,
+        ?int $keywordId = null,
+        ?int $userId = null,
+    ): SeoContentDraft {
         if (! $this->plans->allows($workspace, 'seo_cms')) {
             throw new RuntimeException($this->plans->denyMessage('seo_cms'));
         }
 
-        $result = $this->ai->blogOutline($workspace, $keyword);
+        $result = $this->ai->writeBlogArticle($workspace, $keyword, $userId);
         if (! ($result['ok'] ?? false)) {
-            throw new RuntimeException($result['message'] ?? 'Could not generate outline');
+            throw new RuntimeException($result['message'] ?? 'Could not generate blog article');
         }
 
-        $outline = $result['outline'] ?? [];
-        $title = is_array($outline)
-            ? ($outline['title'] ?? $outline['h1'] ?? ('Guide: '.$keyword))
-            : ('Guide: '.$keyword);
-        $sections = is_array($outline) ? ($outline['sections'] ?? $outline['outline'] ?? []) : [];
-        if (! is_array($sections)) {
-            $sections = [];
-        }
-
-        $settings = $this->ai->settings($workspace);
-
-        $body = '<p>Draft generated for <strong>'.e($keyword).'</strong>. Review before publish.</p>';
-        foreach ($sections as $section) {
-            if (is_string($section)) {
-                $body .= '<h2>'.e($section).'</h2><p></p>';
-            } elseif (is_array($section)) {
-                $heading = $section['heading'] ?? $section['title'] ?? 'Section';
-                $body .= '<h2>'.e((string) $heading).'</h2>';
-                if (! empty($section['bullets']) && is_array($section['bullets'])) {
-                    $body .= '<ul>';
-                    foreach ($section['bullets'] as $b) {
-                        $body .= '<li>'.e((string) $b).'</li>';
-                    }
-                    $body .= '</ul>';
-                }
-            }
-        }
+        $article = $result['article'] ?? [];
+        $title = is_string($article['title'] ?? null) ? $article['title'] : ('Guide: '.$keyword);
+        $body = is_string($article['body_html'] ?? null) && trim(strip_tags($article['body_html'])) !== ''
+            ? $article['body_html']
+            : '<p>Draft generated for <strong>'.e($keyword).'</strong>. Review before publish.</p>';
+        $metaTitle = is_string($article['meta_title'] ?? null)
+            ? $article['meta_title']
+            : Str::limit($title, 60, '');
+        $metaDescription = is_string($article['meta_description'] ?? null)
+            ? $article['meta_description']
+            : Str::limit('Learn about '.$keyword.'.', 155, '');
 
         return SeoContentDraft::query()->create([
             'workspace_id' => $workspace->id,
             'seo_keyword_id' => $keywordId,
-            'title' => is_string($title) ? $title : ('Guide: '.$keyword),
-            'slug' => Str::slug(is_string($title) ? $title : $keyword),
+            'title' => $title,
+            'slug' => Str::slug($title) ?: Str::slug($keyword),
             'body_html' => $body,
-            'meta_title' => Str::limit(is_string($title) ? $title : $keyword, 60, ''),
-            'meta_description' => Str::limit('Learn about '.$keyword.' — tips for '.$settings->location.'.', 155, ''),
+            'meta_title' => $metaTitle,
+            'meta_description' => $metaDescription,
             'status' => 'draft',
         ]);
     }
 
     public function approve(SeoContentDraft $draft): void
     {
+        if (! $draft->isReviewed()) {
+            throw new RuntimeException('Open Review, edit if needed, and save before approving.');
+        }
+
+        if (! in_array($draft->status, ['draft', 'failed'], true)) {
+            throw new RuntimeException('Only reviewed drafts can be approved.');
+        }
+
         $draft->update(['status' => 'approved', 'last_error' => null]);
     }
 
@@ -82,8 +78,13 @@ class SeoCmsPublishService
         if (! $this->plans->allows($workspace, 'seo_cms')) {
             throw new RuntimeException($this->plans->denyMessage('seo_cms'));
         }
-        if (! in_array($draft->status, ['draft', 'approved', 'failed'], true)) {
-            throw new RuntimeException('Draft is not publishable in status '.$draft->status);
+
+        if (! $draft->isReviewed()) {
+            throw new RuntimeException('Review the draft before publishing.');
+        }
+
+        if (! in_array($draft->status, ['approved', 'failed'], true)) {
+            throw new RuntimeException('Approve the draft after review before publishing.');
         }
 
         $draft->update(['status' => 'publishing', 'cms_connection_id' => $connection->id, 'last_error' => null]);
@@ -119,7 +120,7 @@ class SeoCmsPublishService
     }
 
     /**
-     * Push a discovered / demo blog URL to the connected Verba page.
+     * Push a discovered / demo blog URL to the connected Askefy page.
      *
      * @return array{ok:bool,url?:string,message:string}
      */
@@ -129,8 +130,8 @@ class SeoCmsPublishService
             throw new RuntimeException($this->plans->denyMessage('seo_cms'));
         }
 
-        if (($connection->provider ?? '') !== 'verba') {
-            throw new RuntimeException('Connect Verba first to publish blogs there.');
+        if (! in_array($connection->provider ?? '', ['askefy', 'verba'], true)) {
+            throw new RuntimeException('Connect Askefy first to publish blogs there.');
         }
 
         if ($post->verba_published_at !== null) {
@@ -138,7 +139,7 @@ class SeoCmsPublishService
                 'ok' => true,
                 'url' => $post->verba_published_url,
                 'already' => true,
-                'message' => 'Already published to Verba'
+                'message' => 'Already published to Askefy'
                     .(filled($post->verba_published_url) ? ': '.$post->verba_published_url : ''),
             ];
         }
@@ -168,7 +169,7 @@ class SeoCmsPublishService
         if (! ($result['ok'] ?? false)) {
             return [
                 'ok' => false,
-                'message' => $result['message'] ?? 'Verba publish failed',
+                'message' => $result['message'] ?? 'Askefy publish failed',
             ];
         }
 
@@ -180,14 +181,14 @@ class SeoCmsPublishService
         return [
             'ok' => true,
             'url' => $result['url'] ?? null,
-            'message' => 'Published to Verba'.(filled($result['url'] ?? null) ? ': '.$result['url'] : ''),
+            'message' => 'Published to Askefy'.(filled($result['url'] ?? null) ? ': '.$result['url'] : ''),
         ];
     }
 
     public function publisherFor(CmsConnection $connection): CmsPublisher
     {
         return match ($connection->provider) {
-            'verba' => app(VerbaCmsPublisher::class),
+            'askefy', 'verba' => app(AskefyCmsPublisher::class),
             default => app(WordpressCmsPublisher::class),
         };
     }

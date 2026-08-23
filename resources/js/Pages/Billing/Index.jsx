@@ -45,7 +45,9 @@ export default function Index({
     account_plan = null,
     note,
     admin_note = null,
+    local_checkout_hint = null,
     is_platform_admin = false,
+    credits_shared = false,
     usage = null,
     ai_history = null,
 }) {
@@ -286,6 +288,11 @@ export default function Index({
                                     </ul>
                                 )}
                                 <p className="mt-4 text-sm text-ink-muted">{note}</p>
+                                {local_checkout_hint ? (
+                                    <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
+                                        {local_checkout_hint}
+                                    </p>
+                                ) : null}
                                 {is_platform_admin && admin_note ? (
                                     <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900">
                                         {admin_note}
@@ -350,8 +357,9 @@ export default function Index({
                                         Recharge AI credits
                                     </div>
                                     <p className="mt-0.5 text-sm text-ink-muted">
-                                        Top-ups stay in your wallet, don’t expire with the billing
-                                        month, and unlock all paid modules while balance remains.
+                                        {credits_shared
+                                            ? 'Top-ups go to your account wallet — shared across all covered workspaces.'
+                                            : 'Top-ups stay in your wallet, don’t expire with the billing month, and unlock paid modules while balance remains.'}
                                     </p>
                                 </div>
                                 <div className="grid gap-3 sm:grid-cols-3">
@@ -679,7 +687,9 @@ export default function Index({
                                     Top-up history
                                 </div>
                                 <p className="mt-0.5 text-sm text-ink-muted">
-                                    Credit pack purchases for this workspace.
+                                    {credits_shared
+                                        ? 'Credit pack purchases for your account (all covered workspaces).'
+                                        : 'Credit pack purchases for this workspace.'}
                                 </p>
                             </div>
                             {credit_history.length === 0 ? (

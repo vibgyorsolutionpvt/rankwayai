@@ -84,10 +84,12 @@ return [
         'url' => env('BROWSERLESS_URL'),
     ],
 
-    // Verba HTTP API (pages + posts) — Sanctum Bearer tokens
-    'verba' => [
-        'base_url' => env('VERBA_BASE_URL', 'http://127.0.0.1:8000'),
-        'public_url' => env('VERBA_PUBLIC_URL', env('VERBA_BASE_URL', 'http://127.0.0.1:8000')),
+    // Askefy HTTP API (pages + posts) — Sanctum Bearer tokens
+    'askefy' => [
+        'base_url' => env('ASKEFY_BASE_URL', ''),
+        'public_url' => env('ASKEFY_PUBLIC_URL', env('ASKEFY_BASE_URL', '')),
+        'timeout' => (int) env('ASKEFY_TIMEOUT', 12),
+        'connect_timeout' => (int) env('ASKEFY_CONNECT_TIMEOUT', 5),
     ],
 
     'cashfree' => [

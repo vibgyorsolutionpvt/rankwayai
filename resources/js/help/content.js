@@ -264,24 +264,24 @@ export const HELP = {
         },
     ),
     ai: entry(
-        'AI studio',
+        'AI posts',
         {
-            what: 'क्रेडिट्स से पोस्ट, ब्लॉग आउटलाइन और SEO मेटा जेनरेट करें।',
+            what: 'Apna topic likho — AI 3 social drafts banata hai, phir SMM se publish.',
             how: [
-                'Settings में टोन / इंडस्ट्री सेट करें।',
-                'Write today’s posts या ब्लॉग / मेटा टूल चलाएँ।',
-                'जनरेशन हिस्ट्री में रिव्यू करें — पब्लिश से पहले अप्रूव करें।',
+                'Business type, city, language save karein.',
+                '“Aaj kya post karna hai” mein topic / offer likhein.',
+                'Confirm karke drafts banao → SMM se review.',
             ],
-            note: 'फ्री प्लान में AI क्रेडिट्स नहीं। Billing से रिचार्ज / अपग्रेड करें।',
+            note: 'Bina topic ke generate nahi hota. AI sirf draft banata hai.',
         },
         {
-            what: 'Generate posts, blog outlines, and SEO metas using credits.',
+            what: 'Describe your topic — AI creates 3 social drafts, then publish from SMM.',
             how: [
-                'Set tone and industry in Settings.',
-                'Run Write today’s posts or the blog / meta tools.',
-                'Review generation history — approve before publishing.',
+                'Save business type, city, and language.',
+                'Write today’s topic / offer in the brief field.',
+                'Confirm and create drafts → review in SMM.',
             ],
-            note: 'Free includes SEO audit, GSC, PageSpeed, and keyword metrics. AI/social/WhatsApp need a paid plan.',
+            note: 'Generation requires your brief. AI only creates drafts.',
         },
     ),
     channels: entry(

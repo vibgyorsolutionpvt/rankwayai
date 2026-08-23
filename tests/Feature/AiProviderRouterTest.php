@@ -14,8 +14,7 @@ class AiProviderRouterTest extends TestCase
     {
         config([
             'ai.default' => 'auto',
-            'ai.priority' => ['ollama', 'groq', 'cerebras', 'gemini', 'mistral', 'openrouter', 'openai'],
-            'ai.providers.ollama.enabled' => false,
+            'ai.priority' => ['groq', 'cerebras', 'gemini', 'mistral', 'openrouter', 'openai'],
             'ai.providers.groq.key' => 'groq-test',
             'ai.providers.groq.model' => 'llama-3.3-70b-versatile',
             'ai.providers.groq.base_url' => 'https://api.groq.com/openai/v1',
@@ -145,8 +144,8 @@ class AiProviderRouterTest extends TestCase
         $this->assertContains('cerebras', $ids);
         $this->assertContains('mistral', $ids);
         $this->assertContains('openrouter', $ids);
-        $this->assertContains('ollama', $ids);
         $this->assertContains('gemini', $ids);
         $this->assertContains('openai', $ids);
+        $this->assertNotContains('ollama', $ids);
     }
 }

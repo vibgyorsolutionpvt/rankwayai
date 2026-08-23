@@ -35,6 +35,25 @@ class CashfreeClient
     }
 
     /**
+     * Cashfree's checkout tries to hit return_url; localhost/http private hosts
+     * trigger their "Please check your network connection" overlay after success.
+     */
+    public function appUrlIsPublic(): bool
+    {
+        $host = strtolower((string) (parse_url((string) config('app.url'), PHP_URL_HOST) ?: ''));
+
+        if ($host === '' || in_array($host, ['localhost', '127.0.0.1', '::1'], true)) {
+            return false;
+        }
+
+        if (str_ends_with($host, '.test') || str_ends_with($host, '.local') || str_ends_with($host, '.localhost')) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * @param  array{
      *   link_id:string,
      *   amount:float,
@@ -44,7 +63,7 @@ class CashfreeClient
      *   customer_email:?string,
      *   customer_phone:?string,
      *   customer_name:?string,
-     *   return_url:string,
+     *   return_url:?string,
      *   notes?:array<string, string>
      * }  $data
      * @return array{ok:bool, link_url:?string, link_id:?string, error:?string, raw?:array}
@@ -54,6 +73,25 @@ class CashfreeClient
         $phone = preg_replace('/\D+/', '', (string) ($data['customer_phone'] ?? '')) ?: '9999999999';
         if (strlen($phone) < 10) {
             $phone = '9999999999';
+        }
+
+        $isSandbox = strtolower((string) config('services.cashfree.env', 'sandbox')) !== 'production';
+        $linkMeta = [];
+
+        $returnUrl = $data['return_url'] ?? null;
+        if (filled($returnUrl)) {
+            // Always set so Cashfree redirects the browser back (incl. localhost).
+            // notify_url stays public-HTTPS only — Cashfree servers can't reach localhost.
+            $linkMeta['return_url'] = str_contains((string) $returnUrl, '{link_id}')
+                ? (string) $returnUrl
+                : rtrim((string) $returnUrl, '&?').(str_contains((string) $returnUrl, '?') ? '&' : '?').'link_id={link_id}';
+        }
+
+        if ($this->appUrlIsPublic()) {
+            $webhook = route('webhooks.cashfree');
+            if (str_starts_with($webhook, 'https://')) {
+                $linkMeta['notify_url'] = $webhook;
+            }
         }
 
         $payload = [
@@ -67,14 +105,15 @@ class CashfreeClient
                 'customer_phone' => $phone,
                 'customer_name' => $data['customer_name'] ?: 'rankwayAI customer',
             ],
-            'link_meta' => [
-                'return_url' => $data['return_url'],
-            ],
             'link_notify' => [
-                'send_email' => true,
+                'send_email' => ! $isSandbox,
                 'send_sms' => false,
             ],
         ];
+
+        if ($linkMeta !== []) {
+            $payload['link_meta'] = $linkMeta;
+        }
 
         if (! empty($data['notes']) && is_array($data['notes'])) {
             $payload['link_notes'] = collect($data['notes'])
@@ -100,6 +139,32 @@ class CashfreeClient
             'link_id' => (string) ($response->json('link_id') ?? $data['link_id']),
             'error' => null,
             'raw' => $response->json() ?? [],
+        ];
+    }
+
+    /**
+     * @return array{ok:bool, status:?string, amount_paid?:float, raw?:array, error?:string}
+     */
+    public function getPaymentLink(string $linkId): array
+    {
+        $response = $this->http()->get($this->baseUrl().'/links/'.rawurlencode($linkId));
+
+        if (! $response->successful()) {
+            return [
+                'ok' => false,
+                'status' => null,
+                'error' => Str::limit($response->json('message') ?? $response->body(), 240),
+                'raw' => $response->json() ?? [],
+            ];
+        }
+
+        $json = $response->json() ?? [];
+
+        return [
+            'ok' => true,
+            'status' => strtoupper((string) ($json['link_status'] ?? '')),
+            'amount_paid' => (float) ($json['link_amount_paid'] ?? 0),
+            'raw' => $json,
         ];
     }
 

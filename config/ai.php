@@ -8,7 +8,7 @@ return [
     |--------------------------------------------------------------------------
     |
     | auto = first configured in priority (free tiers first, paid last)
-    | Or force: groq, cerebras, gemini, mistral, openrouter, ollama, openai, template
+    | Or force: groq, cerebras, gemini, mistral, openrouter, openai, template
     |
     */
     'default' => env('AI_PROVIDER', 'auto'),
@@ -17,7 +17,6 @@ return [
     | Free / cheap first → paid last. Failover walks this list.
     */
     'priority' => [
-        'ollama',
         'groq',
         'cerebras',
         'gemini',
@@ -27,15 +26,6 @@ return [
     ],
 
     'providers' => [
-
-        'ollama' => [
-            'label' => 'Ollama (local free)',
-            'tier' => 'free',
-            'enabled' => env('OLLAMA_ENABLED', false),
-            'key' => env('OLLAMA_API_KEY'), // usually empty
-            'model' => env('OLLAMA_MODEL', 'llama3.2'),
-            'base_url' => env('OLLAMA_BASE_URL', 'http://127.0.0.1:11434/v1'),
-        ],
 
         'groq' => [
             'label' => 'Groq (free tier)',
@@ -95,7 +85,6 @@ return [
     */
     'costs' => [
         'template' => 0.002,
-        'ollama' => 0.001,
         'groq' => 0.004,
         'cerebras' => 0.004,
         'gemini' => 0.004,

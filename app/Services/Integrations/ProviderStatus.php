@@ -24,7 +24,6 @@ class ProviderStatus
             'cerebras' => filled(config('ai.providers.cerebras.key')),
             'mistral' => filled(config('ai.providers.mistral.key')),
             'openrouter' => filled(config('ai.providers.openrouter.key')),
-            'ollama' => (bool) filter_var(config('ai.providers.ollama.enabled'), FILTER_VALIDATE_BOOLEAN),
         ];
     }
 }

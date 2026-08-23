@@ -151,7 +151,11 @@ class BillingService
             'customer_email' => $owner?->email,
             'customer_phone' => null,
             'customer_name' => $owner?->name,
-            'return_url' => route('billing.index').'?checkout=success&market='.$market.'&interval='.$interval,
+            'return_url' => route('billing.index', [
+                'checkout' => 'success',
+                'market' => $market,
+                'interval' => $interval,
+            ]),
             'notes' => [
                 'type' => 'plan_checkout',
                 'workspace_id' => (string) $workspace->id,
@@ -218,6 +222,57 @@ class BillingService
         }
 
         return $sub->fresh();
+    }
+
+    /**
+     * Sync pending plan checkout when webhook can't reach local/dev.
+     */
+    public function syncPendingCashfreeCheckout(Workspace $workspace, ?string $linkId = null): bool
+    {
+        if (! $this->cashfreeConfigured()) {
+            return false;
+        }
+
+        $sub = $this->subscription($workspace);
+        if ($sub->status !== 'pending' || $sub->billing_provider !== 'cashfree') {
+            return false;
+        }
+
+        $ref = $linkId ?: $sub->cashfree_payment_link_id;
+        if (blank($ref)) {
+            return false;
+        }
+
+        $link = $this->cashfree->getPaymentLink((string) $ref);
+        if (! ($link['ok'] ?? false)) {
+            return false;
+        }
+
+        if (($link['status'] ?? '') !== 'PAID' && (float) ($link['amount_paid'] ?? 0) <= 0) {
+            return false;
+        }
+
+        $notes = $link['raw']['link_notes'] ?? [];
+        $plan = (string) ($notes['plan'] ?? $sub->plan ?: 'starter');
+        if ($plan === 'free' || $plan === 'pending') {
+            $plan = 'starter';
+        }
+        $market = ($notes['market'] ?? $sub->billing_market) === PlanCatalog::MARKET_GLOBAL
+            ? PlanCatalog::MARKET_GLOBAL
+            : PlanCatalog::MARKET_IN;
+        $interval = PlanCatalog::normalizeInterval($notes['interval'] ?? $sub->billing_interval);
+
+        $this->applyCheckoutSuccess(
+            $workspace,
+            $plan,
+            $market,
+            'cashfree',
+            null,
+            (string) $ref,
+            $interval
+        );
+
+        return true;
     }
 
     public function cancel(Workspace $workspace): WorkspaceSubscription

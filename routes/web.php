@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AiStudioController;
 use App\Http\Controllers\BlogController;
+use App\Http\Controllers\EditorMediaController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\BillingWebhookController;
 use App\Http\Controllers\BrandKitController;
@@ -20,6 +21,7 @@ use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\SocialController;
 use App\Http\Controllers\TodayController;
 use App\Http\Controllers\WhatsAppController;
+use App\Http\Controllers\WebsiteRankCheckerController;
 use App\Http\Controllers\WorkspacePageController;
 use App\Http\Middleware\EnsureSuperAdmin;
 use Illuminate\Support\Facades\Route;
@@ -52,6 +54,13 @@ Route::get('/contact', [MarketingController::class, 'contact'])->name('contact')
 Route::post('/contact', [MarketingController::class, 'contactStore'])
     ->middleware('throttle:10,1')
     ->name('contact.store');
+Route::get('/website-rank-checker', [WebsiteRankCheckerController::class, 'show'])
+    ->name('website-rank-checker');
+Route::post('/website-rank-checker', [WebsiteRankCheckerController::class, 'check'])
+    ->middleware('throttle:20,1')
+    ->name('website-rank-checker.check');
+Route::get('/website-rank-checker/r/{domain}', [WebsiteRankCheckerController::class, 'status'])
+    ->name('website-rank-checker.status');
 
 Route::get('/robots.txt', [MarketingSeoController::class, 'robots'])->name('robots');
 Route::get('/sitemap.xml', [MarketingSeoController::class, 'sitemap'])->name('sitemap');
@@ -113,6 +122,7 @@ Route::middleware(['auth', 'verified', 'module'])->group(function () {
     Route::delete('/brand/{brand}/logo', [BrandKitController::class, 'destroyLogo'])->name('brand.logo.destroy');
 
     Route::get('/media', [MediaLibraryController::class, 'index'])->name('media.index');
+    Route::get('/media/picker', [MediaLibraryController::class, 'picker'])->name('media.picker');
     Route::post('/media', [MediaLibraryController::class, 'store'])->name('media.store');
     Route::patch('/media/{media}', [MediaLibraryController::class, 'update'])->name('media.update');
     Route::delete('/media/{media}', [MediaLibraryController::class, 'destroy'])->name('media.destroy');
@@ -151,6 +161,9 @@ Route::middleware(['auth', 'verified', 'module'])->group(function () {
     Route::post('/seo/sites/{site}/pagespeed', [SeoController::class, 'runPageSpeed'])
         ->middleware(['plan:seo_apis', 'throttle:240,1'])
         ->name('seo.sites.pagespeed');
+    Route::post('/seo/sites/{site}/rankway', [SeoController::class, 'refreshRankway'])
+        ->middleware('throttle:20,1')
+        ->name('seo.sites.rankway');
     Route::patch('/seo/sites/{site}/crawl-settings', [SeoController::class, 'updateCrawlSettings'])->name('seo.sites.crawl-settings');
     Route::post('/seo/keywords', [SeoController::class, 'storeKeyword'])->name('seo.keywords.store');
     Route::post('/seo/keywords/research', [SeoController::class, 'researchKeywords'])
@@ -185,22 +198,29 @@ Route::middleware(['auth', 'verified', 'module'])->group(function () {
     Route::post('/seo/local-targets/{target}/track', [SeoV2Controller::class, 'trackLocal'])
         ->middleware('plan:seo_local')
         ->name('seo.local.track');
+    Route::post('/editor/images', [EditorMediaController::class, 'store'])
+        ->middleware('throttle:60,1')
+        ->name('editor.images.store');
+
     Route::get('/blog', [BlogController::class, 'index'])->name('blog.index');
-    Route::post('/blog/verba/connect', [BlogController::class, 'storeVerbaConnection'])
+    Route::post('/blog/askefy/connect', [BlogController::class, 'storeAskefyConnection'])
         ->middleware('plan:seo_cms')
-        ->name('blog.verba.connect');
-    Route::post('/blog/verba/disconnect', [BlogController::class, 'disconnectVerba'])
+        ->name('blog.askefy.connect');
+    Route::post('/blog/askefy/disconnect', [BlogController::class, 'disconnectAskefy'])
         ->middleware('plan:seo_cms')
-        ->name('blog.verba.disconnect');
-    Route::post('/blog/posts/{post}/verba', [BlogController::class, 'publishBlogToVerba'])
+        ->name('blog.askefy.disconnect');
+    Route::post('/blog/posts/{post}/askefy', [BlogController::class, 'publishBlogToAskefy'])
         ->middleware('plan:seo_cms')
-        ->name('blog.posts.verba');
+        ->name('blog.posts.askefy');
     Route::post('/blog/cms/connections', [BlogController::class, 'storeCmsConnection'])
         ->middleware('plan:seo_cms')
         ->name('blog.cms.store');
     Route::post('/blog/content-drafts', [BlogController::class, 'createContentDraft'])
         ->middleware('plan:seo_cms')
         ->name('blog.content.store');
+    Route::patch('/blog/content-drafts/{draft}', [BlogController::class, 'updateContentDraft'])
+        ->middleware('plan:seo_cms')
+        ->name('blog.content.update');
     Route::post('/blog/content-drafts/{draft}/approve', [BlogController::class, 'approveDraft'])
         ->middleware('plan:seo_cms')
         ->name('blog.content.approve');
@@ -217,11 +237,14 @@ Route::middleware(['auth', 'verified', 'module'])->group(function () {
     Route::post('/ai/generate-today', [AiStudioController::class, 'generateToday'])
         ->middleware(['throttle:20,1', 'plan:ai'])
         ->name('ai.generate-today');
-    Route::post('/ai/blog-outline', [AiStudioController::class, 'blogOutline'])
+    Route::post('/ai/preview-today', [AiStudioController::class, 'previewToday'])
         ->middleware(['throttle:30,1', 'plan:ai'])
+        ->name('ai.preview-today');
+    Route::post('/ai/blog-outline', [AiStudioController::class, 'blogOutline'])
+        ->middleware(['throttle:20,1', 'plan:ai'])
         ->name('ai.blog-outline');
     Route::post('/ai/seo-metas', [AiStudioController::class, 'seoMetas'])
-        ->middleware(['throttle:30,1', 'plan:ai'])
+        ->middleware(['throttle:20,1', 'plan:ai'])
         ->name('ai.seo-metas');
 
     Route::get('/channels', [ChannelsController::class, 'index'])->name('channels.index');
@@ -286,6 +309,7 @@ Route::middleware(['auth', 'verified', 'module'])->group(function () {
     Route::get('/workspaces', [WorkspacePageController::class, 'index'])->name('workspaces.index');
     Route::post('/workspaces', [WorkspacePageController::class, 'store'])->name('workspaces.store');
     Route::post('/workspaces/{workspace}/switch', [WorkspacePageController::class, 'switch'])->name('workspaces.switch');
+    Route::patch('/workspaces/{workspace}/profile', [WorkspacePageController::class, 'updateProfile'])->name('workspaces.profile.update');
     Route::post('/workspaces/{workspace}/members', [WorkspacePageController::class, 'storeMember'])->name('workspaces.members.store');
     Route::patch('/workspaces/{workspace}/members/{userId}', [WorkspacePageController::class, 'updateMember'])->name('workspaces.members.update');
     Route::delete('/workspaces/{workspace}/members/{userId}', [WorkspacePageController::class, 'destroyMember'])->name('workspaces.members.destroy');

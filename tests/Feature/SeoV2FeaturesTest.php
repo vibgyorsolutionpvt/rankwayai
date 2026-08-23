@@ -188,12 +188,80 @@ class SeoV2FeaturesTest extends TestCase
         $cms = app(SeoCmsPublishService::class);
         $draft = $cms->createDraftFromKeyword($workspace, 'plumber jaipur');
         $this->assertSame('draft', $draft->status);
+        $this->assertNotSame('', trim(strip_tags((string) $draft->body_html)));
+        $this->assertGreaterThan(40, str_word_count(strip_tags((string) $draft->body_html)));
+        $this->assertNotEmpty($draft->meta_description);
 
-        $cms->approve($draft);
+        $draft->update(['reviewed_at' => now()]);
+        $cms->approve($draft->fresh());
         $published = $cms->publish($workspace, $draft->fresh(), $connection);
 
         $this->assertSame('published', $published->status);
         $this->assertSame('https://blog.example.com/guide-plumber', $published->published_url);
+    }
+
+    public function test_content_draft_can_be_saved_and_marked_reviewed(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $draft = SeoContentDraft::query()->create([
+            'workspace_id' => $workspace->id,
+            'title' => 'Old title',
+            'slug' => 'old-title',
+            'body_html' => '<p>Old body</p>',
+            'meta_title' => 'Old meta',
+            'meta_description' => 'Old description',
+            'status' => 'draft',
+            'reviewed_at' => null,
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->patch(route('blog.content.update', $draft), [
+                'title' => 'Updated guide for Noida travellers',
+                'body_html' => '<p>Fresh article body with enough text.</p><img src="/storage/media/1.png" alt="logo">',
+                'meta_title' => 'Updated guide for Noida travellers and nearby cities too',
+                'meta_description' => 'A longer meta description that used to fail validation when limited to 180 chars only on client.',
+                'mark_reviewed' => true,
+            ])
+            ->assertRedirect();
+
+        $draft->refresh();
+        $this->assertSame('Updated guide for Noida travellers', $draft->title);
+        $this->assertNotNull($draft->reviewed_at);
+        $this->assertStringContainsString('Fresh article body', $draft->body_html);
+        $this->assertLessThanOrEqual(70, mb_strlen((string) $draft->meta_title));
+    }
+
+    public function test_editing_approved_draft_clears_review_and_returns_to_draft(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $draft = SeoContentDraft::query()->create([
+            'workspace_id' => $workspace->id,
+            'title' => 'Approved post',
+            'slug' => 'approved-post',
+            'body_html' => '<p>Body</p>',
+            'meta_title' => 'Approved post',
+            'meta_description' => 'Desc',
+            'status' => 'approved',
+            'reviewed_at' => now(),
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->patch(route('blog.content.update', $draft), [
+                'title' => 'Approved post edited',
+                'body_html' => '<p>Updated body</p>',
+                'meta_title' => 'Approved post edited',
+                'meta_description' => 'Desc',
+                'mark_reviewed' => false,
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $draft->refresh();
+        $this->assertSame('draft', $draft->status);
+        $this->assertNull($draft->reviewed_at);
+        $this->assertSame('Approved post edited', $draft->title);
     }
 
     public function test_backlinks_blocked_on_free_plan(): void

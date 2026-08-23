@@ -10,6 +10,7 @@ use App\Models\SocialAccount;
 use App\Models\SocialPost;
 use App\Services\Billing\PlanAccess;
 use App\Services\Social\SocialConnectionService;
+use App\Services\Social\SocialPublisherService;
 use App\Support\SocialPlatforms;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -170,6 +171,16 @@ class SocialController extends Controller
             'plan' => $plans->summary($workspace),
             'pendingPagePick' => $this->pendingPagePickForWorkspace($request, $workspace->id),
             'enabledPlatforms' => SocialPlatforms::enabled($workspace->enabled_social_platforms),
+            'connectedPlatforms' => $workspace->socialAccounts()
+                ->where('status', 'connected')
+                ->pluck('platform')
+                ->unique()
+                ->values()
+                ->all(),
+            'socialPublish' => [
+                'isLocal' => app()->environment('local'),
+                'simulate' => (bool) config('social.simulate_publish'),
+            ],
         ]);
     }
 
@@ -268,12 +279,7 @@ class SocialController extends Controller
 
             PublishSocialPostJob::dispatchSync($post->id);
 
-            $fresh = $post->fresh();
-            if ($fresh?->status === 'published') {
-                return back()->with('success', 'Published to connected platforms.');
-            }
-
-            return back()->with('error', $fresh?->failure_reason ?: 'Publish failed — check connected accounts.');
+            return $this->publishFlashResponse($post);
         }
 
         if ($data['delivery'] === 'schedule') {
@@ -293,7 +299,12 @@ class SocialController extends Controller
         abort_unless($post->workspace_id === $workspace->id, 404);
 
         if (! in_array($post->status, ['draft', 'scheduled', 'failed'], true)) {
-            return back()->with('error', 'Only draft, scheduled, or failed posts can be edited.');
+            $canEditPartial = $post->status === 'published'
+                && app(SocialPublisherService::class)->hasPublishFailures($post);
+
+            if (! $canEditPartial) {
+                return back()->with('error', 'Only draft, scheduled, or failed posts can be edited.');
+            }
         }
 
         $data = $this->validatedPostPayload($request);
@@ -319,6 +330,11 @@ class SocialController extends Controller
             'approved_by' => ($data['delivery'] === 'now' && ! $requiresApproval) ? $request->user()->id : ($requiresApproval ? null : $post->approved_by),
         ]);
 
+        $post->refresh();
+        if (! app(SocialPublisherService::class)->hasAttachedMedia($post)) {
+            $post->update(['approved_at' => null, 'approved_by' => null]);
+        }
+
         if ($request->boolean('generate_posters')) {
             GeneratePosterVariantsJob::dispatch($post->id);
         }
@@ -330,12 +346,7 @@ class SocialController extends Controller
 
             PublishSocialPostJob::dispatchSync($post->id);
 
-            $fresh = $post->fresh();
-            if ($fresh?->status === 'published') {
-                return back()->with('success', 'Published to connected platforms.');
-            }
-
-            return back()->with('error', $fresh?->failure_reason ?: 'Publish failed — check connected accounts.');
+            return $this->publishFlashResponse($post);
         }
 
         if ($data['delivery'] === 'schedule') {
@@ -422,8 +433,8 @@ class SocialController extends Controller
             $data['media_asset_id'] = null;
         }
 
-        if (in_array('instagram', $data['platforms'], true) && empty($data['media_asset_id'])) {
-            abort(422, 'Instagram posts need an image — pick media or paste a public https image URL.');
+        if (SocialPlatforms::requiresImage($data['platforms']) && empty($data['media_asset_id'])) {
+            abort(422, 'All social posts need an image — pick media or paste a public https image URL.');
         }
 
         if (! empty($data['brand_kit_id'])) {
@@ -441,18 +452,22 @@ class SocialController extends Controller
         return $data;
     }
 
-    public function approve(Request $request, SocialPost $post): RedirectResponse
+    public function approve(Request $request, SocialPost $post, SocialPublisherService $publisher): RedirectResponse
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
         abort_unless($post->workspace_id === $workspace->id, 404);
+
+        if (! $publisher->hasAttachedMedia($post)) {
+            return back()->with('error', 'Generate or attach an image before approving this post.');
+        }
 
         $post->update([
             'approved_at' => now(),
             'approved_by' => $request->user()->id,
         ]);
 
-        return back()->with('success', 'Post approved');
+        return back()->with('success', 'Post approved — click Publish now when you are ready.');
     }
 
     public function publishNow(Request $request, SocialPost $post, PlanAccess $plans): RedirectResponse
@@ -465,14 +480,32 @@ class SocialController extends Controller
             return back()->with('error', $plans->denyMessage('social_publish'));
         }
 
-        PublishSocialPostJob::dispatchSync($post->id);
-
-        $fresh = $post->fresh();
-        if ($fresh?->status === 'published') {
-            return back()->with('success', 'Published to connected platforms.');
+        if ($post->requires_approval && ! $post->approved_at) {
+            return back()->with('error', 'Approve this post before publishing.');
         }
 
-        return back()->with('error', $fresh?->failure_reason ?: 'Publish failed — check connected accounts.');
+        if (! app(SocialPublisherService::class)->hasAttachedMedia($post)) {
+            return back()->with('error', 'Generate or attach an image before publishing.');
+        }
+
+        $publisher = app(SocialPublisherService::class);
+
+        if (! $publisher->hasPublicImage($post)) {
+            if (app()->environment('local') && config('social.simulate_publish')) {
+                $publisher->simulateLocalPublish($post);
+
+                return back()->with(
+                    'success',
+                    'Simulated local publish — post marked published for testing. Live Meta publish runs on production with https.'
+                );
+            }
+
+            return back()->with('error', 'Image must be a public https URL before publishing (localhost images cannot reach Meta).');
+        }
+
+        PublishSocialPostJob::dispatchSync($post->id);
+
+        return $this->publishFlashResponse($post);
     }
 
     public function retry(Request $request, SocialPost $post, PlanAccess $plans): RedirectResponse
@@ -481,19 +514,71 @@ class SocialController extends Controller
         $this->authorize('update', $workspace);
         abort_unless($post->workspace_id === $workspace->id, 404);
 
+        if (! in_array($post->status, ['failed', 'published'], true)) {
+            return back()->with('error', 'Only failed or partially published posts can be resent.');
+        }
+
         if (! $plans->allows($workspace, 'social_publish')) {
             return back()->with('error', $plans->denyMessage('social_publish'));
         }
 
-        $post->update(['status' => 'scheduled', 'failure_reason' => null]);
-        PublishSocialPostJob::dispatchSync($post->id);
+        $publisher = app(SocialPublisherService::class);
 
-        $fresh = $post->fresh();
-        if ($fresh?->status === 'published') {
-            return back()->with('success', 'Published to connected platforms.');
+        $data = $request->validate([
+            'platform' => ['nullable', 'in:facebook,instagram,threads,linkedin,x'],
+        ]);
+
+        $onlyPlatforms = null;
+        if (! empty($data['platform'])) {
+            $platform = (string) $data['platform'];
+            abort_unless(in_array($platform, $post->platforms ?? [], true), 422);
+            abort_if(
+                ! empty(($post->permalinks ?? [])[$platform]),
+                422,
+                ucfirst($platform).' already published for this post.'
+            );
+            $onlyPlatforms = [$platform];
+        } else {
+            if (! $publisher->hasPublishFailures($post)) {
+                return back()->with('error', 'All platforms published successfully — nothing to resend.');
+            }
+            $onlyPlatforms = $publisher->failedPlatforms($post);
         }
 
-        return back()->with('error', $fresh?->failure_reason ?: 'Publish failed — check connected accounts.');
+        if ($post->requires_approval && ! $post->approved_at) {
+            return back()->with('error', 'Approve this post before publishing.');
+        }
+
+        if (! $publisher->hasAttachedMedia($post)) {
+            return back()->with('error', 'Generate or attach an image before publishing.');
+        }
+
+        if (! $publisher->hasPublicImage($post)) {
+            if (app()->environment('local') && config('social.simulate_publish')) {
+                $publisher->simulateLocalPublish($post);
+
+                return back()->with(
+                    'success',
+                    'Simulated local publish — post marked published for testing. Live Meta publish runs on production with https.'
+                );
+            }
+
+            return back()->with('error', 'Image must be a public https URL before publishing (localhost images cannot reach Meta).');
+        }
+
+        $post->update(['status' => 'publishing', 'failure_reason' => null]);
+        $publisher->publish($post, $onlyPlatforms);
+
+        $label = ! empty($data['platform'])
+            ? ucfirst((string) $data['platform'])
+            : 'Failed platforms';
+
+        $fresh = $post->fresh();
+        if ($fresh && empty($publisher->failedPlatforms($fresh))) {
+            return back()->with('success', $label.' republished successfully.');
+        }
+
+        return $this->publishFlashResponse($post);
     }
 
     public function generatePosters(Request $request, SocialPost $post): RedirectResponse
@@ -747,6 +832,37 @@ class SocialController extends Controller
         $account->delete();
 
         return back()->with('success', 'Account removed');
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, array<string, mixed>>  $posts
+     * @return list<array{date:string, inMonth:bool, posts:list<array<string,mixed>>}>
+     */
+    private function publishFlashResponse(SocialPost $post): RedirectResponse
+    {
+        $fresh = $post->fresh();
+
+        if ($fresh?->status === 'published') {
+            $message = 'Published to connected platforms.';
+            if (filled($fresh->failure_reason)) {
+                $message = 'Partially published — some platforms failed: '.$fresh->failure_reason;
+            }
+
+            return back()->with('success', $message);
+        }
+
+        if ($fresh?->status === 'failed') {
+            return back()->with('error', $fresh->failure_reason ?: 'Publish failed — check connected accounts.');
+        }
+
+        if ($fresh?->status === 'publishing') {
+            return back()->with('error', 'Publish is still running — refresh the page in a moment.');
+        }
+
+        return back()->with(
+            'error',
+            $fresh?->failure_reason ?: 'Publish did not finish — post is still a draft. Use a public https image URL on localhost.'
+        );
     }
 
     /**

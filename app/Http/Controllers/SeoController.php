@@ -210,10 +210,32 @@ class SeoController extends Controller
                 ]
                 : ['summary' => null, 'items' => []],
             'local_targets' => $localTargets,
+            'rankway' => $this->rankwayPayload($siteModel),
             'architecture' => $siteModel
                 ? $crawler->sitemapMap($siteModel, $request->boolean('refresh_sitemap'))
                 : ['source' => 'sitemap', 'sitemap_url' => null, 'error' => null, 'nodes' => [], 'edges' => []],
         ]);
+    }
+
+    public function refreshRankway(
+        Request $request,
+        SeoSite $site,
+        \App\Services\Rankway\RankwayDomainAnalyzer $analyzer,
+    ): RedirectResponse {
+        $workspace = $this->workspace($request);
+        abort_unless($site->workspace_id === $workspace->id, 404);
+        $this->authorize('update', $workspace);
+
+        try {
+            $record = $analyzer->analyze($site->domain, force: true);
+            $analyzer->linkSeoSite($site, $record);
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return redirect()
+            ->route('seo.index', ['site' => $site->id, 'tab' => 'rank'])
+            ->with('success', 'Rankway Score updated for '.$site->domain);
     }
 
     public function storeSite(Request $request): RedirectResponse
@@ -659,6 +681,37 @@ class SeoController extends Controller
         $issue->update(['status' => 'done']);
 
         return back()->with('success', 'Issue marked done');
+    }
+
+    private function rankwayPayload(?SeoSite $site): ?array
+    {
+        if (! $site) {
+            return null;
+        }
+
+        $domain = $site->rankwayDomain;
+        if (! $domain) {
+            $domain = \App\Models\RankwayDomain::query()
+                ->where('domain', $site->domain)
+                ->with(['latestMetric', 'rankHistory'])
+                ->first();
+        } else {
+            $domain->loadMissing(['latestMetric', 'rankHistory']);
+        }
+
+        if (! $domain) {
+            return [
+                'connected' => false,
+                'domain' => $site->domain,
+                'result' => null,
+            ];
+        }
+
+        return [
+            'connected' => true,
+            'domain' => $site->domain,
+            'result' => $domain->toPublicArray(unlocked: true),
+        ];
     }
 
     private function selectedSite(Request $request, $workspace): ?SeoSite

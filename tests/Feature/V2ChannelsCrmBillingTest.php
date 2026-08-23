@@ -457,6 +457,11 @@ class V2ChannelsCrmBillingTest extends TestCase
 
     public function test_credit_recharge_applies_manually_without_gateway(): void
     {
+        config([
+            'services.cashfree.client_id' => null,
+            'services.cashfree.client_secret' => null,
+        ]);
+
         [$user, $workspace] = $this->memberWithWorkspace('starter');
 
         $this->actingAs($user)

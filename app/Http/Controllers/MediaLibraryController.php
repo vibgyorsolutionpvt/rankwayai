@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Controllers\Concerns\ResolvesWorkspace;
 use App\Jobs\ProcessMediaAssetJob;
 use App\Models\MediaAsset;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -92,6 +93,47 @@ class MediaLibraryController extends Controller
             ],
             'disk' => config('media.disk'),
         ]);
+    }
+
+    public function picker(Request $request): JsonResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('view', $workspace);
+
+        $search = trim((string) $request->query('q', ''));
+
+        $query = $workspace->mediaAssets()
+            ->where(function ($builder) {
+                $builder
+                    ->where('mime_type', 'like', 'image/%')
+                    ->orWhereNull('mime_type');
+            })
+            ->latest();
+
+        if ($search !== '') {
+            $query->where(function ($builder) use ($search) {
+                $builder
+                    ->where('original_name', 'like', '%'.$search.'%')
+                    ->orWhere('folder', 'like', '%'.$search.'%')
+                    ->orWhere('tags', 'like', '%'.$search.'%');
+            });
+        }
+
+        $assets = $query
+            ->limit(80)
+            ->get()
+            ->map(fn (MediaAsset $asset) => [
+                'id' => $asset->id,
+                'name' => $asset->original_name,
+                'url' => $asset->url('medium') ?: $asset->url(),
+                'thumb_url' => $asset->url('thumb') ?: $asset->url(),
+                'mime_type' => $asset->mime_type,
+                'status' => $asset->status ?? 'ready',
+            ])
+            ->filter(fn (array $asset) => filled($asset['url']))
+            ->values();
+
+        return response()->json(['assets' => $assets]);
     }
 
     public function store(Request $request): RedirectResponse

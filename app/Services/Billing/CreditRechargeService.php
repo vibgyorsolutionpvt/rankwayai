@@ -55,6 +55,45 @@ class CreditRechargeService
     }
 
     /**
+     * When webhooks can't reach localhost, sync PAID links on billing page load.
+     *
+     * @return list<CreditRecharge>
+     */
+    public function syncPendingCashfree(Workspace $workspace, ?string $linkId = null): array
+    {
+        if (! $this->billing->cashfreeConfigured()) {
+            return [];
+        }
+
+        $query = CreditRecharge::query()
+            ->where('workspace_id', $workspace->id)
+            ->where('status', 'pending')
+            ->where('provider', 'cashfree')
+            ->whereNotNull('provider_ref')
+            ->latest()
+            ->limit(10);
+
+        if (filled($linkId)) {
+            $query->where('provider_ref', $linkId);
+        }
+
+        $paid = [];
+        foreach ($query->get() as $recharge) {
+            $link = $this->cashfree->getPaymentLink((string) $recharge->provider_ref);
+            if (! ($link['ok'] ?? false)) {
+                continue;
+            }
+
+            if (($link['status'] ?? '') === 'PAID' || (float) ($link['amount_paid'] ?? 0) > 0) {
+                $this->markPaid($recharge, 'cashfree', $recharge->provider_ref);
+                $paid[] = $recharge->fresh();
+            }
+        }
+
+        return $paid;
+    }
+
+    /**
      * @param  array{id:string,credits:int,amount:float,currency:string}  $pack
      * @return array{ok:bool, message:string, checkout_url?:string}
      */
@@ -80,7 +119,7 @@ class CreditRechargeService
             'customer_email' => $user->email,
             'customer_phone' => null,
             'customer_name' => $user->name,
-            'return_url' => route('billing.index').'?recharge=success',
+            'return_url' => route('billing.index', ['recharge' => 'success']),
             'notes' => [
                 'type' => 'credit_recharge',
                 'recharge_id' => (string) $recharge->id,

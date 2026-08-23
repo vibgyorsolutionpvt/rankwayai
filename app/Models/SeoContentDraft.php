@@ -9,13 +9,21 @@ class SeoContentDraft extends Model
 {
     protected $fillable = [
         'workspace_id', 'seo_keyword_id', 'cms_connection_id', 'title', 'slug', 'body_html',
-        'meta_title', 'meta_description', 'status', 'external_id', 'published_url',
+        'meta_title', 'meta_description', 'status', 'reviewed_at', 'external_id', 'published_url',
         'last_error', 'published_at',
     ];
 
     protected function casts(): array
     {
-        return ['published_at' => 'datetime'];
+        return [
+            'published_at' => 'datetime',
+            'reviewed_at' => 'datetime',
+        ];
+    }
+
+    public function isReviewed(): bool
+    {
+        return $this->reviewed_at !== null;
     }
 
     public function workspace(): BelongsTo

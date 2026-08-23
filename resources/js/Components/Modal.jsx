@@ -27,6 +27,10 @@ export default function Modal({
         '2xl': 'sm:max-w-2xl',
     }[maxWidth];
 
+    if (!show) {
+        return null;
+    }
+
     return (
         <Transition show={show} leave="duration-200">
             <Dialog

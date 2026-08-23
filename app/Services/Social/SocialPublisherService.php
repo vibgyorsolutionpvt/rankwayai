@@ -15,17 +15,44 @@ class SocialPublisherService
     private const THREADS_GRAPH = 'https://graph.threads.net/v1.0';
 
     /**
+     * @param  list<string>|null  $onlyPlatforms  When set, (re)publish only these platforms; skips ones with permalinks.
      * @return array{ok:bool, permalinks: array<string,string>, errors: array<string,string>}
      */
-    public function publish(SocialPost $post): array
+    public function publish(SocialPost $post, ?array $onlyPlatforms = null): array
     {
         $post->loadMissing('media');
 
-        $permalinks = [];
+        $existingPermalinks = $post->permalinks ?? [];
+        $existingLog = $post->publish_log ?? [];
+        $retryMode = $onlyPlatforms !== null;
+
+        if (! $retryMode && ! $this->hasPublicImage($post)) {
+            $message = 'An image is required — attach media or generate a poster before publishing.';
+            $post->update([
+                'status' => 'failed',
+                'failure_reason' => $message,
+            ]);
+
+            return ['ok' => false, 'permalinks' => [], 'errors' => ['all' => $message]];
+        }
+
+        if ($retryMode && $onlyPlatforms === []) {
+            return ['ok' => true, 'permalinks' => $existingPermalinks, 'errors' => []];
+        }
+
+        $newPermalinks = [];
         $errors = [];
         $log = [];
 
         foreach ($post->platforms ?? [] as $platform) {
+            if ($onlyPlatforms !== null && ! in_array($platform, $onlyPlatforms, true)) {
+                continue;
+            }
+
+            if ($retryMode && ! empty($existingPermalinks[$platform])) {
+                continue;
+            }
+
             $account = SocialAccount::query()
                 ->where('workspace_id', $post->workspace_id)
                 ->where('platform', $platform)
@@ -45,6 +72,12 @@ class SocialPublisherService
                     : ($account->last_error ?: 'Token missing — reconnect account');
                 $this->writeLog($post, $platform, 'failed', null, $errors[$platform]);
                 $account->update(['health' => 'warning', 'last_error' => $errors[$platform]]);
+                continue;
+            }
+
+            if (! $this->hasPublicImage($post)) {
+                $errors[$platform] = 'A public https image is required for '.$platform.'.';
+                $this->writeLog($post, $platform, 'failed', null, $errors[$platform]);
                 continue;
             }
 
@@ -71,7 +104,7 @@ class SocialPublisherService
 
             $permalink = (string) ($result['permalink'] ?? '');
             if ($permalink !== '') {
-                $permalinks[$platform] = $permalink;
+                $newPermalinks[$platform] = $permalink;
             }
             $log[] = [
                 'platform' => $platform,
@@ -83,17 +116,172 @@ class SocialPublisherService
             $account->update(['health' => 'healthy', 'last_error' => null]);
         }
 
-        $ok = count($errors) === 0 && count($permalinks) > 0;
+        $permalinks = array_merge($existingPermalinks, $newPermalinks);
+        $remainingErrors = $this->remainingPlatformErrors($post, $permalinks, $errors);
+        $allPublished = $this->failedPlatforms(new SocialPost([
+            'platforms' => $post->platforms,
+            'permalinks' => $permalinks,
+        ])) === [];
+
+        $ok = $allPublished && count($permalinks) > 0;
 
         $post->update([
             'permalinks' => $permalinks,
-            'publish_log' => $log,
-            'status' => $ok ? 'published' : (count($permalinks) ? 'published' : 'failed'),
-            'published_at' => $ok || count($permalinks) ? now() : null,
-            'failure_reason' => $errors ? implode('; ', $errors) : null,
+            'publish_log' => array_merge($existingLog, $log),
+            'status' => $ok ? 'published' : (count($permalinks) > 0 ? 'published' : 'failed'),
+            'published_at' => $ok || count($permalinks) > 0 ? ($post->published_at ?? now()) : null,
+            'failure_reason' => $remainingErrors !== [] ? $this->formatPlatformErrors($remainingErrors) : null,
         ]);
 
-        return ['ok' => $ok, 'permalinks' => $permalinks, 'errors' => $errors];
+        return ['ok' => $ok, 'permalinks' => $permalinks, 'errors' => $remainingErrors];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function failedPlatforms(SocialPost $post): array
+    {
+        $failed = [];
+        foreach ($post->platforms ?? [] as $platform) {
+            if (empty(($post->permalinks ?? [])[$platform])) {
+                $failed[] = $platform;
+            }
+        }
+
+        return $failed;
+    }
+
+    public function hasPublishFailures(SocialPost $post): bool
+    {
+        if (! in_array($post->status, ['published', 'failed'], true)) {
+            return false;
+        }
+
+        return $this->failedPlatforms($post) !== [];
+    }
+
+    /**
+     * @return list<array{platform:string,label:string,status:string,permalink:?string,error:?string,can_resend:bool}>
+     */
+    public function platformStatuses(SocialPost $post): array
+    {
+        $labels = [
+            'facebook' => 'FB',
+            'instagram' => 'IG',
+            'threads' => 'TH',
+            'linkedin' => 'LI',
+            'x' => 'X',
+        ];
+
+        $permalinks = $post->permalinks ?? [];
+        $attempted = in_array($post->status, ['published', 'failed'], true);
+        $statuses = [];
+
+        foreach ($post->platforms ?? [] as $platform) {
+            $label = $labels[$platform] ?? strtoupper(substr($platform, 0, 2));
+
+            if (! empty($permalinks[$platform])) {
+                $statuses[] = [
+                    'platform' => $platform,
+                    'label' => $label,
+                    'status' => 'published',
+                    'permalink' => $permalinks[$platform],
+                    'error' => null,
+                    'can_resend' => false,
+                ];
+
+                continue;
+            }
+
+            if ($attempted) {
+                $statuses[] = [
+                    'platform' => $platform,
+                    'label' => $label,
+                    'status' => 'failed',
+                    'permalink' => null,
+                    'error' => $this->lastAttemptError($post, $platform),
+                    'can_resend' => $this->canResendPlatform($post, $platform),
+                ];
+
+                continue;
+            }
+
+            $statuses[] = [
+                'platform' => $platform,
+                'label' => $label,
+                'status' => 'pending',
+                'permalink' => null,
+                'error' => null,
+                'can_resend' => false,
+            ];
+        }
+
+        return $statuses;
+    }
+
+    public function canResendPlatform(SocialPost $post, string $platform): bool
+    {
+        if (! in_array($platform, $post->platforms ?? [], true)) {
+            return false;
+        }
+
+        if (! in_array($post->status, ['published', 'failed'], true)) {
+            return false;
+        }
+
+        if (! empty(($post->permalinks ?? [])[$platform])) {
+            return false;
+        }
+
+        if ($post->requires_approval && ! $post->approved_at) {
+            return false;
+        }
+
+        return $this->hasAttachedMedia($post);
+    }
+
+    /**
+     * @param  array<string, string>  $permalinks
+     * @param  array<string, string>  $attemptErrors
+     * @return array<string, string>
+     */
+    private function remainingPlatformErrors(SocialPost $post, array $permalinks, array $attemptErrors): array
+    {
+        $remaining = [];
+        foreach ($post->platforms ?? [] as $platform) {
+            if (! empty($permalinks[$platform])) {
+                continue;
+            }
+            $remaining[$platform] = $attemptErrors[$platform]
+                ?? $this->lastAttemptError($post, $platform)
+                ?? 'Publish failed';
+        }
+
+        return $remaining;
+    }
+
+    private function lastAttemptError(SocialPost $post, string $platform): ?string
+    {
+        $entry = SocialPublishLog::query()
+            ->where('social_post_id', $post->id)
+            ->where('platform', $platform)
+            ->where('status', 'failed')
+            ->orderByDesc('id')
+            ->first();
+
+        return filled($entry?->error) ? (string) $entry->error : null;
+    }
+
+    /**
+     * @param  array<string, string>  $errors
+     */
+    private function formatPlatformErrors(array $errors): string
+    {
+        return implode('; ', array_map(
+            fn (string $platform, string $message) => ucfirst($platform).': '.$message,
+            array_keys($errors),
+            array_values($errors),
+        ));
     }
 
     /**
@@ -117,25 +305,22 @@ class SocialPublisherService
             $imageUrl = $this->resolveRedirectUrl($imageUrl) ?: $imageUrl;
         }
 
-        if ($imageUrl) {
-            $response = Http::asForm()->timeout(60)->post(self::GRAPH.'/'.rawurlencode($pageId).'/photos', [
-                'url' => $imageUrl,
-                'caption' => $message,
-                'published' => 'true',
-                'access_token' => $token,
-            ]);
+        if (! $imageUrl) {
+            return ['ok' => false, 'message' => 'Facebook posts need an image. Attach media or generate a poster.'];
+        }
 
-            // Redirecting image hosts (e.g. picsum) sometimes fail photo scrape — fall back to feed + link.
-            if (! $response->successful()) {
-                $response = Http::asForm()->timeout(60)->post(self::GRAPH.'/'.rawurlencode($pageId).'/feed', [
-                    'message' => $message !== '' ? $message : ' ',
-                    'link' => $imageUrl,
-                    'access_token' => $token,
-                ]);
-            }
-        } else {
+        $response = Http::asForm()->timeout(60)->post(self::GRAPH.'/'.rawurlencode($pageId).'/photos', [
+            'url' => $imageUrl,
+            'caption' => $message,
+            'published' => 'true',
+            'access_token' => $token,
+        ]);
+
+        // Redirecting image hosts (e.g. picsum) sometimes fail photo scrape — fall back to feed + link.
+        if (! $response->successful()) {
             $response = Http::asForm()->timeout(60)->post(self::GRAPH.'/'.rawurlencode($pageId).'/feed', [
                 'message' => $message !== '' ? $message : ' ',
+                'link' => $imageUrl,
                 'access_token' => $token,
             ]);
         }
@@ -190,7 +375,7 @@ class SocialPublisherService
                 ];
             }
 
-            return ['ok' => false, 'message' => 'Instagram requires an image. Attach media (or a public https URL) and retry.'];
+            return ['ok' => false, 'message' => 'Instagram requires an image. Attach media or generate a poster.'];
         }
 
         $caption = trim((string) (($post->title ? $post->title."\n\n" : '').$post->body));
@@ -263,17 +448,16 @@ class SocialPublisherService
             $imageUrl = $this->resolveRedirectUrl($imageUrl) ?: $imageUrl;
         }
 
+        if (! $imageUrl) {
+            return ['ok' => false, 'message' => 'Threads posts need an image. Attach media or generate a poster.'];
+        }
+
         $payload = [
             'access_token' => $token,
             'text' => $text !== '' ? $text : ' ',
+            'media_type' => 'IMAGE',
+            'image_url' => $imageUrl,
         ];
-
-        if ($imageUrl) {
-            $payload['media_type'] = 'IMAGE';
-            $payload['image_url'] = $imageUrl;
-        } else {
-            $payload['media_type'] = 'TEXT';
-        }
 
         $container = Http::asForm()->timeout(60)->post(
             self::THREADS_GRAPH.'/'.rawurlencode($userId).'/threads',
@@ -366,16 +550,83 @@ class SocialPublisherService
     private function publicMediaUrl(SocialPost $post): ?string
     {
         $media = $post->media;
-        if (! $media) {
-            return null;
+        if ($media) {
+            $url = $this->normalizePublicUrl($media->url());
+            if ($url) {
+                return $url;
+            }
         }
 
-        $url = $media->url();
+        $posters = $post->poster_variants ?? [];
+        foreach (['ig_feed', 'link_share', 'ig_story'] as $key) {
+            $candidate = $posters[$key] ?? null;
+            if (! is_string($candidate) || $candidate === '') {
+                continue;
+            }
+
+            $url = $this->normalizePublicUrl($candidate);
+            if ($url) {
+                return $url;
+            }
+        }
+
+        return null;
+    }
+
+    public function hasAttachedMedia(SocialPost $post): bool
+    {
+        if ($post->media_asset_id) {
+            return true;
+        }
+
+        foreach ($post->poster_variants ?? [] as $url) {
+            if (is_string($url) && $url !== '') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Dev-only: mark published locally without calling Meta (localhost images).
+     */
+    public function simulateLocalPublish(SocialPost $post): void
+    {
+        $log = [];
+        foreach ($post->platforms ?? [] as $platform) {
+            $log[] = [
+                'platform' => $platform,
+                'at' => now()->toIso8601String(),
+                'permalink' => null,
+                'status' => 'simulated',
+            ];
+        }
+
+        $post->update([
+            'status' => 'published',
+            'published_at' => now(),
+            'failure_reason' => null,
+            'permalinks' => [],
+            'publish_log' => $log,
+        ]);
+    }
+
+    public function hasPublicImage(SocialPost $post): bool
+    {
+        $post->loadMissing('media');
+
+        return $this->publicMediaUrl($post) !== null;
+    }
+
+    private function normalizePublicUrl(?string $url): ?string
+    {
         if (! is_string($url) || $url === '') {
             return null;
         }
 
-        // Graph needs a publicly reachable https URL.
+        $url = $this->rewritePublicMediaBase($url);
+
         if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
             if (str_contains($url, '127.0.0.1') || str_contains($url, 'localhost')) {
                 return null;
@@ -384,12 +635,31 @@ class SocialPublisherService
             return $url;
         }
 
-        $absolute = url($url);
+        $absolute = $this->rewritePublicMediaBase(url($url));
         if (str_contains($absolute, '127.0.0.1') || str_contains($absolute, 'localhost')) {
             return null;
         }
 
         return $absolute;
+    }
+
+    private function rewritePublicMediaBase(string $url): string
+    {
+        $override = rtrim((string) config('social.public_media_base_url', ''), '/');
+        if ($override === '') {
+            return $url;
+        }
+
+        if (! str_contains($url, '127.0.0.1') && ! str_contains($url, 'localhost')) {
+            return $url;
+        }
+
+        $path = parse_url($url, PHP_URL_PATH);
+        if (! is_string($path) || $path === '') {
+            return $url;
+        }
+
+        return $override.$path;
     }
 
     private function resolveRedirectUrl(string $url): ?string
