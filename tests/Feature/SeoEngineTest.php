@@ -251,14 +251,36 @@ class SeoEngineTest extends TestCase
             }
 
             if (str_contains($request->url(), '/searchAnalytics/query')) {
+                $dimensions = $request['dimensions'] ?? [];
+                if ($dimensions === ['page'] || (is_array($dimensions) && $dimensions === ['page'])) {
+                    return Http::response([
+                        'rows' => [
+                            [
+                                'keys' => ['https://vibgyorsolution.com/'],
+                                'clicks' => 20,
+                                'impressions' => 400,
+                                'ctr' => 0.05,
+                                'position' => 7.2,
+                            ],
+                        ],
+                    ]);
+                }
+
                 return Http::response([
                     'rows' => [
                         [
-                            'keys' => ['vibgyor solution'],
+                            'keys' => ['vibgyor solution', 'https://vibgyorsolution.com/'],
                             'clicks' => 12,
                             'impressions' => 200,
                             'ctr' => 0.06,
                             'position' => 8.4,
+                        ],
+                        [
+                            'keys' => ['seo company noida', 'https://vibgyorsolution.com/seo'],
+                            'clicks' => 3,
+                            'impressions' => 90,
+                            'ctr' => 0.033,
+                            'position' => 14.1,
                         ],
                     ],
                 ]);
@@ -275,8 +297,14 @@ class SeoEngineTest extends TestCase
 
         $site->refresh();
         $this->assertNotNull($site->gsc_synced_at);
-        $this->assertSame(12, $site->gsc_summary['clicks']);
+        $this->assertSame(15, $site->gsc_summary['clicks']);
         $this->assertSame('vibgyor solution', $site->gsc_queries[0]['query']);
+        $this->assertSame('https://vibgyorsolution.com/', $site->gsc_queries[0]['page']);
+        $this->assertSame(1, $site->gsc_queries[0]['google_page']);
+        $this->assertSame(2, $site->gsc_queries[1]['google_page']);
+        $this->assertSame(1, $site->gsc_summary['page1_keywords']);
+        $this->assertCount(1, $site->gsc_summary['landing_pages']);
+        $this->assertSame(1, $site->gsc_summary['landing_pages'][0]['google_page']);
     }
 
     public function test_gsc_sync_respects_cooldown_to_save_quota(): void

@@ -68,6 +68,13 @@ class MediaLibraryTest extends TestCase
 
         $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('media.picker', ['q' => 'hero']))
+            ->assertOk()
+            ->assertJsonPath('assets.0.id', $asset->id)
+            ->assertJsonPath('assets.0.name', $asset->original_name);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
             ->patch(route('media.update', $asset), [
                 'folder' => 'Brand',
                 'tags' => 'logo, primary',

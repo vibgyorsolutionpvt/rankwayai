@@ -2,6 +2,11 @@
 
 namespace App\Providers;
 
+use Illuminate\Auth\Notifications\VerifyEmail;
+use Illuminate\Routing\Middleware\ValidateSignature;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
 
@@ -50,10 +55,37 @@ class AppServiceProvider extends ServiceProvider
 
         $root = rtrim((string) config('app.url'), '/');
         if ($root !== '') {
-            \Illuminate\Support\Facades\URL::forceRootUrl($root);
+            URL::forceRootUrl($root);
         }
         if (str_starts_with($root, 'https://')) {
-            \Illuminate\Support\Facades\URL::forceScheme('https');
+            URL::forceScheme('https');
         }
+
+        // Gmail / trackers append query params and break absolute signatures.
+        ValidateSignature::except([
+            'fbclid',
+            'utm_campaign',
+            'utm_content',
+            'utm_medium',
+            'utm_source',
+            'utm_term',
+        ]);
+
+        VerifyEmail::createUrlUsing(function (object $notifiable): string {
+            $public = rtrim((string) (config('seo.public_url') ?: config('app.url')), '/');
+
+            // Sign path only so http/https + APP_URL drift don't invalidate the link.
+            $relative = URL::temporarySignedRoute(
+                'verification.verify',
+                Carbon::now()->addMinutes((int) Config::get('auth.verification.expire', 60)),
+                [
+                    'id' => $notifiable->getKey(),
+                    'hash' => sha1($notifiable->getEmailForVerification()),
+                ],
+                absolute: false
+            );
+
+            return ($public !== '' ? $public : rtrim((string) config('app.url'), '/')).$relative;
+        });
     }
 }

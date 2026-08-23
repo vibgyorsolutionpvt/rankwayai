@@ -11,6 +11,7 @@ class FestivalEvent extends Model
         'occurs_on',
         'region',
         'category',
+        'source',
         'suggested_angles',
     ];
 

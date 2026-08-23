@@ -49,6 +49,8 @@ class HandleInertiaRequests extends Middleware
                     'name' => $workspace->name,
                     'slug' => $workspace->slug,
                     'role' => $workspace->pivot->role,
+                    'industry' => $workspace->resolvedIndustry(),
+                    'city' => $workspace->resolvedCity(),
                 ])
                 ->values()
                 ->all();

@@ -35,6 +35,7 @@ const statusTone = {
     scheduled: 'bg-amber-100 text-amber-800',
     publishing: 'bg-sky-100 text-sky-800',
     published: 'bg-emerald-100 text-emerald-800',
+    partial: 'bg-orange-100 text-orange-800',
     failed: 'bg-rose-100 text-rose-700',
 };
 
@@ -68,6 +69,67 @@ const STATUS_TABS = [
     { id: 'published', label: 'Published' },
     { id: 'failed', label: 'Failed' },
 ];
+
+const platformPublishTone = {
+    published: 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100',
+    failed: 'border-rose-300 bg-rose-50 text-rose-800',
+    pending: 'border-zinc-200 bg-zinc-50 text-zinc-500',
+};
+
+function PlatformStatusPill({ entry, onResend }) {
+    const base =
+        'inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-[10px] font-semibold leading-none';
+    const tone = platformPublishTone[entry.status] || platformPublishTone.pending;
+
+    if (entry.status === 'published' && entry.permalink) {
+        return (
+            <a
+                href={entry.permalink}
+                target="_blank"
+                rel="noreferrer"
+                className={base + ' ' + tone}
+                title="View live post"
+            >
+                {entry.label} ✓
+            </a>
+        );
+    }
+
+    if (entry.status === 'published') {
+        return (
+            <span className={base + ' ' + tone} title="Published">
+                {entry.label} ✓
+            </span>
+        );
+    }
+
+    if (entry.status === 'failed' && entry.can_resend) {
+        return (
+            <button
+                type="button"
+                onClick={() => onResend(entry.platform)}
+                className={base + ' ' + tone + ' cursor-pointer hover:bg-rose-100'}
+                title={entry.error ? `${entry.error} — click to resend` : 'Click to resend'}
+            >
+                {entry.label} ↻
+            </button>
+        );
+    }
+
+    if (entry.status === 'failed') {
+        return (
+            <span className={base + ' ' + tone} title={entry.error || 'Failed'}>
+                {entry.label} ✗
+            </span>
+        );
+    }
+
+    return (
+        <span className={base + ' ' + tone} title="Not published yet">
+            {entry.label} …
+        </span>
+    );
+}
 
 function TrashIcon() {
     return (
@@ -114,6 +176,8 @@ export default function Index({
     connectionModes = {},
     pendingPagePick = null,
     enabledPlatforms = null,
+    connectedPlatforms = [],
+    socialPublish = { isLocal: false, simulate: false },
 }) {
     const availablePlatforms = useMemo(() => {
         if (!Array.isArray(enabledPlatforms) || enabledPlatforms.length === 0) {
@@ -133,6 +197,23 @@ export default function Index({
 
     const postRows = Array.isArray(posts) ? posts : posts?.data || [];
     const view = filters.view;
+
+    const canPublishPost = (post) => {
+        if (!post.has_attached_media) return false;
+        if (post.has_public_image) return true;
+        return socialPublish.isLocal && socialPublish.simulate;
+    };
+
+    const displayStatus = (post) =>
+        post.status === 'published' && post.has_publish_failures ? 'partial' : post.status;
+
+    const canEditPost = (post) =>
+        ['draft', 'scheduled', 'failed'].includes(post.status) ||
+        (post.status === 'published' && post.has_publish_failures);
+
+    const missingThreads =
+        availablePlatforms.includes('threads') &&
+        !connectedPlatforms.includes('threads');
 
     const postForm = useForm({
         title: '',
@@ -224,6 +305,20 @@ export default function Index({
             socialQuery({ ...filters, ...patch, view: 'posts' }, { page: 1 }),
             { preserveState: true, preserveScroll: true, replace: true },
         );
+    };
+
+    const runPostAction = (url, data = {}) => {
+        setOpenActionsId(null);
+        router.post(url, data, {
+            preserveScroll: true,
+            onSuccess: () => {
+                router.reload({ only: ['posts', 'filters'], preserveScroll: true });
+            },
+        });
+    };
+
+    const resendPlatform = (postId, platform) => {
+        runPostAction(route('social.posts.retry', postId), { platform });
     };
 
     const blankPost = () => ({
@@ -332,11 +427,11 @@ export default function Index({
         }
 
         if (
-            postForm.data.platforms.includes('instagram') &&
+            postForm.data.platforms.length > 0 &&
             !postForm.data.media_asset_id &&
             !String(postForm.data.public_media_url || '').trim()
         ) {
-            const msg = 'Instagram needs an image — pick media or paste a public https URL.';
+            const msg = 'All social posts need an image — pick media or paste a public https URL.';
             postForm.setError('media_asset_id', msg);
             toast.error(msg);
             return;
@@ -555,6 +650,15 @@ export default function Index({
                                 })}
                             </div>
 
+                            {missingThreads ? (
+                                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                    <span className="font-semibold">Threads not connected.</span>{' '}
+                                    Connect a Threads account under the Accounts tab — AI posts only
+                                    target platforms with a live connection (currently Facebook +
+                                    Instagram).
+                                </div>
+                            ) : null}
+
                             <div className="flex flex-wrap gap-2">
                                 <div className="min-w-[180px] flex-1">
                                     <TextInput
@@ -591,10 +695,9 @@ export default function Index({
                             </div>
                         </div>
 
-                        <div className="hidden border-b border-line bg-mist/40 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-ink-muted md:grid md:grid-cols-[minmax(0,1.6fr)_110px_140px_130px_44px] md:gap-3">
+                        <div className="hidden border-b border-line bg-mist/40 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-ink-muted md:grid md:grid-cols-[minmax(0,1.6fr)_minmax(150px,1fr)_130px_44px] md:gap-3">
                             <div>Post</div>
                             <div>Status</div>
-                            <div>Platforms</div>
                             <div>When</div>
                             <div />
                         </div>
@@ -615,7 +718,7 @@ export default function Index({
                                     <li
                                         key={post.id}
                                         className={
-                                            'grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,1.6fr)_110px_140px_130px_44px] md:items-center md:gap-3 ' +
+                                            'grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,1.6fr)_minmax(150px,1fr)_130px_44px] md:items-center md:gap-3 ' +
                                             (openActionsId === post.id ? 'relative z-30' : '')
                                         }
                                     >
@@ -631,35 +734,57 @@ export default function Index({
                                                     {post.failure_reason}
                                                 </div>
                                             ) : null}
+                                            {post.status === 'draft' &&
+                                            post.requires_approval &&
+                                            post.approved_at &&
+                                            !post.has_public_image ? (
+                                                <div className="mt-1 text-xs text-amber-700">
+                                                    {socialPublish.isLocal
+                                                        ? socialPublish.simulate
+                                                            ? 'Approved — use Test publish (local) below, or deploy to production for live Meta.'
+                                                            : 'Approved — live Meta publish works on production (https). Local: set SOCIAL_SIMULATE_PUBLISH=true to test flow.'
+                                                        : 'Approved — waiting for a public https image before publish.'}
+                                                </div>
+                                            ) : null}
+                                            {post.status === 'draft' &&
+                                            post.requires_approval &&
+                                            !post.approved_at &&
+                                            post.has_attached_media ? (
+                                                <div className="mt-1 text-xs text-sky-700">
+                                                    Ready for approval
+                                                </div>
+                                            ) : null}
                                         </div>
                                         <div>
-                                            <span
-                                                className={
-                                                    'inline-flex rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ' +
-                                                    (statusTone[post.status] || statusTone.draft)
-                                                }
-                                            >
-                                                {post.status}
-                                            </span>
-                                        </div>
-                                        <div className="flex flex-wrap gap-1">
-                                            {(post.platforms || []).map((p) => (
+                                            <div className="flex flex-col gap-1.5">
                                                 <span
-                                                    key={p}
                                                     className={
-                                                        'rounded border px-1.5 py-0.5 text-[10px] font-semibold capitalize ' +
-                                                        (platformTone[p] || '')
+                                                        'inline-flex w-fit rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ' +
+                                                        (statusTone[displayStatus(post)] ||
+                                                            statusTone.draft)
                                                     }
                                                 >
-                                                    {p === 'instagram'
-                                                        ? 'IG'
-                                                        : p === 'facebook'
-                                                          ? 'FB'
-                                                          : p === 'threads'
-                                                            ? 'TH'
-                                                            : p}
+                                                    {displayStatus(post)}
                                                 </span>
-                                            ))}
+                                                {(post.platform_statuses || []).length > 0 ? (
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {(post.platform_statuses || []).map(
+                                                            (entry) => (
+                                                                <PlatformStatusPill
+                                                                    key={entry.platform}
+                                                                    entry={entry}
+                                                                    onResend={(platform) =>
+                                                                        resendPlatform(
+                                                                            post.id,
+                                                                            platform,
+                                                                        )
+                                                                    }
+                                                                />
+                                                            ),
+                                                        )}
+                                                    </div>
+                                                ) : null}
+                                            </div>
                                         </div>
                                         <div className="text-xs text-ink-muted">
                                             {post.scheduled_at || post.published_at || '—'}
@@ -680,20 +805,29 @@ export default function Index({
                                             </button>
                                             {openActionsId === post.id ? (
                                                 <div
-                                                    className="absolute right-0 bottom-full z-50 mb-1 w-44 rounded-md border border-line bg-white py-1 shadow-lg"
+                                                    className="absolute right-0 top-full z-50 mt-1 w-48 rounded-md border border-line bg-white py-1 shadow-lg"
                                                     onClick={(e) => e.stopPropagation()}
                                                 >
-                                                    {['draft', 'scheduled', 'failed'].includes(
-                                                        post.status,
-                                                    ) ? (
+                                                    {post.has_publish_failures &&
+                                                    post.approved_at &&
+                                                    !post.has_public_image ? (
+                                                        <ActionItem
+                                                            onClick={() => beginEdit(post)}
+                                                        >
+                                                            Add public image URL
+                                                        </ActionItem>
+                                                    ) : null}
+                                                    {canEditPost(post) ? (
                                                         <ActionItem onClick={() => beginEdit(post)}>
                                                             Edit
                                                         </ActionItem>
                                                     ) : null}
-                                                    {post.requires_approval && !post.approved_at ? (
+                                                    {post.requires_approval &&
+                                                    !post.approved_at &&
+                                                    post.has_attached_media ? (
                                                         <ActionItem
                                                             onClick={() =>
-                                                                router.post(
+                                                                runPostAction(
                                                                     route(
                                                                         'social.posts.approve',
                                                                         post.id,
@@ -706,10 +840,12 @@ export default function Index({
                                                     ) : null}
                                                     {['draft', 'scheduled', 'failed'].includes(
                                                         post.status,
-                                                    ) ? (
+                                                    ) &&
+                                                    canPublishPost(post) &&
+                                                    (!post.requires_approval || post.approved_at) ? (
                                                         <ActionItem
                                                             onClick={() =>
-                                                                router.post(
+                                                                runPostAction(
                                                                     route(
                                                                         'social.posts.publish',
                                                                         post.id,
@@ -717,13 +853,48 @@ export default function Index({
                                                                 )
                                                             }
                                                         >
-                                                            Publish now
+                                                            {socialPublish.isLocal &&
+                                                            socialPublish.simulate &&
+                                                            !post.has_public_image
+                                                                ? 'Test publish (local)'
+                                                                : 'Publish now'}
                                                         </ActionItem>
                                                     ) : null}
-                                                    {post.status === 'failed' ? (
+                                                    {['draft', 'scheduled', 'failed'].includes(
+                                                        post.status,
+                                                    ) &&
+                                                    !post.has_attached_media ? (
                                                         <ActionItem
                                                             onClick={() =>
-                                                                router.post(
+                                                                runPostAction(
+                                                                    route('social.posts.posters', post.id),
+                                                                )
+                                                            }
+                                                        >
+                                                            Generate poster
+                                                        </ActionItem>
+                                                    ) : null}
+                                                    {post.has_publish_failures &&
+                                                    canPublishPost(post) &&
+                                                    (!post.requires_approval || post.approved_at) ? (
+                                                        <ActionItem
+                                                            onClick={() =>
+                                                                runPostAction(
+                                                                    route(
+                                                                        'social.posts.retry',
+                                                                        post.id,
+                                                                    ),
+                                                                )
+                                                            }
+                                                        >
+                                                            Resend failed
+                                                        </ActionItem>
+                                                    ) : null}
+                                                    {post.status === 'failed' &&
+                                                    !post.has_publish_failures ? (
+                                                        <ActionItem
+                                                            onClick={() =>
+                                                                runPostAction(
                                                                     route(
                                                                         'social.posts.retry',
                                                                         post.id,
@@ -736,7 +907,7 @@ export default function Index({
                                                     ) : null}
                                                     <ActionItem
                                                         onClick={() =>
-                                                            router.post(
+                                                            runPostAction(
                                                                 route('social.posts.posters', post.id),
                                                             )
                                                         }
@@ -1317,9 +1488,9 @@ export default function Index({
                             <div>
                                 <InputLabel
                                     value={
-                                        postForm.data.platforms.includes('instagram')
-                                            ? 'Media (required for Instagram)'
-                                            : 'Media (optional)'
+                                        postForm.data.platforms.length > 0
+                                            ? 'Media (required)'
+                                            : 'Media'
                                     }
                                 />
                                 <div className="mt-1.5">
@@ -1332,9 +1503,9 @@ export default function Index({
                                                 public_media_url: v ? '' : postForm.data.public_media_url,
                                             });
                                         }}
-                                        placeholder="No media"
+                                        placeholder="Pick an image"
                                         options={[
-                                            { value: '', label: 'No media' },
+                                            { value: '', label: 'Pick an image' },
                                             ...mediaOptions.map((asset) => ({
                                                 value: String(asset.id),
                                                 label: asset.name,
@@ -1343,9 +1514,9 @@ export default function Index({
                                         ]}
                                     />
                                 </div>
-                                {postForm.data.platforms.includes('instagram') ? (
+                                {postForm.data.platforms.length > 0 ? (
                                     <div className="mt-2">
-                                        <InputLabel value="Or public https image URL (for local IG test)" />
+                                        <InputLabel value="Or public https image URL" />
                                         <TextInput
                                             className="mt-1 w-full"
                                             type="url"
@@ -1362,8 +1533,8 @@ export default function Index({
                                             }
                                         />
                                         <p className="mt-1 text-xs text-ink-muted">
-                                            Meta cannot fetch localhost images. Paste a public https
-                                            image URL when testing IG locally.
+                                            Every post needs an image. On localhost, paste a public https
+                                            URL — Meta cannot fetch local files.
                                         </p>
                                     </div>
                                 ) : null}

@@ -3,11 +3,14 @@
 namespace Tests\Feature;
 
 use App\Enums\WorkspaceRole;
+use App\Jobs\GeneratePosterVariantsJob;
 use App\Jobs\PublishSocialPostJob;
+use App\Models\MediaAsset;
 use App\Models\SocialAccount;
 use App\Models\SocialPost;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\Billing\BillingService;
 use App\Services\Social\SocialPublisherService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -17,6 +20,11 @@ class SocialSchedulerTest extends TestCase
 {
     use RefreshDatabase;
 
+    private function samplePublicMediaUrl(): string
+    {
+        return 'https://example.com/sample-post.jpg';
+    }
+
     private function memberWithWorkspace(): array
     {
         $user = User::factory()->create();
@@ -24,6 +32,149 @@ class SocialSchedulerTest extends TestCase
         $workspace->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
 
         return [$user, $workspace];
+    }
+
+    public function test_poster_job_attaches_image_for_all_social_drafts(): void
+    {
+        if (! function_exists('imagecreatetruecolor')) {
+            $this->markTestSkipped('GD extension required for poster generation.');
+        }
+
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        $post = SocialPost::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'title' => 'Janmashtami offer',
+            'body' => 'Celebrate with Vibgyor Holidays',
+            'platforms' => ['instagram', 'facebook'],
+            'status' => 'draft',
+            'requires_approval' => true,
+        ]);
+
+        GeneratePosterVariantsJob::dispatchSync($post->id);
+
+        $post->refresh();
+        $this->assertNotNull($post->media_asset_id);
+        $this->assertNotEmpty($post->poster_variants);
+        $this->assertNotNull($post->media);
+        $this->assertSame('image/jpeg', $post->media->mime_type);
+    }
+
+    public function test_approve_blocked_without_media(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        $post = SocialPost::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'title' => 'No image draft',
+            'body' => 'Caption only',
+            'platforms' => ['instagram', 'facebook'],
+            'status' => 'draft',
+            'requires_approval' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('social.posts.approve', $post))
+            ->assertRedirect()
+            ->assertSessionHas('error');
+
+        $this->assertNull($post->fresh()->approved_at);
+    }
+
+    public function test_approve_succeeds_with_media(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        app(BillingService::class)->changePlan($workspace, 'starter', 'active');
+
+        $asset = MediaAsset::query()->create([
+            'workspace_id' => $workspace->id,
+            'uploaded_by' => $user->id,
+            'disk' => 'public',
+            'path' => 'media/test.jpg',
+            'original_name' => 'test.jpg',
+            'mime_type' => 'image/jpeg',
+            'size' => 1000,
+            'status' => 'ready',
+        ]);
+
+        $post = SocialPost::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'title' => 'With image',
+            'body' => 'Caption',
+            'platforms' => ['instagram'],
+            'status' => 'draft',
+            'requires_approval' => true,
+            'media_asset_id' => $asset->id,
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('social.posts.approve', $post))
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $this->assertNotNull($post->fresh()->approved_at);
+    }
+
+    public function test_publish_now_blocked_until_approved(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        app(BillingService::class)->changePlan($workspace, 'starter', 'active');
+
+        $post = SocialPost::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'title' => 'Needs review',
+            'body' => 'Draft body',
+            'platforms' => ['instagram'],
+            'status' => 'draft',
+            'requires_approval' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('social.posts.publish', $post))
+            ->assertRedirect()
+            ->assertSessionHas('error');
+
+        $this->assertSame('draft', $post->fresh()->status);
+        $this->assertNull($post->fresh()->approved_at);
+    }
+
+    public function test_failed_platforms_detects_partial_publish(): void
+    {
+        $post = new SocialPost([
+            'platforms' => ['facebook', 'instagram'],
+            'permalinks' => ['facebook' => 'https://facebook.com/example'],
+            'status' => 'published',
+        ]);
+
+        $publisher = app(SocialPublisherService::class);
+
+        $this->assertSame(['instagram'], $publisher->failedPlatforms($post));
+        $this->assertTrue($publisher->hasPublishFailures($post));
+    }
+
+    public function test_platform_statuses_for_partial_publish(): void
+    {
+        $post = new SocialPost([
+            'platforms' => ['facebook', 'instagram'],
+            'permalinks' => ['facebook' => 'https://facebook.com/example'],
+            'status' => 'published',
+            'requires_approval' => false,
+            'media_asset_id' => 1,
+        ]);
+
+        $publisher = app(SocialPublisherService::class);
+        $statuses = $publisher->platformStatuses($post);
+
+        $this->assertSame('published', $statuses[0]['status']);
+        $this->assertSame('failed', $statuses[1]['status']);
+        $this->assertTrue($statuses[1]['can_resend']);
     }
 
     public function test_connect_schedule_publish_flow(): void
@@ -53,6 +204,7 @@ class SocialSchedulerTest extends TestCase
                 'delivery' => 'schedule',
                 'scheduled_at' => now()->addHour()->toDateTimeString(),
                 'generate_posters' => false,
+                'public_media_url' => $this->samplePublicMediaUrl(),
             ])
             ->assertRedirect();
 
@@ -90,6 +242,7 @@ class SocialSchedulerTest extends TestCase
                 'delivery' => 'schedule',
                 'scheduled_at' => now()->addDay()->toDateTimeString(),
                 'generate_posters' => false,
+                'public_media_url' => $this->samplePublicMediaUrl(),
             ])
             ->assertRedirect();
 
@@ -138,6 +291,18 @@ class SocialSchedulerTest extends TestCase
             'connected_at' => now(),
         ]);
 
+        $asset = MediaAsset::query()->create([
+            'workspace_id' => $workspace->id,
+            'uploaded_by' => $user->id,
+            'disk' => 'public',
+            'path' => $this->samplePublicMediaUrl(),
+            'original_name' => 'sample-post.jpg',
+            'mime_type' => 'image/jpeg',
+            'size' => 0,
+            'folder' => 'Test',
+            'status' => 'ready',
+        ]);
+
         $post = SocialPost::query()->create([
             'workspace_id' => $workspace->id,
             'created_by' => $user->id,
@@ -145,6 +310,7 @@ class SocialSchedulerTest extends TestCase
             'body' => 'Body',
             'platforms' => ['facebook'],
             'status' => 'publishing',
+            'media_asset_id' => $asset->id,
         ]);
 
         $result = app(SocialPublisherService::class)->publish($post);

@@ -7,7 +7,7 @@ use App\Services\Ai\Contracts\AiProvider;
 use Illuminate\Support\Facades\Http;
 
 /**
- * OpenAI-compatible chat completions (Groq, Cerebras, Mistral, OpenRouter, Ollama, OpenAI…).
+ * OpenAI-compatible chat completions (Groq, Cerebras, Mistral, OpenRouter, OpenAI…).
  */
 class OpenAiCompatibleProvider implements AiProvider
 {
@@ -21,11 +21,6 @@ class OpenAiCompatibleProvider implements AiProvider
     public function configured(): bool
     {
         $cfg = config('ai.providers.'.$this->id, []);
-
-        // Ollama only when explicitly enabled (avoids always-on localhost probes).
-        if ($this->id === 'ollama') {
-            return filter_var($cfg['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
-        }
 
         return filled($cfg['key'] ?? null);
     }

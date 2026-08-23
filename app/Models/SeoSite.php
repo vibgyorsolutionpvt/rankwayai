@@ -45,6 +45,7 @@ class SeoSite extends Model
         'backlinks_synced_at',
         'backlinks_provider',
         'backlink_summary',
+        'rankway_domain_id',
     ];
 
     protected function casts(): array
@@ -92,6 +93,11 @@ class SeoSite extends Model
     public function blogPosts(): HasMany
     {
         return $this->hasMany(SeoBlogPost::class);
+    }
+
+    public function rankwayDomain(): BelongsTo
+    {
+        return $this->belongsTo(RankwayDomain::class, 'rankway_domain_id');
     }
 
     public function markGscConnected(?string $property = null, string $mode = 'oauth'): void

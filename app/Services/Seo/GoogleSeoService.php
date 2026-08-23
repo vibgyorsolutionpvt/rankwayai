@@ -127,39 +127,95 @@ class GoogleSeoService
         $end = now()->subDay()->toDateString();
         $start = now()->subDays(28)->toDateString();
 
-        $response = Http::withToken($accessToken)
+        $endpoint = 'https://www.googleapis.com/webmasters/v3/sites/'.rawurlencode($property).'/searchAnalytics/query';
+
+        // Keyword + landing page (which URL ranks for which query).
+        $queryPageResponse = Http::withToken($accessToken)
             ->timeout(45)
-            ->post('https://www.googleapis.com/webmasters/v3/sites/'.rawurlencode($property).'/searchAnalytics/query', [
+            ->post($endpoint, [
                 'startDate' => $start,
                 'endDate' => $end,
-                'dimensions' => ['query'],
-                'rowLimit' => 50,
+                'dimensions' => ['query', 'page'],
+                'rowLimit' => 100,
                 'dataState' => 'final',
             ]);
 
-        if (! $response->successful()) {
-            $message = 'GSC API error: '.Str::limit($response->json('error.message') ?? $response->body(), 180);
+        if (! $queryPageResponse->successful()) {
+            // Fallback: queries only (older clients / rare API quirks).
+            $queryPageResponse = Http::withToken($accessToken)
+                ->timeout(45)
+                ->post($endpoint, [
+                    'startDate' => $start,
+                    'endDate' => $end,
+                    'dimensions' => ['query'],
+                    'rowLimit' => 100,
+                    'dataState' => 'final',
+                ]);
+        }
+
+        if (! $queryPageResponse->successful()) {
+            $message = 'GSC API error: '.Str::limit($queryPageResponse->json('error.message') ?? $queryPageResponse->body(), 180);
             $site->update(['gsc_last_error' => $message]);
 
             return ['ok' => false, 'message' => $message];
         }
 
-        $rows = collect($response->json('rows') ?? [])
+        $rows = collect($queryPageResponse->json('rows') ?? [])
             ->map(function (array $row) {
+                $keys = $row['keys'] ?? [];
+                $query = (string) ($keys[0] ?? '');
+                $page = (string) ($keys[1] ?? '');
                 $clicks = (float) ($row['clicks'] ?? 0);
                 $impressions = (float) ($row['impressions'] ?? 0);
+                $position = round((float) ($row['position'] ?? 0), 1);
 
                 return [
-                    'query' => (string) ($row['keys'][0] ?? ''),
+                    'query' => $query,
+                    'page' => $page !== '' ? $page : null,
                     'clicks' => (int) round($clicks),
                     'impressions' => (int) round($impressions),
                     'ctr' => round(((float) ($row['ctr'] ?? ($impressions > 0 ? $clicks / $impressions : 0))) * 100, 2),
-                    'position' => round((float) ($row['position'] ?? 0), 1),
+                    'position' => $position,
+                    'google_page' => self::serpPageFromPosition($position),
                 ];
             })
             ->filter(fn (array $row) => $row['query'] !== '')
             ->values()
             ->all();
+
+        // Top landing pages that appear in Google Search.
+        $landingPages = [];
+        $pageResponse = Http::withToken($accessToken)
+            ->timeout(45)
+            ->post($endpoint, [
+                'startDate' => $start,
+                'endDate' => $end,
+                'dimensions' => ['page'],
+                'rowLimit' => 50,
+                'dataState' => 'final',
+            ]);
+
+        if ($pageResponse->successful()) {
+            $landingPages = collect($pageResponse->json('rows') ?? [])
+                ->map(function (array $row) {
+                    $page = (string) ($row['keys'][0] ?? '');
+                    $clicks = (float) ($row['clicks'] ?? 0);
+                    $impressions = (float) ($row['impressions'] ?? 0);
+                    $position = round((float) ($row['position'] ?? 0), 1);
+
+                    return [
+                        'page' => $page,
+                        'clicks' => (int) round($clicks),
+                        'impressions' => (int) round($impressions),
+                        'ctr' => round(((float) ($row['ctr'] ?? ($impressions > 0 ? $clicks / $impressions : 0))) * 100, 2),
+                        'position' => $position,
+                        'google_page' => self::serpPageFromPosition($position),
+                    ];
+                })
+                ->filter(fn (array $row) => $row['page'] !== '')
+                ->values()
+                ->all();
+        }
 
         $summary = [
             'clicks' => (int) collect($rows)->sum('clicks'),
@@ -170,6 +226,10 @@ class GoogleSeoService
             'avg_ctr' => $rows
                 ? round(collect($rows)->avg('ctr'), 2)
                 : null,
+            'keywords_count' => count($rows),
+            'pages_in_search' => count($landingPages) ?: collect($rows)->pluck('page')->filter()->unique()->count(),
+            'page1_keywords' => collect($rows)->where('google_page', 1)->count(),
+            'landing_pages' => $landingPages,
             'start' => $start,
             'end' => $end,
             'property' => $property,
@@ -184,14 +244,27 @@ class GoogleSeoService
         ]);
 
         $count = count($rows);
+        $pageCount = count($landingPages);
 
         return [
             'ok' => true,
             'message' => $count > 0
-                ? "Synced {$count} GSC queries ({$start} → {$end})."
+                ? "Synced {$count} keyword×page rows".($pageCount > 0 ? " + {$pageCount} landing pages" : '')." ({$start} → {$end})."
                 : "GSC connected but no query data yet for {$start} → {$end}.",
             'rows' => $count,
         ];
+    }
+
+    /**
+     * Google SERP page number from average position (≈10 organic results per page).
+     */
+    public static function serpPageFromPosition(float|int|null $position): ?int
+    {
+        if ($position === null || (float) $position <= 0) {
+            return null;
+        }
+
+        return (int) max(1, (int) ceil((float) $position / 10));
     }
 
     /**

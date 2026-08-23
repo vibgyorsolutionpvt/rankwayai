@@ -21,32 +21,24 @@ export default function Index({ workspace, brand, site, seoTasks, posts, keyword
             <Head title="Today" />
 
             <div className="atlas-shell space-y-2.5 stagger">
-                <section className="atlas-panel flex flex-wrap items-center justify-between gap-2 p-3">
+                <section className="atlas-panel flex flex-wrap items-center justify-between gap-3 p-3">
                     <div className="min-w-0">
                         <div className="flex items-center gap-1">
                             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
-                                AI assist
+                                AI posts
                             </div>
                             <HelpGuide help={HELP.ai} className="!h-6 !w-6" />
                         </div>
                         <p className="mt-0.5 text-sm text-ink-muted">
-                            Draft posts for today (approval required).
+                            3 social drafts — then publish from SMM.
                         </p>
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
-                        <PrimaryButton
-                            type="button"
-                            onClick={() => router.post(route('ai.generate-today'))}
-                        >
-                            Generate today’s posts
-                        </PrimaryButton>
-                        <Link
-                            href={route('ai.index')}
-                            className="inline-flex items-center rounded-md border border-line px-3 py-2 text-sm font-semibold text-ink"
-                        >
-                            Open AI studio
-                        </Link>
-                    </div>
+                    <Link
+                        href={route('ai.index')}
+                        className="inline-flex items-center gap-2 rounded-md bg-signal px-4 py-2 text-sm font-semibold text-white transition hover:bg-signal-strong"
+                    >
+                        Create today&apos;s posts
+                    </Link>
                 </section>
 
                 <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">

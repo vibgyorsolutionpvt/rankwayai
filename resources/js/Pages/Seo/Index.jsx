@@ -13,12 +13,33 @@ import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { useEffect, useMemo, useState } from 'react';
 
 const TABS = [
+    { id: 'rank', label: 'Rank' },
     { id: 'speed', label: 'Speed' },
     { id: 'fix', label: 'Fix' },
     { id: 'keywords', label: 'Keywords' },
     { id: 'grow', label: 'Grow' },
     { id: 'map', label: 'Site map' },
 ];
+
+function serpPageLabel(position) {
+    const p = Number(position);
+    if (!p || p <= 0) {
+        return '—';
+    }
+    return `Page ${Math.max(1, Math.ceil(p / 10))}`;
+}
+
+function shortPagePath(url) {
+    if (!url) {
+        return '—';
+    }
+    try {
+        const u = new URL(url);
+        return u.pathname === '/' ? u.host + '/' : u.pathname + u.search;
+    } catch {
+        return String(url).replace(/^https?:\/\//, '');
+    }
+}
 
 const GSC_QUERIES_PER_PAGE = 10;
 
@@ -343,11 +364,12 @@ export default function Index({
     local_targets = [],
     architecture = { nodes: [], edges: [] },
     pagespeed_quota = null,
+    rankway = null,
 }) {
     const { errors, flash } = usePage().props;
     const initialTab = (() => {
         const q = new URLSearchParams(window.location.search).get('tab');
-        return TABS.some((t) => t.id === q) ? q : 'speed';
+        return TABS.some((t) => t.id === q) ? q : 'rank';
     })();
     const [tab, setTab] = useState(initialTab);
     const [addingSite, setAddingSite] = useState(sites.length === 0);
@@ -877,6 +899,11 @@ export default function Index({
                                             {openIssues.length}
                                         </span>
                                     ) : null}
+                                    {t.id === 'rank' && rankway?.result?.rankway_score != null ? (
+                                        <span className="ml-1.5 text-[10px] font-bold tabular-nums text-ink-muted">
+                                            {rankway.result.rankway_score}
+                                        </span>
+                                    ) : null}
                                     {t.id === 'speed' && site.pagespeed_score != null ? (
                                         <span className="ml-1.5 text-[10px] font-bold tabular-nums text-ink-muted">
                                             {site.pagespeed_score}
@@ -885,6 +912,285 @@ export default function Index({
                                 </button>
                             ))}
                         </div>
+
+                        {tab === 'rank' ? (
+                            <section className="atlas-panel space-y-4 p-4 sm:p-5">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div>
+                                        <div className="text-sm font-bold text-ink">
+                                            Rankway Score & estimated rank
+                                        </div>
+                                        <p className="mt-1 max-w-2xl text-xs text-ink-muted">
+                                            Estimated among Rankway-indexed websites — not Google
+                                            traffic rank. Improve via Fix, Keywords, and Grow.
+                                        </p>
+                                        {rankway?.result?.rank_preview_message ? (
+                                            <p className="mt-2 max-w-2xl rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+                                                {rankway.result.rank_preview_message}
+                                            </p>
+                                        ) : null}
+                                    </div>
+                                    {site ? (
+                                        <PrimaryButton
+                                            type="button"
+                                            onClick={() =>
+                                                router.post(route('seo.sites.rankway', site.id))
+                                            }
+                                        >
+                                            {rankway?.result ? 'Refresh score' : 'Check rank'}
+                                        </PrimaryButton>
+                                    ) : null}
+                                </div>
+
+                                {!site ? (
+                                    <p className="text-sm text-ink-muted">
+                                        Connect a website first to check Rankway Score.
+                                    </p>
+                                ) : !rankway?.result ? (
+                                    <p className="text-sm text-ink-muted">
+                                        No score yet for {site.domain}. Click Check rank to analyze.
+                                    </p>
+                                ) : (
+                                    <>
+                                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                                            <div className="rounded-xl border border-line bg-white p-4">
+                                                <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                                                    Rankway Score
+                                                </p>
+                                                <p className="mt-2 font-display text-4xl font-bold tabular-nums text-ink">
+                                                    {rankway.result.rankway_score ?? '—'}
+                                                    <span className="text-lg text-ink-muted">
+                                                        /100
+                                                    </span>
+                                                </p>
+                                            </div>
+                                            <div className="rounded-xl border border-line bg-white p-4">
+                                                <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                                                    Est. global rank
+                                                </p>
+                                                <p className="mt-2 font-display text-3xl font-bold tabular-nums text-ink">
+                                                    {rankway.result.global_rank
+                                                        ? `#${rankway.result.global_rank}`
+                                                        : rankway.result.rank_among_indexed ||
+                                                          'Preview'}
+                                                </p>
+                                            </div>
+                                            <div className="rounded-xl border border-line bg-white p-4">
+                                                <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                                                    India rank
+                                                </p>
+                                                <p className="mt-2 font-display text-3xl font-bold tabular-nums text-ink">
+                                                    {rankway.result.country_rank
+                                                        ? `#${rankway.result.country_rank}`
+                                                        : '—'}
+                                                </p>
+                                            </div>
+                                            <div className="rounded-xl border border-line bg-white p-4">
+                                                <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                                                    Indexed sites
+                                                </p>
+                                                <p className="mt-2 font-display text-3xl font-bold tabular-nums text-ink">
+                                                    {rankway.result.indexed_count ?? '—'}
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                                            {[
+                                                ['Technical SEO', rankway.result.metrics?.technical_score],
+                                                ['Performance', rankway.result.metrics?.performance_score],
+                                                ['Content', rankway.result.metrics?.content_score],
+                                                ['Authority', rankway.result.scores?.authority],
+                                                ['Backlinks', rankway.result.metrics?.backlinks],
+                                                [
+                                                    'Referring domains',
+                                                    rankway.result.metrics?.referring_domains,
+                                                ],
+                                                ['Visibility', rankway.result.metrics?.visibility_score],
+                                                ['Growth', rankway.result.metrics?.growth_score],
+                                            ].map(([label, value]) => (
+                                                <div
+                                                    key={label}
+                                                    className="rounded-lg border border-line px-3 py-2 text-sm"
+                                                >
+                                                    <span className="text-ink-muted">{label}</span>
+                                                    <span className="float-right font-semibold tabular-nums text-ink">
+                                                        {value ?? '—'}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2">
+                                            <SecondaryButton
+                                                type="button"
+                                                onClick={() => setTab('fix')}
+                                            >
+                                                Fix issues
+                                            </SecondaryButton>
+                                            <SecondaryButton
+                                                type="button"
+                                                onClick={() => setTab('keywords')}
+                                            >
+                                                Track keywords
+                                            </SecondaryButton>
+                                            <SecondaryButton
+                                                type="button"
+                                                onClick={() => setTab('grow')}
+                                            >
+                                                Grow / backlinks
+                                            </SecondaryButton>
+                                            <SecondaryButton
+                                                type="button"
+                                                onClick={() => router.get(route('blog.index'))}
+                                            >
+                                                Publish (Askefy)
+                                            </SecondaryButton>
+                                        </div>
+
+                                        {Array.isArray(rankway.result.history) &&
+                                        rankway.result.history.length > 1 ? (
+                                            <div className="rounded-xl border border-line p-4">
+                                                <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                                                    Score history
+                                                </p>
+                                                <ul className="mt-2 space-y-1 text-sm text-ink">
+                                                    {rankway.result.history.map((h, i) => (
+                                                        <li
+                                                            key={`${h.recorded_at}-${i}`}
+                                                            className="flex justify-between gap-3"
+                                                        >
+                                                            <span className="text-ink-muted">
+                                                                {h.recorded_at}
+                                                            </span>
+                                                            <span className="tabular-nums font-semibold">
+                                                                {h.rankway_score ?? '—'}
+                                                                {h.global_rank
+                                                                    ? ` · #${h.global_rank}`
+                                                                    : ''}
+                                                            </span>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        ) : null}
+
+                                        <p className="text-xs text-ink-muted">
+                                            {rankway.result.disclaimer}
+                                        </p>
+
+                                        <div className="rounded-xl border border-line p-4">
+                                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                                <div>
+                                                    <p className="text-sm font-bold text-ink">
+                                                        Google search keywords & page
+                                                    </p>
+                                                    <p className="mt-0.5 text-xs text-ink-muted">
+                                                        Kis keyword pe site aati hai, aur Google ke
+                                                        kis page pe (1–10 = Page 1).
+                                                    </p>
+                                                </div>
+                                                <SecondaryButton
+                                                    type="button"
+                                                    onClick={() => setTab('keywords')}
+                                                >
+                                                    Open Keywords / GSC
+                                                </SecondaryButton>
+                                            </div>
+                                            {!site?.gsc_connected ? (
+                                                <p className="mt-3 text-sm text-ink-muted">
+                                                    Connect Google Search Console on the Keywords
+                                                    tab, then Sync — real queries + positions
+                                                    load here.
+                                                </p>
+                                            ) : !Array.isArray(site?.gsc_queries) ||
+                                              site.gsc_queries.length === 0 ? (
+                                                <p className="mt-3 text-sm text-ink-muted">
+                                                    GSC connected — Sync GSC data to see keywords
+                                                    and Google page numbers.
+                                                </p>
+                                            ) : (
+                                                <>
+                                                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                                                        <div className="rounded-lg border border-line px-3 py-2 text-sm">
+                                                            <span className="text-ink-muted">
+                                                                Keywords
+                                                            </span>
+                                                            <span className="float-right font-semibold tabular-nums">
+                                                                {site.gsc_summary?.keywords_count ??
+                                                                    site.gsc_queries.length}
+                                                            </span>
+                                                        </div>
+                                                        <div className="rounded-lg border border-line px-3 py-2 text-sm">
+                                                            <span className="text-ink-muted">
+                                                                Page 1
+                                                            </span>
+                                                            <span className="float-right font-semibold tabular-nums text-emerald-700">
+                                                                {site.gsc_summary?.page1_keywords ??
+                                                                    '—'}
+                                                            </span>
+                                                        </div>
+                                                        <div className="rounded-lg border border-line px-3 py-2 text-sm">
+                                                            <span className="text-ink-muted">
+                                                                Pages in search
+                                                            </span>
+                                                            <span className="float-right font-semibold tabular-nums">
+                                                                {site.gsc_summary
+                                                                    ?.pages_in_search ?? '—'}
+                                                            </span>
+                                                        </div>
+                                                        <div className="rounded-lg border border-line px-3 py-2 text-sm">
+                                                            <span className="text-ink-muted">
+                                                                Avg pos.
+                                                            </span>
+                                                            <span className="float-right font-semibold tabular-nums">
+                                                                {site.gsc_summary?.avg_position ??
+                                                                    '—'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <ul className="mt-3 divide-y divide-line rounded-lg border border-line">
+                                                        {site.gsc_queries
+                                                            .slice(0, 8)
+                                                            .map((row) => (
+                                                                <li
+                                                                    key={`${row.query}-${row.page || ''}`}
+                                                                    className="flex flex-wrap items-start justify-between gap-2 px-3 py-2.5 text-sm"
+                                                                >
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <div className="font-semibold text-ink">
+                                                                            {row.query}
+                                                                        </div>
+                                                                        {row.page ? (
+                                                                            <div className="mt-0.5 truncate text-xs text-ink-muted">
+                                                                                {shortPagePath(
+                                                                                    row.page,
+                                                                                )}
+                                                                            </div>
+                                                                        ) : null}
+                                                                    </div>
+                                                                    <div className="shrink-0 text-right text-xs">
+                                                                        <div className="font-semibold tabular-nums text-ink">
+                                                                            Pos. {row.position}
+                                                                        </div>
+                                                                        <div className="text-ink-muted">
+                                                                            {row.google_page
+                                                                                ? `Google page ${row.google_page}`
+                                                                                : serpPageLabel(
+                                                                                      row.position,
+                                                                                  )}
+                                                                        </div>
+                                                                    </div>
+                                                                </li>
+                                                            ))}
+                                                    </ul>
+                                                </>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+                            </section>
+                        ) : null}
 
                         {tab === 'speed' ? (
                             <section className="atlas-panel space-y-4 p-4 sm:p-5">
@@ -1255,9 +1561,9 @@ export default function Index({
                                         subtitle={
                                             site?.gsc_connected
                                                 ? site.gsc_synced_at
-                                                    ? `Last sync ${site.gsc_synced_at}`
-                                                    : 'Connected — sync to pull queries'
-                                                : 'Connect GSC to see real Google queries, clicks & impressions'
+                                                    ? `Last sync ${site.gsc_synced_at} — keywords, your landing page & Google page #`
+                                                    : 'Connected — sync to pull keywords + ranking pages'
+                                                : 'Connect GSC to see which keywords you rank for and on which Google page'
                                         }
                                         action={
                                             site ? (
@@ -1359,7 +1665,7 @@ export default function Index({
                                         </p>
                                     ) : null}
                                     {site?.gsc_summary ? (
-                                        <div className="grid grid-cols-2 gap-3 border-b border-line px-4 py-3 sm:grid-cols-4">
+                                        <div className="grid grid-cols-2 gap-3 border-b border-line px-4 py-3 sm:grid-cols-3 lg:grid-cols-6">
                                             {[
                                                 {
                                                     label: 'Clicks',
@@ -1380,6 +1686,16 @@ export default function Index({
                                                     label: 'Avg position',
                                                     value: site.gsc_summary.avg_position ?? '—',
                                                 },
+                                                {
+                                                    label: 'Keywords',
+                                                    value:
+                                                        site.gsc_summary.keywords_count ??
+                                                        gscQueries.length,
+                                                },
+                                                {
+                                                    label: 'Page 1 keywords',
+                                                    value: site.gsc_summary.page1_keywords ?? '—',
+                                                },
                                             ].map((m) => (
                                                 <div key={m.label}>
                                                     <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
@@ -1396,11 +1712,13 @@ export default function Index({
                                         <table className="min-w-full text-left text-sm">
                                             <thead className="bg-mist/80 text-[11px] uppercase text-ink-muted">
                                                 <tr>
-                                                    <th className="px-4 py-2.5">Query</th>
+                                                    <th className="px-4 py-2.5">Keyword</th>
+                                                    <th className="px-4 py-2.5">Your page</th>
+                                                    <th className="px-4 py-2.5">Pos.</th>
+                                                    <th className="px-4 py-2.5">Google page</th>
                                                     <th className="px-4 py-2.5">Clicks</th>
                                                     <th className="px-4 py-2.5">Impr.</th>
                                                     <th className="px-4 py-2.5">CTR</th>
-                                                    <th className="px-4 py-2.5">Pos.</th>
                                                     <th className="px-4 py-2.5" />
                                                 </tr>
                                             </thead>
@@ -1408,7 +1726,7 @@ export default function Index({
                                                 {gscQueries.length === 0 ? (
                                                     <tr>
                                                         <td
-                                                            colSpan={6}
+                                                            colSpan={8}
                                                             className="px-4 py-8 text-center text-ink-muted"
                                                         >
                                                             {site?.gsc_connected
@@ -1418,9 +1736,55 @@ export default function Index({
                                                     </tr>
                                                 ) : (
                                                     gscPageRows.map((row) => (
-                                                        <tr key={row.query}>
+                                                        <tr
+                                                            key={`${row.query}-${row.page || ''}`}
+                                                        >
                                                             <td className="px-4 py-2.5 font-medium text-ink">
                                                                 {row.query}
+                                                            </td>
+                                                            <td className="max-w-[220px] px-4 py-2.5">
+                                                                {row.page ? (
+                                                                    <a
+                                                                        href={row.page}
+                                                                        target="_blank"
+                                                                        rel="noreferrer"
+                                                                        className="line-clamp-2 text-xs font-medium text-signal-strong hover:underline"
+                                                                        title={row.page}
+                                                                    >
+                                                                        {shortPagePath(row.page)}
+                                                                    </a>
+                                                                ) : (
+                                                                    <span className="text-xs text-ink-muted">
+                                                                        —
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-4 py-2.5 tabular-nums">
+                                                                {row.position}
+                                                            </td>
+                                                            <td className="px-4 py-2.5">
+                                                                <span
+                                                                    className={
+                                                                        'inline-flex rounded-md px-2 py-0.5 text-xs font-semibold ' +
+                                                                        (row.google_page === 1 ||
+                                                                        (row.position &&
+                                                                            row.position <= 10)
+                                                                            ? 'bg-emerald-50 text-emerald-800'
+                                                                            : row.google_page ===
+                                                                                    2 ||
+                                                                                (row.position &&
+                                                                                    row.position <=
+                                                                                        20)
+                                                                              ? 'bg-amber-50 text-amber-900'
+                                                                              : 'bg-mist text-ink-muted')
+                                                                    }
+                                                                >
+                                                                    {row.google_page
+                                                                        ? `Page ${row.google_page}`
+                                                                        : serpPageLabel(
+                                                                              row.position,
+                                                                          )}
+                                                                </span>
                                                             </td>
                                                             <td className="px-4 py-2.5 tabular-nums">
                                                                 {row.clicks}
@@ -1430,9 +1794,6 @@ export default function Index({
                                                             </td>
                                                             <td className="px-4 py-2.5 tabular-nums">
                                                                 {row.ctr}%
-                                                            </td>
-                                                            <td className="px-4 py-2.5 tabular-nums">
-                                                                {row.position}
                                                             </td>
                                                             <td className="px-4 py-2.5 text-right">
                                                                 <button
@@ -1470,9 +1831,69 @@ export default function Index({
                                             {site.gsc_summary.property
                                                 ? ` · ${site.gsc_summary.property}`
                                                 : ''}
+                                            {' · '}
+                                            Position → Google page: 1–10 = Page 1, 11–20 = Page 2,
+                                            …
                                         </p>
                                     ) : null}
                                 </section>
+
+                                {Array.isArray(site?.gsc_summary?.landing_pages) &&
+                                site.gsc_summary.landing_pages.length > 0 ? (
+                                    <section className="atlas-panel overflow-hidden">
+                                        <PanelTitle
+                                            title="Pages that appear in Google Search"
+                                            subtitle={`${site.gsc_summary.pages_in_search || site.gsc_summary.landing_pages.length} URLs with impressions (last 28 days)`}
+                                        />
+                                        <div className="overflow-x-auto">
+                                            <table className="min-w-full text-left text-sm">
+                                                <thead className="bg-mist/80 text-[11px] uppercase text-ink-muted">
+                                                    <tr>
+                                                        <th className="px-4 py-2.5">Page</th>
+                                                        <th className="px-4 py-2.5">Avg pos.</th>
+                                                        <th className="px-4 py-2.5">Google page</th>
+                                                        <th className="px-4 py-2.5">Clicks</th>
+                                                        <th className="px-4 py-2.5">Impr.</th>
+                                                        <th className="px-4 py-2.5">CTR</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-line">
+                                                    {site.gsc_summary.landing_pages.map((lp) => (
+                                                        <tr key={lp.page}>
+                                                            <td className="max-w-md px-4 py-2.5">
+                                                                <a
+                                                                    href={lp.page}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    className="line-clamp-2 text-sm font-medium text-signal-strong hover:underline"
+                                                                >
+                                                                    {shortPagePath(lp.page)}
+                                                                </a>
+                                                            </td>
+                                                            <td className="px-4 py-2.5 tabular-nums">
+                                                                {lp.position}
+                                                            </td>
+                                                            <td className="px-4 py-2.5 text-xs font-semibold text-ink">
+                                                                {lp.google_page
+                                                                    ? `Page ${lp.google_page}`
+                                                                    : serpPageLabel(lp.position)}
+                                                            </td>
+                                                            <td className="px-4 py-2.5 tabular-nums">
+                                                                {lp.clicks}
+                                                            </td>
+                                                            <td className="px-4 py-2.5 tabular-nums">
+                                                                {lp.impressions}
+                                                            </td>
+                                                            <td className="px-4 py-2.5 tabular-nums">
+                                                                {lp.ctr}%
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </section>
+                                ) : null}
 
                             <section className="atlas-panel overflow-hidden">
                                 <PanelTitle title="Keyword research" />
@@ -1690,6 +2111,7 @@ export default function Index({
                                                 <th className="px-4 py-2.5">Vol</th>
                                                 <th className="px-4 py-2.5">KD</th>
                                                 <th className="px-4 py-2.5">Rank</th>
+                                                <th className="px-4 py-2.5">Google page</th>
                                                 <th className="px-4 py-2.5">Change</th>
                                                 <th className="px-4 py-2.5">Checked</th>
                                             </tr>
@@ -1698,7 +2120,7 @@ export default function Index({
                                             {keywords.length === 0 ? (
                                                 <tr>
                                                     <td
-                                                        colSpan={6}
+                                                        colSpan={7}
                                                         className="px-4 py-10 text-center text-ink-muted"
                                                     >
                                                         No keywords yet.
@@ -1722,6 +2144,9 @@ export default function Index({
                                                         </td>
                                                         <td className="px-4 py-2.5 font-bold text-signal-strong">
                                                             #{kw.position ?? '—'}
+                                                        </td>
+                                                        <td className="px-4 py-2.5 text-xs font-semibold text-ink">
+                                                            {serpPageLabel(kw.position)}
                                                         </td>
                                                         <td className="px-4 py-2.5">
                                                             {kw.position_change > 0

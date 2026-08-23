@@ -26,6 +26,26 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Rankway Website Score & Estimated Rank
+    |--------------------------------------------------------------------------
+    |
+    | Public lead-magnet checker + SEO hub Rank tab. Ranks are among
+    | Rankway-indexed domains — not Alexa / Google traffic rank.
+    |
+    */
+    'rankway' => [
+        'cache_hours' => (int) env('RANKWAY_DOMAIN_CACHE_HOURS', 24),
+        'default_country' => env('RANKWAY_DEFAULT_COUNTRY', 'IN'),
+        'min_index_for_percentile' => (int) env('RANKWAY_MIN_INDEX_PERCENTILE', 50),
+        // Hide absolute #rank until the index is large enough to be meaningful.
+        'min_index_for_rank' => (int) env('RANKWAY_MIN_INDEX_FOR_RANK', 50),
+        // Probe-only analyses cap here — authority must come from external data or benchmarks.
+        'probe_only_score_cap' => (int) env('RANKWAY_PROBE_ONLY_SCORE_CAP', 72),
+        'authority_floors' => require config_path('rankway_benchmarks.php'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Public marketing site SEO (rankwayAI landing)
     |--------------------------------------------------------------------------
     */

@@ -52,9 +52,9 @@ class SeoBlogPost extends Model
             'source' => $this->source,
             'share_count' => (int) $this->share_count,
             'last_shared_at' => $this->last_shared_at?->diffForHumans(),
-            'verba_published' => $this->verba_published_at !== null,
-            'verba_published_url' => $this->verba_published_url,
-            'verba_published_at' => $this->verba_published_at?->diffForHumans(),
+            'askefy_published' => $this->verba_published_at !== null,
+            'askefy_published_url' => $this->verba_published_url,
+            'askefy_published_at' => $this->verba_published_at?->diffForHumans(),
         ];
     }
 }

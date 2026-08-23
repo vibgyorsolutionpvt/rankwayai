@@ -19,6 +19,11 @@ class Workspace extends Model
     protected $fillable = [
         'name',
         'slug',
+        'industry',
+        'city',
+        'phone',
+        'email',
+        'website',
         'enabled_modules',
         'enabled_social_platforms',
     ];
@@ -169,5 +174,84 @@ class Workspace extends Model
     public function hasMember(User $user): bool
     {
         return $this->users()->where('user_id', $user->id)->exists();
+    }
+
+    public function resolvedIndustry(): ?string
+    {
+        $value = trim((string) ($this->industry ?? ''));
+
+        return $value !== '' && $value !== 'local business' ? $value : null;
+    }
+
+    public function resolvedCity(): ?string
+    {
+        $value = trim((string) ($this->city ?? ''));
+
+        return $value !== '' && $value !== 'India' ? $value : null;
+    }
+
+    public function hasBusinessProfile(): bool
+    {
+        return $this->resolvedIndustry() !== null && $this->resolvedCity() !== null;
+    }
+
+    public function resolvedPhone(): ?string
+    {
+        $value = trim((string) ($this->phone ?? ''));
+
+        if ($value !== '') {
+            return $value;
+        }
+
+        $fromKit = trim((string) ($this->resolveBrandKit()?->phone ?? ''));
+
+        return $fromKit !== '' ? $fromKit : null;
+    }
+
+    public function resolvedEmail(): ?string
+    {
+        $value = trim((string) ($this->email ?? ''));
+
+        if ($value !== '') {
+            return $value;
+        }
+
+        $fromKit = trim((string) ($this->resolveBrandKit()?->email ?? ''));
+
+        return $fromKit !== '' ? $fromKit : null;
+    }
+
+    public function resolvedWebsite(): ?string
+    {
+        $value = trim((string) ($this->website ?? ''));
+
+        if ($value !== '') {
+            return $value;
+        }
+
+        $fromKit = trim((string) ($this->resolveBrandKit()?->website_url ?? ''));
+
+        return $fromKit !== '' ? $fromKit : null;
+    }
+
+    /**
+     * @return array{phone:?string,email:?string,website:?string}
+     */
+    public function contactDetails(): array
+    {
+        return [
+            'phone' => $this->resolvedPhone(),
+            'email' => $this->resolvedEmail(),
+            'website' => $this->resolvedWebsite(),
+        ];
+    }
+
+    public function hasContactDetails(): bool
+    {
+        $contact = $this->contactDetails();
+
+        return ($contact['phone'] ?? null) !== null
+            || ($contact['email'] ?? null) !== null
+            || ($contact['website'] ?? null) !== null;
     }
 }

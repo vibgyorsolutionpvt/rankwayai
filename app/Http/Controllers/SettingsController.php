@@ -42,6 +42,11 @@ class SettingsController extends Controller
                 'name' => $item->name,
                 'slug' => $item->slug,
                 'role' => $item->pivot->role,
+                'industry' => $item->resolvedIndustry(),
+                'city' => $item->resolvedCity(),
+                'phone' => $item->resolvedPhone(),
+                'email' => $item->resolvedEmail(),
+                'website' => $item->resolvedWebsite(),
             ]);
 
         $activeId = (int) $request->session()->get('active_workspace_id');

@@ -55,7 +55,7 @@ final class NavModules
                 'tone' => 'sky',
             ],
             'ai' => [
-                'label' => 'AI',
+                'label' => 'AI posts',
                 'route' => 'ai.index',
                 'match' => 'ai.*',
                 'icon' => 'platform',

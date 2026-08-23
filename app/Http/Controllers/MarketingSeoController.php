@@ -51,6 +51,7 @@ class MarketingSeoController extends Controller
             ['loc' => $base.'/about', 'priority' => '0.8', 'changefreq' => 'monthly'],
             ['loc' => $base.'/pricing', 'priority' => '0.9', 'changefreq' => 'weekly'],
             ['loc' => $base.'/contact', 'priority' => '0.7', 'changefreq' => 'monthly'],
+            ['loc' => $base.'/website-rank-checker', 'priority' => '0.9', 'changefreq' => 'weekly'],
         ];
 
         $xml = '<?xml version="1.0" encoding="UTF-8"?>'."\n";

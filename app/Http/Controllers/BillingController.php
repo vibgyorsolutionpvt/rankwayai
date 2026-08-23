@@ -17,18 +17,38 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class BillingController extends Controller
 {
     use ResolvesWorkspace;
 
-    public function index(Request $request, BillingService $billing, UsageMeterService $usage, PlanAccess $plans): Response
-    {
+    public function index(
+        Request $request,
+        BillingService $billing,
+        UsageMeterService $usage,
+        PlanAccess $plans,
+        CreditRechargeService $recharges,
+        \App\Services\Billing\CreditWalletService $wallet
+    ): Response {
         $workspace = $this->workspace($request);
         $subscription = $billing->subscription($workspace);
         $account = $plans->accountEntitlementForWorkspace($workspace);
         $isAdmin = (bool) $request->user()?->is_superadmin;
         $market = $this->resolveMarket($request, $subscription, $isAdmin);
+
+        $linkId = $request->string('link_id')->toString() ?: null;
+        $syncedCredits = $recharges->syncPendingCashfree($workspace, $linkId);
+        $syncedPlan = $billing->syncPendingCashfreeCheckout($workspace, $linkId);
+        if ($syncedCredits !== [] || $syncedPlan) {
+            $subscription = $billing->subscription($workspace);
+            $totalCredits = collect($syncedCredits)->sum(fn ($row) => (int) $row->credits);
+            if ($totalCredits > 0) {
+                session()->flash('success', $totalCredits.' credits added to your wallet.');
+            } elseif ($syncedPlan) {
+                session()->flash('success', 'Payment received. Your plan is active.');
+            }
+        }
 
         $cashfree = $billing->cashfreeConfigured();
         $gatewayReady = $cashfree;
@@ -40,6 +60,8 @@ class BillingController extends Controller
         if (! in_array($tab, ['plan', 'history'], true)) {
             $tab = 'plan';
         }
+
+        $creditSnap = $wallet->snapshot($workspace, $subscription);
 
         return Inertia::render('Billing/Index', [
             'workspace' => ['id' => $workspace->id, 'name' => $workspace->name],
@@ -74,11 +96,7 @@ class BillingController extends Controller
             'providers' => ProviderStatus::snapshot(),
             'plans' => PlanCatalog::plansForMarket($market, $interval),
             'credit_packs' => CreditPackCatalog::packsForMarket($market),
-            'credit_history' => CreditRecharge::query()
-                ->where('workspace_id', $workspace->id)
-                ->latest()
-                ->limit(20)
-                ->get()
+            'credit_history' => $wallet->rechargeHistory($workspace)
                 ->map(fn (CreditRecharge $row) => [
                     'id' => $row->id,
                     'pack_id' => $row->pack_id,
@@ -89,7 +107,9 @@ class BillingController extends Controller
                     'provider' => $row->provider,
                     'at' => $row->created_at?->timezone(config('app.timezone'))->format('d M Y, g:i A'),
                 ])
+                ->values()
                 ->all(),
+            'credits_shared' => ($creditSnap['source'] ?? '') === 'account',
             'usage' => $usage->forWorkspace($workspace, $subscription),
             'ai_history' => $usage->aiHistory($workspace, $historyPeriod),
             'note' => $market === PlanCatalog::MARKET_IN
@@ -97,10 +117,14 @@ class BillingController extends Controller
                 : 'Pay in US Dollars via Cashfree. Choose monthly or yearly.',
             'is_platform_admin' => $isAdmin,
             'admin_note' => $isAdmin ? $this->adminNote($gatewayReady) : null,
+            'local_checkout_hint' => ! (app(\App\Services\Billing\CashfreeClient::class)->appUrlIsPublic())
+                && $cashfree
+                ? 'Local test: after Cashfree shows Payment Success, open Billing again — credits/plan sync automatically (webhooks can’t reach localhost).'
+                : null,
         ]);
     }
 
-    public function recharge(Request $request, BillingService $billing, CreditRechargeService $recharges): RedirectResponse
+    public function recharge(Request $request, BillingService $billing, CreditRechargeService $recharges): RedirectResponse|SymfonyResponse
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
@@ -119,13 +143,14 @@ class BillingController extends Controller
         $result = $recharges->start($workspace, $request->user(), $data['pack'], $market);
 
         if (! empty($result['checkout_url'])) {
-            return redirect()->away($result['checkout_url']);
+            // Full browser navigation — Axios must not follow Cashfree (CORS).
+            return Inertia::location($result['checkout_url']);
         }
 
         return back()->with($result['ok'] ? 'success' : 'error', $result['message']);
     }
 
-    public function updatePlan(Request $request, BillingService $billing): RedirectResponse
+    public function updatePlan(Request $request, BillingService $billing): RedirectResponse|SymfonyResponse
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
@@ -148,7 +173,8 @@ class BillingController extends Controller
         $result = $billing->startCheckout($workspace, $data['plan'], $market, $interval);
 
         if (! empty($result['checkout_url'])) {
-            return redirect()->away($result['checkout_url']);
+            // Full browser navigation — Axios must not follow Cashfree (CORS).
+            return Inertia::location($result['checkout_url']);
         }
 
         return back()->with($result['ok'] ? 'success' : 'error', $result['message']);

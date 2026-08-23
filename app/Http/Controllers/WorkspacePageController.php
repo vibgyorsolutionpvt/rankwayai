@@ -33,6 +33,8 @@ class WorkspacePageController extends Controller
                 'name' => $workspace->name,
                 'slug' => $workspace->slug,
                 'role' => $workspace->pivot->role,
+                'industry' => $workspace->resolvedIndustry(),
+                'city' => $workspace->resolvedCity(),
             ]);
 
         $activeId = (int) $request->session()->get('active_workspace_id');
@@ -103,10 +105,46 @@ class WorkspacePageController extends Controller
             'today' => redirect()->route('today'),
             'billing' => redirect()->route('billing.index'),
             'social' => redirect()->route('social.index'),
+            'ai' => redirect()->route('ai.index'),
             'settings' => redirect()->route('settings.index', ['tab' => 'workspace']),
             'back' => back(),
             default => redirect()->route('settings.index', ['tab' => 'workspace']),
         };
+    }
+
+    public function updateProfile(Request $request, Workspace $workspace): RedirectResponse
+    {
+        $this->authorize('update', $workspace);
+
+        $data = $request->validate([
+            'industry' => ['required', 'string', 'max:80', 'not_in:local business'],
+            'city' => ['required', 'string', 'max:80', 'not_in:India'],
+            'phone' => ['nullable', 'string', 'max:30'],
+            'email' => ['nullable', 'email', 'max:120'],
+            'website' => ['nullable', 'string', 'max:200'],
+        ], [
+            'industry.required' => 'Enter a business type.',
+            'industry.not_in' => 'Enter a real business type.',
+            'city.required' => 'Enter a city.',
+            'city.not_in' => 'Enter a real city — not just “India”.',
+        ]);
+
+        $workspace->update([
+            'industry' => trim($data['industry']),
+            'city' => trim($data['city']),
+            'phone' => trim((string) ($data['phone'] ?? '')) ?: null,
+            'email' => trim((string) ($data['email'] ?? '')) ?: null,
+            'website' => trim((string) ($data['website'] ?? '')) ?: null,
+        ]);
+
+        app(\App\Services\Ai\AiContentService::class)->syncSettingsFromWorkspace($workspace->fresh());
+
+        ActivityLog::record($workspace, $request->user(), 'workspace.profile_updated', [
+            'industry' => $workspace->industry,
+            'city' => $workspace->city,
+        ]);
+
+        return back()->with('success', 'Workspace profile saved — AI posts will use it automatically.');
     }
 
     public function storeMember(StoreWorkspaceMemberRequest $request, Workspace $workspace): RedirectResponse

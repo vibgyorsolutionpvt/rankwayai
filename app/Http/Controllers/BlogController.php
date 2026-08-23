@@ -8,7 +8,7 @@ use App\Models\SeoBlogPost;
 use App\Models\SeoContentDraft;
 use App\Models\SeoSite;
 use App\Services\Billing\PlanAccess;
-use App\Services\Seo\Providers\VerbaCmsPublisher;
+use App\Services\Seo\Providers\AskefyCmsPublisher;
 use App\Services\Seo\Providers\WordpressCmsPublisher;
 use App\Services\Seo\SeoBlogDiscoveryService;
 use App\Services\Seo\SeoBlogShareService;
@@ -52,16 +52,27 @@ class BlogController extends Controller
             'plan' => $plans->summary($workspace),
             'sites' => $sites,
             'site' => $site,
-            'verba' => $this->verbaConnectionSummary($workspace->id),
+            'askefy' => $this->askefyConnectionSummary($workspace->id),
             'cms_connections' => CmsConnection::query()
                 ->where('workspace_id', $workspace->id)
                 ->latest()
                 ->get(['id', 'provider', 'label', 'base_url', 'status', 'last_tested_at']),
-            'content_drafts' => SeoContentDraft::query()
-                ->where('workspace_id', $workspace->id)
-                ->latest()
-                ->limit(15)
-                ->get(),
+            'content_drafts' => $this->paginatedContentDrafts($workspace->id, $request),
+            'draft_filters' => [
+                'status' => (string) $request->query('draft_status', 'all'),
+                'counts' => [
+                    'all' => SeoContentDraft::query()->where('workspace_id', $workspace->id)->count(),
+                    'needs_review' => SeoContentDraft::query()
+                        ->where('workspace_id', $workspace->id)
+                        ->whereNull('reviewed_at')
+                        ->whereIn('status', ['draft', 'failed'])
+                        ->count(),
+                    'draft' => SeoContentDraft::query()->where('workspace_id', $workspace->id)->where('status', 'draft')->count(),
+                    'approved' => SeoContentDraft::query()->where('workspace_id', $workspace->id)->where('status', 'approved')->count(),
+                    'published' => SeoContentDraft::query()->where('workspace_id', $workspace->id)->where('status', 'published')->count(),
+                    'failed' => SeoContentDraft::query()->where('workspace_id', $workspace->id)->where('status', 'failed')->count(),
+                ],
+            ],
             'blog_posts' => $blogPosts ?? [
                 'data' => [],
                 'links' => [],
@@ -78,7 +89,7 @@ class BlogController extends Controller
         ]);
     }
 
-    public function storeVerbaConnection(Request $request, VerbaCmsPublisher $verba): RedirectResponse
+    public function storeAskefyConnection(Request $request, AskefyCmsPublisher $askefy): RedirectResponse
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
@@ -112,125 +123,138 @@ class BlogController extends Controller
             ->get(['id', 'domain']);
 
         if ($sites->isEmpty()) {
-            return back()->with('error', 'Add at least one website in SEO first. Each domain becomes a Verba business page.');
+            return back()->with('error', 'Add at least one website in SEO first. Each domain becomes an Askefy business page.');
         }
 
-        $baseUrl = rtrim($data['base_url'] ?? $verba->defaultBaseUrl(), '/');
+        $baseUrl = rtrim($data['base_url'] ?? $askefy->defaultBaseUrl(), '/');
         if ($baseUrl === '') {
-            return back()->with('error', 'Set VERBA_BASE_URL in .env.');
+            return back()->with('error', 'Set ASKEFY_BASE_URL in .env (e.g. http://127.0.0.1:8001 for local Askefy).');
         }
 
-        $device = 'rankwayai-'.$workspace->id;
-        $auth = $data['mode'] === 'signup'
-            ? $verba->register(
-                $baseUrl,
-                $name,
-                $email,
-                $data['password'],
-                (string) ($data['password_confirmation'] ?? $data['password']),
-                $device,
-            )
-            : $verba->login($baseUrl, $email, $data['password'], $device);
-
-        if (! ($auth['ok'] ?? false)) {
-            return back()->with('error', $auth['message'] ?? 'Verba auth failed');
+        if ($message = $askefy->validateBaseUrl($baseUrl)) {
+            return back()->with('error', $message);
         }
 
-        $creds = [
-            'base_url' => $baseUrl,
-            'token' => $auth['token'],
-            'email' => $email,
-            'user_name' => $auth['user']['name'] ?? $name,
-            'public_url' => rtrim((string) config('services.verba.public_url', $baseUrl), '/'),
-            'category' => $data['category'] ?? 'technology',
-        ];
+        try {
+            $device = 'rankwayai-'.$workspace->id;
+            $auth = $data['mode'] === 'signup'
+                ? $askefy->register(
+                    $baseUrl,
+                    $name,
+                    $email,
+                    $data['password'],
+                    (string) ($data['password_confirmation'] ?? $data['password']),
+                    $device,
+                )
+                : $askefy->login($baseUrl, $email, $data['password'], $device);
 
-        $test = $verba->testConnection($creds);
-        if (! ($test['ok'] ?? false)) {
-            return back()->with('error', $test['message'] ?? 'Verba token check failed');
-        }
+            if (! ($auth['ok'] ?? false)) {
+                return back()->with('error', $auth['message'] ?? 'Askefy auth failed');
+            }
 
-        $existingPages = $verba->listMyPages($creds);
-        $sitePages = [];
-        $createdCount = 0;
-        $usedUsernames = [];
+            $creds = [
+                'base_url' => $baseUrl,
+                'token' => $auth['token'],
+                'email' => $email,
+                'user_name' => $auth['user']['name'] ?? $name,
+                'public_url' => rtrim((string) config('services.askefy.public_url', $baseUrl), '/'),
+                'category' => $data['category'] ?? 'technology',
+            ];
 
-        foreach ($sites as $site) {
-            $pageName = Str::limit($workspace->name.' — '.$site->domain, 80, '');
-            $username = $this->usernameFromDomain((string) $site->domain, (int) $site->id, $usedUsernames);
-            $usedUsernames[] = $username;
+            $test = $askefy->testConnection($creds);
+            if (! ($test['ok'] ?? false)) {
+                return back()->with('error', $test['message'] ?? 'Askefy token check failed');
+            }
 
-            $existing = collect($existingPages)->first(
-                fn (array $p) => ($p['username'] ?? null) === $username
-                    || ($p['slug'] ?? null) === Str::slug($pageName)
-            );
+            $existingPages = $askefy->listMyPages($creds);
+            $sitePages = [];
+            $createdCount = 0;
+            $usedUsernames = [];
 
-            if ($existing) {
-                $pageSlug = (string) ($existing['slug'] ?? '');
-                $resolvedName = (string) ($existing['name'] ?? $pageName);
-            } else {
-                $created = $verba->createPage($creds, [
-                    'type' => 'business',
-                    'name' => $pageName,
-                    'username' => $username,
-                    'description' => $workspace->name.' site: '.$site->domain,
-                    'category' => $creds['category'],
-                    'visibility' => 'public',
-                    'email' => $email,
-                    'email_visibility' => 'public',
-                ]);
+            foreach ($sites as $site) {
+                $pageName = Str::limit($workspace->name.' — '.$site->domain, 80, '');
+                $username = $this->usernameFromDomain((string) $site->domain, (int) $site->id, $usedUsernames);
+                $usedUsernames[] = $username;
 
-                if (! ($created['ok'] ?? false)) {
-                    return back()->with('error', ($created['message'] ?? 'Page create failed').' ('.$site->domain.')');
+                $existing = collect($existingPages)->first(
+                    fn (array $p) => ($p['username'] ?? null) === $username
+                        || ($p['slug'] ?? null) === Str::slug($pageName)
+                );
+
+                if ($existing) {
+                    $pageSlug = (string) ($existing['slug'] ?? '');
+                    $resolvedName = (string) ($existing['name'] ?? $pageName);
+                } else {
+                    $created = $askefy->createPage($creds, [
+                        'type' => 'business',
+                        'name' => $pageName,
+                        'username' => $username,
+                        'description' => $workspace->name.' site: '.$site->domain,
+                        'category' => $creds['category'],
+                        'visibility' => 'public',
+                        'email' => $email,
+                        'email_visibility' => 'public',
+                    ]);
+
+                    if (! ($created['ok'] ?? false)) {
+                        return back()->with('error', ($created['message'] ?? 'Page create failed').' ('.$site->domain.')');
+                    }
+
+                    $pageSlug = (string) ($created['page']['slug'] ?? '');
+                    $resolvedName = (string) ($created['page']['name'] ?? $pageName);
+                    $createdCount++;
+                    $existingPages[] = [
+                        'slug' => $pageSlug,
+                        'name' => $resolvedName,
+                        'username' => $username,
+                    ];
                 }
 
-                $pageSlug = (string) ($created['page']['slug'] ?? '');
-                $resolvedName = (string) ($created['page']['name'] ?? $pageName);
-                $createdCount++;
-                $existingPages[] = [
+                if ($pageSlug === '') {
+                    return back()->with('error', 'Askefy page missing slug for '.$site->domain);
+                }
+
+                $sitePages[(string) $site->id] = [
+                    'domain' => $site->domain,
                     'slug' => $pageSlug,
                     'name' => $resolvedName,
                     'username' => $username,
                 ];
             }
 
-            if ($pageSlug === '') {
-                return back()->with('error', 'Verba page missing slug for '.$site->domain);
-            }
+            $first = reset($sitePages) ?: null;
+            $creds['site_pages'] = $sitePages;
+            $creds['page_slug'] = $first['slug'] ?? null;
+            $creds['page_name'] = $first['name'] ?? null;
+            $creds['page_username'] = $first['username'] ?? null;
 
-            $sitePages[(string) $site->id] = [
-                'domain' => $site->domain,
-                'slug' => $pageSlug,
-                'name' => $resolvedName,
-                'username' => $username,
-            ];
+            CmsConnection::query()->updateOrCreate(
+                [
+                    'workspace_id' => $workspace->id,
+                    'provider' => 'askefy',
+                    'base_url' => $baseUrl,
+                ],
+                [
+                    'label' => 'Askefy · '.count($sitePages).' page(s)',
+                    'credentials' => $creds,
+                    'status' => 'active',
+                    'last_tested_at' => now(),
+                ]
+            );
+
+            return back()->with(
+                'success',
+                'Askefy ready: account connected, '.count($sitePages).' business page(s)'
+                .($createdCount > 0 ? " ({$createdCount} new)" : '').'.'
+            );
+        } catch (\Throwable $e) {
+            report($e);
+
+            return back()->with(
+                'error',
+                'Askefy connect failed: '.$e->getMessage()
+            );
         }
-
-        $first = reset($sitePages) ?: null;
-        $creds['site_pages'] = $sitePages;
-        $creds['page_slug'] = $first['slug'] ?? null;
-        $creds['page_name'] = $first['name'] ?? null;
-        $creds['page_username'] = $first['username'] ?? null;
-
-        CmsConnection::query()->updateOrCreate(
-            [
-                'workspace_id' => $workspace->id,
-                'provider' => 'verba',
-                'base_url' => $baseUrl,
-            ],
-            [
-                'label' => 'Verba · '.count($sitePages).' page(s)',
-                'credentials' => $creds,
-                'status' => 'active',
-                'last_tested_at' => now(),
-            ]
-        );
-
-        return back()->with(
-            'success',
-            'Verba ready: account connected, '.count($sitePages).' business page(s)'
-            .($createdCount > 0 ? " ({$createdCount} new)" : '').'.'
-        );
     }
 
     /**
@@ -264,17 +288,17 @@ class BlogController extends Controller
         return $candidate;
     }
 
-    public function disconnectVerba(Request $request): RedirectResponse
+    public function disconnectAskefy(Request $request): RedirectResponse
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
 
         CmsConnection::query()
             ->where('workspace_id', $workspace->id)
-            ->where('provider', 'verba')
+            ->whereIn('provider', ['askefy', 'verba'])
             ->delete();
 
-        return back()->with('success', 'Verba disconnected.');
+        return back()->with('success', 'Askefy disconnected.');
     }
 
     public function syncBlogPosts(Request $request, SeoSite $site, SeoBlogDiscoveryService $blogs): RedirectResponse
@@ -330,7 +354,7 @@ class BlogController extends Controller
         ]);
     }
 
-    public function publishBlogToVerba(
+    public function publishBlogToAskefy(
         Request $request,
         SeoBlogPost $post,
         SeoCmsPublishService $cms,
@@ -342,13 +366,13 @@ class BlogController extends Controller
 
         $connection = CmsConnection::query()
             ->where('workspace_id', $workspace->id)
-            ->where('provider', 'verba')
+            ->whereIn('provider', ['askefy', 'verba'])
             ->where('status', 'active')
             ->latest()
             ->first();
 
         if (! $connection) {
-            return back()->with('error', 'Connect Verba first.');
+            return back()->with('error', 'Connect Askefy first.');
         }
 
         try {
@@ -414,13 +438,16 @@ class BlogController extends Controller
             $draft = $cms->createDraftFromKeyword(
                 $workspace,
                 $data['keyword'],
-                $data['seo_keyword_id'] ?? null
+                $data['seo_keyword_id'] ?? null,
+                $request->user()->id,
             );
         } catch (\Throwable $e) {
             return back()->with('error', $e->getMessage());
         }
 
-        return back()->with('success', 'Draft “'.$draft->title.'” ready for review');
+        return redirect()
+            ->route('blog.index', ['tab' => 'write'])
+            ->with('success', 'AI blog draft “'.$draft->title.'” ready — review, then approve & publish.');
     }
 
     public function approveDraft(Request $request, SeoContentDraft $draft, SeoCmsPublishService $cms): RedirectResponse
@@ -428,9 +455,60 @@ class BlogController extends Controller
         $workspace = $this->workspace($request);
         abort_unless($draft->workspace_id === $workspace->id, 404);
         $this->authorize('update', $workspace);
-        $cms->approve($draft);
 
-        return back()->with('success', 'Draft approved');
+        try {
+            $cms->approve($draft);
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return back()->with('success', 'Draft approved — you can publish now.');
+    }
+
+    public function updateContentDraft(Request $request, SeoContentDraft $draft): RedirectResponse
+    {
+        $workspace = $this->workspace($request);
+        abort_unless($draft->workspace_id === $workspace->id, 404);
+        $this->authorize('update', $workspace);
+
+        if (! in_array($draft->status, ['draft', 'approved', 'failed'], true)) {
+            return back()->with('error', 'Published drafts cannot be edited.');
+        }
+
+        $data = $request->validate([
+            'title' => ['required', 'string', 'max:180'],
+            'body_html' => ['required', 'string', 'max:500000'],
+            'meta_title' => ['nullable', 'string', 'max:180'],
+            'meta_description' => ['nullable', 'string', 'max:320'],
+            'mark_reviewed' => ['boolean'],
+        ]);
+
+        $title = trim($data['title']);
+        $wasApproved = $draft->status === 'approved';
+        $markReviewed = $request->boolean('mark_reviewed');
+
+        $draft->update([
+            'title' => $title,
+            'slug' => Str::slug($title) ?: $draft->slug,
+            'body_html' => $data['body_html'],
+            'meta_title' => Str::limit($data['meta_title'] ?: $title, 70, ''),
+            'meta_description' => Str::limit(
+                $data['meta_description'] ?: ($draft->meta_description ?: ''),
+                180,
+                '',
+            ) ?: $draft->meta_description,
+            'reviewed_at' => $wasApproved && ! $markReviewed
+                ? null
+                : ($markReviewed ? now() : $draft->reviewed_at),
+            'status' => $wasApproved ? 'draft' : $draft->status,
+            'last_error' => null,
+        ]);
+
+        $message = $wasApproved && ! $markReviewed
+            ? 'Changes saved — review again, then approve to publish.'
+            : 'Draft saved and marked as reviewed.';
+
+        return back()->with('success', $message);
     }
 
     public function publishDraft(Request $request, SeoContentDraft $draft, SeoCmsPublishService $cms): RedirectResponse
@@ -465,11 +543,47 @@ class BlogController extends Controller
     /**
      * @return array{connected:bool,connection_id:?int,base_url:?string,page_slug:?string,page_name:?string,email:?string,label:?string}
      */
-    private function verbaConnectionSummary(int $workspaceId): array
+    private function paginatedContentDrafts(int $workspaceId, Request $request)
+    {
+        $status = (string) $request->query('draft_status', 'all');
+
+        $query = SeoContentDraft::query()->where('workspace_id', $workspaceId);
+
+        if ($status === 'needs_review') {
+            $query->whereNull('reviewed_at')->whereIn('status', ['draft', 'failed']);
+        } elseif (in_array($status, ['draft', 'approved', 'published', 'failed'], true)) {
+            $query->where('status', $status);
+        }
+
+        return $query
+            ->latest()
+            ->paginate(20, ['*'], 'drafts_page')
+            ->withQueryString()
+            ->through(fn (SeoContentDraft $draft) => [
+                'id' => $draft->id,
+                'title' => $draft->title,
+                'slug' => $draft->slug,
+                'status' => $draft->status,
+                'reviewed_at' => $draft->reviewed_at?->toDateTimeString(),
+                'is_reviewed' => $draft->isReviewed(),
+                'meta_title' => $draft->meta_title,
+                'meta_description' => $draft->meta_description,
+                'body_html' => $draft->body_html,
+                'published_url' => $draft->published_url,
+                'excerpt' => Str::limit(trim(html_entity_decode(strip_tags((string) $draft->body_html), ENT_QUOTES | ENT_HTML5)), 160),
+                'word_count' => str_word_count(trim(strip_tags((string) $draft->body_html))),
+                'updated_at' => $draft->updated_at?->toDateTimeString(),
+            ]);
+    }
+
+    /**
+     * @return array{connected:bool,connection_id:?int,base_url:?string,page_slug:?string,page_name:?string,email:?string,label:?string}
+     */
+    private function askefyConnectionSummary(int $workspaceId): array
     {
         $connection = CmsConnection::query()
             ->where('workspace_id', $workspaceId)
-            ->where('provider', 'verba')
+            ->whereIn('provider', ['askefy', 'verba'])
             ->where('status', 'active')
             ->latest()
             ->first();
@@ -478,7 +592,7 @@ class BlogController extends Controller
             return [
                 'connected' => false,
                 'connection_id' => null,
-                'base_url' => config('services.verba.base_url'),
+                'base_url' => config('services.askefy.base_url'),
                 'page_slug' => null,
                 'page_name' => null,
                 'email' => null,
