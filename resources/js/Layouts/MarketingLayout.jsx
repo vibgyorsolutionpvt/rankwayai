@@ -6,7 +6,8 @@ import { Link, usePage } from '@inertiajs/react';
 
 const NAV = [
     { href: '/about', label: 'About', routeName: 'about' },
-    { href: '/website-rank-checker', label: 'Rank check', routeName: 'website-rank-checker' },
+    // Hide until Rankway Score uses stronger real signals (DataForSEO / larger index).
+    // { href: '/website-rank-checker', label: 'Rank check', routeName: 'website-rank-checker' },
     { href: '/pricing', label: 'Pricing', routeName: 'pricing' },
     { href: '/contact', label: 'Contact', routeName: 'contact' },
 ];
@@ -132,23 +133,17 @@ export default function MarketingLayout({
                 <main>{children}</main>
 
                 <footer className="border-t border-line bg-white/80">
-                    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-10 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                            <div className="flex items-center gap-2.5">
-                                <ApplicationLogo className="h-8 w-8" />
+                    <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-center gap-2.5">
+                            <ApplicationLogo className="h-8 w-8" />
+                            <div>
                                 <BrandName className="text-sm text-ink" />
+                                <p className="mt-0.5 max-w-xs text-xs leading-relaxed text-ink-muted">
+                                    Marketing OS for SEO, Search Console, social, WhatsApp, and CRM.
+                                </p>
                             </div>
-                            <p className="mt-3 max-w-xs text-xs leading-relaxed text-ink-muted">
-                                Marketing OS for SEO, Search Console, social, WhatsApp, and CRM.
-                            </p>
-                            <ContactChannels
-                                className="mt-4"
-                                compact
-                                email="contact@rankwayai.com"
-                                phone="+91 9889995999"
-                            />
                         </div>
-                        <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm font-semibold text-ink-muted">
+                        <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm font-semibold text-ink-muted">
                             {NAV.map((item) => (
                                 <Link
                                     key={item.href}
@@ -159,15 +154,26 @@ export default function MarketingLayout({
                                 </Link>
                             ))}
                         </div>
-                        <p className="text-xs text-ink-muted sm:text-right">
-                            © {new Date().getFullYear()} RankwayAI
-                            <span className="mt-1 block">
+                        <ContactChannels
+                            className="sm:justify-end"
+                            compact
+                            email="contact@rankwayai.com"
+                            phone="+91 9889995999"
+                        />
+                    </div>
+                    <div className="border-t border-line/70">
+                        <p className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-2 gap-y-1 px-6 py-3 text-center text-xs text-ink-muted">
+                            <span>© {new Date().getFullYear()} RankwayAI</span>
+                            <span aria-hidden className="text-line">
+                                ·
+                            </span>
+                            <span>
                                 A product of{' '}
                                 <a
                                     href="https://vibgyorsolution.com"
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="font-semibold transition hover:text-ink"
+                                    className="font-semibold text-ink transition hover:text-signal-strong"
                                 >
                                     Vibgyor Solution
                                 </a>

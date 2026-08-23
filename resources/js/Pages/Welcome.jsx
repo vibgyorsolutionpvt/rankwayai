@@ -169,6 +169,14 @@ export default function Welcome({ auth, canLogin, canRegister, seo }) {
                             >
                                 About
                             </Link>
+                            {/* Rank check — hide until scoring uses stronger real signals
+                            <Link
+                                href={route('website-rank-checker')}
+                                className="rounded-md px-3 py-2 text-sm font-semibold text-ink-muted transition hover:text-ink"
+                            >
+                                Rank check
+                            </Link>
+                            */}
                             <Link
                                 href={route('pricing')}
                                 className="rounded-md px-3 py-2 text-sm font-semibold text-ink-muted transition hover:text-ink"
@@ -235,6 +243,14 @@ export default function Welcome({ auth, canLogin, canRegister, seo }) {
                                 >
                                     {primaryLabel}
                                 </Link>
+                                {/* Rank check CTA — hide until scoring feels production-ready
+                                <Link
+                                    href={route('website-rank-checker')}
+                                    className="rounded-md border border-line bg-white/80 px-6 py-3.5 text-sm font-semibold text-ink transition hover:border-signal/40"
+                                >
+                                    Check website rank
+                                </Link>
+                                */}
                                 <a
                                     href="#seo-engine"
                                     className="rounded-md border border-line bg-white/80 px-6 py-3.5 text-sm font-semibold text-ink transition hover:border-signal/40"
@@ -388,23 +404,26 @@ export default function Welcome({ auth, canLogin, canRegister, seo }) {
                 </section>
 
                 <footer className="border-t border-line bg-white/80">
-                    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-8 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-                        <div>
-                            <div className="flex items-center gap-2.5">
-                                <ApplicationLogo className="h-8 w-8" />
+                    <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                        <div className="flex items-center gap-2.5">
+                            <ApplicationLogo className="h-8 w-8" />
+                            <div>
                                 <BrandName className="text-sm text-ink" />
+                                <p className="mt-0.5 text-xs text-ink-muted">
+                                    Marketing OS for growth teams.
+                                </p>
                             </div>
-                            <ContactChannels
-                                className="mt-4"
-                                compact
-                                email="contact@rankwayai.com"
-                                phone="+91 9889995999"
-                            />
                         </div>
-                        <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm font-semibold text-ink-muted">
+                        <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm font-semibold text-ink-muted">
                             <Link href={route('about')} className="transition hover:text-ink">
                                 About
                             </Link>
+                            {/* <Link
+                                href={route('website-rank-checker')}
+                                className="transition hover:text-ink"
+                            >
+                                Rank check
+                            </Link> */}
                             <Link href={route('pricing')} className="transition hover:text-ink">
                                 Pricing
                             </Link>
@@ -412,15 +431,26 @@ export default function Welcome({ auth, canLogin, canRegister, seo }) {
                                 Contact
                             </Link>
                         </div>
-                        <p className="text-xs text-ink-muted">
-                            © {new Date().getFullYear()} RankwayAI. Marketing OS for growth teams.
-                            <span className="mt-1 block">
+                        <ContactChannels
+                            className="sm:justify-end"
+                            compact
+                            email="contact@rankwayai.com"
+                            phone="+91 9889995999"
+                        />
+                    </div>
+                    <div className="border-t border-line/70">
+                        <p className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-2 gap-y-1 px-6 py-3 text-center text-xs text-ink-muted">
+                            <span>© {new Date().getFullYear()} RankwayAI</span>
+                            <span aria-hidden className="text-line">
+                                ·
+                            </span>
+                            <span>
                                 A product of{' '}
                                 <a
                                     href="https://vibgyorsolution.com"
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="font-semibold transition hover:text-ink"
+                                    className="font-semibold text-ink transition hover:text-signal-strong"
                                 >
                                     Vibgyor Solution
                                 </a>
