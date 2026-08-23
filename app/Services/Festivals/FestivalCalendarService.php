@@ -7,6 +7,7 @@ use App\Services\Festivals\Providers\IcsCalendarProvider;
 use App\Services\Festivals\Providers\NagerPublicHolidayProvider;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
 
 class FestivalCalendarService
 {
@@ -205,11 +206,11 @@ class FestivalCalendarService
                 'occurs_on' => $event->occurs_on,
                 'region' => $region,
             ],
-            [
+            array_filter([
                 'category' => $event->category,
                 'suggested_angles' => $event->suggested_angles,
-                'source' => $event->source,
-            ]
+                'source' => Schema::hasColumn('festival_events', 'source') ? $event->source : null,
+            ], fn ($value) => $value !== null)
         );
 
         return true;

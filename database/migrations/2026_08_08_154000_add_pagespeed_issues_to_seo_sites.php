@@ -8,15 +8,23 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('seo_sites', function (Blueprint $table) {
-            $table->json('pagespeed_issues')->nullable()->after('pagespeed_error');
-        });
+        if (! Schema::hasTable('seo_sites')) {
+            return;
+        }
+
+        if (! Schema::hasColumn('seo_sites', 'pagespeed_issues')) {
+            Schema::table('seo_sites', function (Blueprint $table) {
+                $table->json('pagespeed_issues')->nullable()->after('pagespeed_error');
+            });
+        }
     }
 
     public function down(): void
     {
-        Schema::table('seo_sites', function (Blueprint $table) {
-            $table->dropColumn('pagespeed_issues');
-        });
+        if (Schema::hasTable('seo_sites') && Schema::hasColumn('seo_sites', 'pagespeed_issues')) {
+            Schema::table('seo_sites', function (Blueprint $table) {
+                $table->dropColumn('pagespeed_issues');
+            });
+        }
     }
 };
