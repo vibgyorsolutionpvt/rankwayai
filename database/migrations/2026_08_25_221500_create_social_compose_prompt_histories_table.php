@@ -16,7 +16,7 @@ return new class extends Migration
             $table->string('offer', 200)->nullable();
             $table->timestamps();
 
-            $table->index(['workspace_id', 'user_id', 'created_at']);
+            $table->index(['workspace_id', 'user_id', 'created_at'], 'scp_hist_ws_user_created_idx');
         });
     }
 
