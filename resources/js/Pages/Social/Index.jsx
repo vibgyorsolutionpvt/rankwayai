@@ -134,6 +134,32 @@ const STATUS_TABS = [
     { id: 'failed', label: 'Failed' },
 ];
 
+const DATE_PRESETS = [
+    { id: 'all', label: 'All time' },
+    { id: 'today', label: 'Today' },
+    { id: 'week', label: 'This week' },
+    { id: 'month', label: 'This month' },
+    { id: 'custom', label: 'Custom' },
+];
+
+const DATE_FIELD_OPTIONS = [
+    { value: 'scheduled', label: 'Scheduled date' },
+    { value: 'published', label: 'Published date' },
+    { value: 'created', label: 'Created date' },
+];
+
+const SORT_OPTIONS = [
+    { value: 'queue', label: 'Today first, then by date' },
+    { value: 'scheduled', label: 'Schedule date (newest)' },
+    { value: 'newest', label: 'Created (newest)' },
+];
+
+const APPROVAL_OPTIONS = [
+    { value: 'all', label: 'All approval states' },
+    { value: 'pending', label: 'Needs approval' },
+    { value: 'approved', label: 'Approved' },
+];
+
 const platformPublishTone = {
     published: 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100',
     failed: 'border-rose-300 bg-rose-50 text-rose-800',
@@ -150,6 +176,41 @@ const platformShort = {
 
 function formatMetric(value) {
     return Number(value ?? 0).toLocaleString();
+}
+
+function parsePostDate(value) {
+    if (!value) {
+        return null;
+    }
+    const normalized = String(value).includes('T') ? String(value) : String(value).replace(' ', 'T');
+    const d = new Date(normalized);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function formatPostWhen(post) {
+    const d = parsePostDate(post.scheduled_at || post.published_at);
+    if (!d) {
+        return '—';
+    }
+    const today = new Date();
+    const isToday = d.toDateString() === today.toDateString();
+    const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const date = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    if (isToday) {
+        return `Today · ${time}`;
+    }
+    return `${date} · ${time}`;
+}
+
+function isScheduledToday(post) {
+    if (post.status !== 'scheduled' || !post.scheduled_at) {
+        return false;
+    }
+    const d = parsePostDate(post.scheduled_at);
+    if (!d) {
+        return false;
+    }
+    return d.toDateString() === new Date().toDateString();
 }
 
 function formatEngagementLine(metrics) {
@@ -614,6 +675,12 @@ function socialQuery(filters = {}, extra = {}) {
         platform: filters.platform || 'all',
         q: filters.q || '',
         month: filters.month,
+        date_preset: filters.date_preset || 'all',
+        date_from: filters.date_from || '',
+        date_to: filters.date_to || '',
+        date_field: filters.date_field || 'scheduled',
+        sort: filters.sort || 'queue',
+        approval: filters.approval || 'all',
         ...extra,
     };
     Object.keys(params).forEach((key) => {
@@ -624,7 +691,18 @@ function socialQuery(filters = {}, extra = {}) {
         if (key === 'platform' && params[key] === 'all') delete params[key];
         if (key === 'q' && !params[key]) delete params[key];
         if (key === 'page' && (!params[key] || params[key] === 1)) delete params[key];
+        if (key === 'date_preset' && params[key] === 'all') delete params[key];
+        if (key === 'date_field' && params[key] === 'scheduled') delete params[key];
+        if (key === 'sort' && params[key] === 'queue') delete params[key];
+        if (key === 'approval' && params[key] === 'all') delete params[key];
     });
+    if (params.date_preset !== 'custom') {
+        delete params.date_from;
+        delete params.date_to;
+    } else {
+        if (!params.date_from) delete params.date_from;
+        if (!params.date_to) delete params.date_to;
+    }
     return params;
 }
 
@@ -667,6 +745,12 @@ export default function Index({
         status: serverFilters.status || 'all',
         platform: serverFilters.platform || 'all',
         q: serverFilters.q || '',
+        date_preset: serverFilters.date_preset || 'all',
+        date_from: serverFilters.date_from || '',
+        date_to: serverFilters.date_to || '',
+        date_field: serverFilters.date_field || 'scheduled',
+        sort: serverFilters.sort || 'queue',
+        approval: serverFilters.approval || 'all',
         counts: serverFilters.counts || {},
         month: calendar?.month,
     };
@@ -747,6 +831,15 @@ export default function Index({
     const [activePreview, setActivePreview] = useState(postForm.data.platforms[0] || 'instagram');
     const [editingPostId, setEditingPostId] = useState(null);
     const [searchDraft, setSearchDraft] = useState(filters.q);
+    const [showAdvancedFilters, setShowAdvancedFilters] = useState(
+        () =>
+            filters.date_preset !== 'all' ||
+            filters.approval !== 'all' ||
+            filters.sort !== 'queue' ||
+            filters.date_field !== 'scheduled',
+    );
+    const [dateFromDraft, setDateFromDraft] = useState(filters.date_from || '');
+    const [dateToDraft, setDateToDraft] = useState(filters.date_to || '');
     const [openActionsId, setOpenActionsId] = useState(null);
     const [engagementDetailPost, setEngagementDetailPost] = useState(null);
     const [aiPrompt, setAiPrompt] = useState('');
@@ -880,12 +973,45 @@ export default function Index({
     };
 
     const applyFilters = (patch) => {
+        const next = {
+            ...filters,
+            ...patch,
+            view: 'posts',
+        };
+        if (patch.date_preset && patch.date_preset !== 'custom') {
+            next.date_from = '';
+            next.date_to = '';
+        }
+        if (next.date_preset === 'custom') {
+            next.date_from = patch.date_from ?? dateFromDraft;
+            next.date_to = patch.date_to ?? dateToDraft;
+        }
         router.get(
             route('social.index'),
-            socialQuery({ ...filters, ...patch, view: 'posts' }, { page: 1 }),
+            socialQuery(next, { page: 1 }),
             { preserveState: true, preserveScroll: true, replace: true, only: ['posts', 'filters'] },
         );
     };
+
+    const clearAdvancedFilters = () => {
+        setDateFromDraft('');
+        setDateToDraft('');
+        applyFilters({
+            date_preset: 'all',
+            date_from: '',
+            date_to: '',
+            date_field: 'scheduled',
+            sort: 'queue',
+            approval: 'all',
+        });
+    };
+
+    const advancedFilterCount = [
+        filters.date_preset !== 'all',
+        filters.date_field !== 'scheduled',
+        filters.sort !== 'queue',
+        filters.approval !== 'all',
+    ].filter(Boolean).length;
 
     const goToPostsPage = (page) => {
         const target = Number(page);
@@ -1033,7 +1159,9 @@ export default function Index({
 
     useEffect(() => {
         setSearchDraft(filters.q);
-    }, [filters.q]);
+        setDateFromDraft(filters.date_from || '');
+        setDateToDraft(filters.date_to || '');
+    }, [filters.q, filters.date_from, filters.date_to]);
 
     useEffect(() => {
         if (postForm.data.platforms.includes(activePreview)) return;
@@ -1368,7 +1496,187 @@ export default function Index({
                                 >
                                     Search
                                 </SecondaryButton>
+                                <SecondaryButton
+                                    type="button"
+                                    onClick={() => setShowAdvancedFilters((open) => !open)}
+                                    className={
+                                        advancedFilterCount > 0
+                                            ? 'border-signal/40 bg-signal-soft/50'
+                                            : ''
+                                    }
+                                >
+                                    Filters
+                                    {advancedFilterCount > 0 ? (
+                                        <span className="rounded-full bg-signal px-1.5 py-0.5 text-[10px] font-bold text-white">
+                                            {advancedFilterCount}
+                                        </span>
+                                    ) : null}
+                                </SecondaryButton>
                             </div>
+
+                            {showAdvancedFilters ? (
+                                <div className="rounded-lg border border-line bg-mist/30 p-4 space-y-4">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div className="text-xs font-bold uppercase tracking-wide text-ink-muted">
+                                            Date & sorting
+                                        </div>
+                                        {advancedFilterCount > 0 ? (
+                                            <button
+                                                type="button"
+                                                onClick={clearAdvancedFilters}
+                                                className="text-xs font-semibold text-signal-strong hover:underline"
+                                            >
+                                                Clear filters
+                                            </button>
+                                        ) : null}
+                                    </div>
+
+                                    <div>
+                                        <div className="mb-2 text-xs font-semibold text-ink-muted">
+                                            Date range
+                                        </div>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {DATE_PRESETS.map((preset) => {
+                                                const active = filters.date_preset === preset.id;
+                                                return (
+                                                    <button
+                                                        key={preset.id}
+                                                        type="button"
+                                                        onClick={() =>
+                                                            applyFilters({ date_preset: preset.id })
+                                                        }
+                                                        className={
+                                                            'rounded-md border px-2.5 py-1.5 text-xs font-semibold transition ' +
+                                                            (active
+                                                                ? 'border-signal bg-signal-soft/70 text-ink'
+                                                                : 'border-line bg-white text-ink-muted hover:border-signal/40')
+                                                        }
+                                                    >
+                                                        {preset.label}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    {filters.date_preset === 'custom' ? (
+                                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
+                                            <div>
+                                                <InputLabel value="From" />
+                                                <TextInput
+                                                    type="date"
+                                                    value={dateFromDraft}
+                                                    onChange={(e) =>
+                                                        setDateFromDraft(e.target.value)
+                                                    }
+                                                    className="mt-1 w-full"
+                                                />
+                                            </div>
+                                            <div>
+                                                <InputLabel value="To" />
+                                                <TextInput
+                                                    type="date"
+                                                    value={dateToDraft}
+                                                    onChange={(e) => setDateToDraft(e.target.value)}
+                                                    className="mt-1 w-full"
+                                                />
+                                            </div>
+                                            <div className="flex items-end">
+                                                <SecondaryButton
+                                                    type="button"
+                                                    onClick={() =>
+                                                        applyFilters({
+                                                            date_preset: 'custom',
+                                                            date_from: dateFromDraft,
+                                                            date_to: dateToDraft,
+                                                        })
+                                                    }
+                                                >
+                                                    Apply range
+                                                </SecondaryButton>
+                                            </div>
+                                        </div>
+                                    ) : null}
+
+                                    <div className="grid gap-3 sm:grid-cols-3">
+                                        <div>
+                                            <InputLabel value="Date applies to" />
+                                            <SelectMenu
+                                                className="mt-1"
+                                                value={filters.date_field}
+                                                onChange={(v) =>
+                                                    applyFilters({ date_field: v || 'scheduled' })
+                                                }
+                                                options={DATE_FIELD_OPTIONS}
+                                            />
+                                        </div>
+                                        <div>
+                                            <InputLabel value="Sort order" />
+                                            <SelectMenu
+                                                className="mt-1"
+                                                value={filters.sort}
+                                                onChange={(v) =>
+                                                    applyFilters({ sort: v || 'queue' })
+                                                }
+                                                options={SORT_OPTIONS}
+                                            />
+                                        </div>
+                                        <div>
+                                            <InputLabel value="Approval" />
+                                            <SelectMenu
+                                                className="mt-1"
+                                                value={filters.approval}
+                                                onChange={(v) =>
+                                                    applyFilters({ approval: v || 'all' })
+                                                }
+                                                options={APPROVAL_OPTIONS}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {advancedFilterCount > 0 ? (
+                                        <div className="flex flex-wrap gap-1.5 text-xs">
+                                            {filters.date_preset !== 'all' ? (
+                                                <span className="rounded-md border border-line bg-white px-2 py-1 text-ink-muted">
+                                                    {DATE_PRESETS.find((p) => p.id === filters.date_preset)
+                                                        ?.label || filters.date_preset}
+                                                    {filters.date_preset === 'custom' &&
+                                                    filters.date_from
+                                                        ? `: ${filters.date_from}${filters.date_to ? ` → ${filters.date_to}` : ''}`
+                                                        : ''}
+                                                </span>
+                                            ) : null}
+                                            {filters.date_field !== 'scheduled' ? (
+                                                <span className="rounded-md border border-line bg-white px-2 py-1 text-ink-muted">
+                                                    {
+                                                        DATE_FIELD_OPTIONS.find(
+                                                            (o) => o.value === filters.date_field,
+                                                        )?.label
+                                                    }
+                                                </span>
+                                            ) : null}
+                                            {filters.sort !== 'queue' ? (
+                                                <span className="rounded-md border border-line bg-white px-2 py-1 text-ink-muted">
+                                                    {
+                                                        SORT_OPTIONS.find(
+                                                            (o) => o.value === filters.sort,
+                                                        )?.label
+                                                    }
+                                                </span>
+                                            ) : null}
+                                            {filters.approval !== 'all' ? (
+                                                <span className="rounded-md border border-line bg-white px-2 py-1 text-ink-muted">
+                                                    {
+                                                        APPROVAL_OPTIONS.find(
+                                                            (o) => o.value === filters.approval,
+                                                        )?.label
+                                                    }
+                                                </span>
+                                            ) : null}
+                                        </div>
+                                    ) : null}
+                                </div>
+                            ) : null}
                         </div>
 
                         <div className="hidden border-b border-line bg-mist/40 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-ink-muted md:grid md:grid-cols-[minmax(0,1.4fr)_minmax(140px,0.85fr)_minmax(140px,0.9fr)_130px_44px] md:gap-3">
@@ -1494,7 +1802,14 @@ export default function Index({
                                             </div>
                                         </div>
                                         <div className="text-xs text-ink-muted">
-                                            {post.scheduled_at || post.published_at || '—'}
+                                            <div className="flex flex-wrap items-center gap-1.5">
+                                                {isScheduledToday(post) ? (
+                                                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-900">
+                                                        Today
+                                                    </span>
+                                                ) : null}
+                                                <span>{formatPostWhen(post)}</span>
+                                            </div>
                                         </div>
                                         <div className="relative z-10 justify-self-end">
                                             <button

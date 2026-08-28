@@ -3,6 +3,7 @@
 namespace App\Services\Social;
 
 use App\Models\SocialAccount;
+use App\Models\SocialPost;
 use App\Models\SocialPublishLog;
 use App\Models\Workspace;
 use Illuminate\Support\Collection;
@@ -38,6 +39,26 @@ class SocialPostAnalyticsService
             ->orderByRaw('metrics_synced_at IS NULL DESC')
             ->orderBy('metrics_synced_at')
             ->limit($limit)
+            ->get();
+
+        $synced = 0;
+        foreach ($logs as $log) {
+            if ($this->syncLog($log)) {
+                $synced++;
+            }
+        }
+
+        return $synced;
+    }
+
+    public function syncPost(SocialPost $post): int
+    {
+        $logs = SocialPublishLog::query()
+            ->where('social_post_id', $post->id)
+            ->where('status', 'published')
+            ->whereNotNull('external_post_id')
+            ->whereIn('platform', ['facebook', 'instagram', 'threads'])
+            ->orderByRaw('metrics_synced_at IS NULL DESC')
             ->get();
 
         $synced = 0;

@@ -59,6 +59,12 @@ class SocialController extends Controller
                     'platform' => $request->query('platform'),
                     'q' => $request->query('q'),
                     'page' => $request->query('page'),
+                    'date_preset' => $request->query('date_preset'),
+                    'date_from' => $request->query('date_from'),
+                    'date_to' => $request->query('date_to'),
+                    'date_field' => $request->query('date_field'),
+                    'sort' => $request->query('sort'),
+                    'approval' => $request->query('approval'),
                 ], fn ($value) => $value !== null && $value !== '' && $value !== 'all')
             ));
         }
@@ -107,9 +113,11 @@ class SocialController extends Controller
             });
         }
 
+        $listFilters = $this->parsePostsListFilters($request);
+        $this->applyPostsListFilters($postsQuery, $listFilters);
+        $this->orderPostsList($postsQuery, $listFilters['sort']);
+
         $posts = $postsQuery
-            ->latest('scheduled_at')
-            ->latest()
             ->paginate(12)
             ->withQueryString()
             ->through(fn (SocialPost $post) => $post->toLibraryArray());
@@ -126,6 +134,12 @@ class SocialController extends Controller
             'status' => $status,
             'platform' => $platform,
             'q' => $q,
+            'date_preset' => $listFilters['date_preset'],
+            'date_from' => $listFilters['date_from'],
+            'date_to' => $listFilters['date_to'],
+            'date_field' => $listFilters['date_field'],
+            'sort' => $listFilters['sort'],
+            'approval' => $listFilters['approval'],
             'counts' => [
                 'all' => array_sum($statusCounts),
                 'draft' => (int) ($statusCounts['draft'] ?? 0),
@@ -987,6 +1001,144 @@ class SocialController extends Controller
         $account->delete();
 
         return back()->with('success', 'Account removed');
+    }
+
+    /**
+     * @return array{
+     *   date_preset:string,
+     *   date_field:string,
+     *   date_from:?string,
+     *   date_to:?string,
+     *   sort:string,
+     *   approval:string,
+     *   range_from:?\Illuminate\Support\Carbon,
+     *   range_to:?\Illuminate\Support\Carbon
+     * }
+     */
+    private function parsePostsListFilters(Request $request): array
+    {
+        $datePreset = (string) $request->query('date_preset', 'all');
+        if (! in_array($datePreset, ['all', 'today', 'week', 'month', 'custom'], true)) {
+            $datePreset = 'all';
+        }
+
+        $dateField = (string) $request->query('date_field', 'scheduled');
+        if (! in_array($dateField, ['scheduled', 'published', 'created'], true)) {
+            $dateField = 'scheduled';
+        }
+
+        $sort = (string) $request->query('sort', 'queue');
+        if (! in_array($sort, ['queue', 'newest', 'scheduled'], true)) {
+            $sort = 'queue';
+        }
+
+        $approval = (string) $request->query('approval', 'all');
+        if (! in_array($approval, ['all', 'pending', 'approved'], true)) {
+            $approval = 'all';
+        }
+
+        $rangeFrom = null;
+        $rangeTo = null;
+
+        if ($datePreset === 'today') {
+            $rangeFrom = now()->startOfDay();
+            $rangeTo = now()->endOfDay();
+        } elseif ($datePreset === 'week') {
+            $rangeFrom = now()->startOfWeek();
+            $rangeTo = now()->endOfWeek();
+        } elseif ($datePreset === 'month') {
+            $rangeFrom = now()->startOfMonth();
+            $rangeTo = now()->endOfMonth();
+        } elseif ($datePreset === 'custom') {
+            try {
+                if ($request->filled('date_from')) {
+                    $rangeFrom = Carbon::parse((string) $request->query('date_from'))->startOfDay();
+                }
+                if ($request->filled('date_to')) {
+                    $rangeTo = Carbon::parse((string) $request->query('date_to'))->endOfDay();
+                }
+            } catch (\Throwable) {
+                $datePreset = 'all';
+                $rangeFrom = null;
+                $rangeTo = null;
+            }
+        }
+
+        return [
+            'date_preset' => $datePreset,
+            'date_field' => $dateField,
+            'date_from' => $rangeFrom?->toDateString(),
+            'date_to' => $rangeTo?->toDateString(),
+            'sort' => $sort,
+            'approval' => $approval,
+            'range_from' => $rangeFrom,
+            'range_to' => $rangeTo,
+        ];
+    }
+
+    /**
+     * @param  array{
+     *   date_preset:string,
+     *   date_field:string,
+     *   approval:string,
+     *   range_from:?\Illuminate\Support\Carbon,
+     *   range_to:?\Illuminate\Support\Carbon
+     * }  $listFilters
+     */
+    private function applyPostsListFilters($postsQuery, array $listFilters): void
+    {
+        $column = match ($listFilters['date_field']) {
+            'published' => 'published_at',
+            'created' => 'created_at',
+            default => 'scheduled_at',
+        };
+
+        $from = $listFilters['range_from'] ?? null;
+        $to = $listFilters['range_to'] ?? null;
+
+        if ($from && $to) {
+            $postsQuery->whereBetween($column, [$from, $to]);
+        } elseif ($from) {
+            $postsQuery->where($column, '>=', $from);
+        } elseif ($to) {
+            $postsQuery->where($column, '<=', $to);
+        }
+
+        if ($listFilters['approval'] === 'pending') {
+            $postsQuery->where('requires_approval', true)->whereNull('approved_at');
+        } elseif ($listFilters['approval'] === 'approved') {
+            $postsQuery->where(function ($query) {
+                $query->where('requires_approval', false)
+                    ->orWhereNotNull('approved_at');
+            });
+        }
+    }
+
+    private function orderPostsList($postsQuery, string $sort): void
+    {
+        if ($sort === 'newest') {
+            $postsQuery->latest('created_at');
+
+            return;
+        }
+
+        if ($sort === 'scheduled') {
+            $postsQuery->orderByRaw('scheduled_at IS NULL')
+                ->latest('scheduled_at')
+                ->latest('created_at');
+
+            return;
+        }
+
+        $todayStart = now()->startOfDay();
+        $todayEnd = now()->endOfDay();
+
+        $postsQuery
+            ->orderByRaw(
+                "CASE WHEN status = 'scheduled' AND scheduled_at >= ? AND scheduled_at <= ? THEN 0 ELSE 1 END",
+                [$todayStart, $todayEnd]
+            )
+            ->orderByRaw('COALESCE(scheduled_at, published_at, created_at) DESC');
     }
 
     /**

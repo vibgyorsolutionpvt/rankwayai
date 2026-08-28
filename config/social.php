@@ -26,4 +26,15 @@ return [
     */
     'simulate_publish' => env('SOCIAL_SIMULATE_PUBLISH', false),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Engagement metrics after publish
+    |--------------------------------------------------------------------------
+    |
+    | After a live publish, a queued job fetches likes/comments/views from Meta.
+    | Delay gives Meta time to process the post before insights are readable.
+    |
+    */
+    'metrics_sync_delay_minutes' => (int) env('SOCIAL_METRICS_SYNC_DELAY_MINUTES', 3),
+
 ];

@@ -664,14 +664,14 @@ export default function Index({
                                             <div className="text-sm font-semibold text-ink">
                                                 {fileCount} file{fileCount === 1 ? '' : 's'} ready
                                             </div>
-                                            <div className="flex items-center gap-3">
-                                                <button
+                                            <div className="flex items-center gap-2">
+                                                <SecondaryButton
                                                     type="button"
-                                                    className="text-xs font-semibold text-signal-strong hover:underline"
+                                                    className="px-4 py-2"
                                                     onClick={() => fileRef.current?.click()}
                                                 >
                                                     + Add more
-                                                </button>
+                                                </SecondaryButton>
                                                 <button
                                                     type="button"
                                                     className="text-xs font-semibold text-ink-muted hover:text-ink"
@@ -1025,19 +1025,19 @@ export default function Index({
                                     )}
                                 </div>
 
-                                <div className="flex items-center justify-between border-t border-line px-3 py-2 text-xs text-ink-muted">
-                                    <span>
+                                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-3">
+                                    <span className="text-sm text-ink-muted">
                                         {atRoot && !isSearching
                                             ? `${visibleFolders.length} folder${visibleFolders.length === 1 ? '' : 's'} · ${assetRows.length} file${assetRows.length === 1 ? '' : 's'}`
                                             : `${assetRows.length} file${assetRows.length === 1 ? '' : 's'}`}
                                     </span>
-                                    <button
+                                    <PrimaryButton
                                         type="button"
-                                        className="font-semibold text-signal-strong hover:underline"
+                                        className="px-5 py-2.5 text-sm"
                                         onClick={() => setMode('upload')}
                                     >
                                         + Add new
-                                    </button>
+                                    </PrimaryButton>
                                 </div>
                             </div>
 
