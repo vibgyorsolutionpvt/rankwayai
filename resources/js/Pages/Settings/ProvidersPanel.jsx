@@ -161,7 +161,9 @@ function ProviderCard({ item, editing, onEdit, onCancel, onSaved }) {
                     {item.connected
                         ? 'Connected'
                         : item.platform_fallback
-                          ? 'Platform default'
+                          ? item.category === 'social'
+                              ? 'Add workspace keys'
+                              : 'Platform default'
                           : 'Not set'}
                 </span>
             </div>

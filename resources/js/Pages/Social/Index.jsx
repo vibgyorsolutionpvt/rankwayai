@@ -3,6 +3,7 @@ import DateTimePicker from '@/Components/DateTimePicker';
 import HelpGuide, { HELP } from '@/Components/HelpGuide';
 import InputLabel from '@/Components/InputLabel';
 import MediaPickerModal from '@/Components/MediaPickerModal';
+import Modal from '@/Components/Modal';
 import PrimaryButton from '@/Components/PrimaryButton';
 import RichTextEditor from '@/Components/RichTextEditor';
 import SecondaryButton from '@/Components/SecondaryButton';
@@ -60,6 +61,22 @@ function htmlToPlainCaption(html) {
 }
 
 const platformOptions = ['facebook', 'instagram', 'threads', 'linkedin', 'x'];
+
+const SOCIAL_VIEWS = ['posts', 'calendar', 'accounts', 'compose'];
+
+function parseSocialView(url) {
+    try {
+        const query = String(url || '').split('?')[1] || '';
+        const view = new URLSearchParams(query).get('view');
+        if (view && SOCIAL_VIEWS.includes(view)) {
+            return view;
+        }
+    } catch {
+        /* ignore */
+    }
+
+    return 'posts';
+}
 
 const platformLabels = {
     facebook: 'Facebook',
@@ -122,6 +139,406 @@ const platformPublishTone = {
     failed: 'border-rose-300 bg-rose-50 text-rose-800',
     pending: 'border-zinc-200 bg-zinc-50 text-zinc-500',
 };
+
+const platformShort = {
+    facebook: 'FB',
+    instagram: 'IG',
+    threads: 'Threads',
+    linkedin: 'LI',
+    x: 'X',
+};
+
+function formatMetric(value) {
+    return Number(value ?? 0).toLocaleString();
+}
+
+function formatEngagementLine(metrics) {
+    const likes = metrics?.likes ?? 0;
+    const comments = metrics?.comments ?? 0;
+    const views = metrics?.views ?? 0;
+    const parts = [
+        `${formatMetric(likes)} likes`,
+        `${formatMetric(comments)} comments`,
+    ];
+    if (views > 0) {
+        parts.push(`${formatMetric(views)} views`);
+    }
+    return parts.join(' · ');
+}
+
+function hasEngagementMetrics(engagement) {
+    if (!engagement) {
+        return false;
+    }
+    if (engagement.synced_at) {
+        return true;
+    }
+    return (engagement.likes ?? 0) + (engagement.comments ?? 0) + (engagement.views ?? 0) > 0;
+}
+
+function engagementPlatformRows(engagement, postPlatforms = []) {
+    const byPlatform = engagement?.by_platform || {};
+    const keys = Object.keys(byPlatform);
+    if (keys.length === 0) {
+        return [];
+    }
+
+    const order = [...postPlatforms, ...platformOptions].filter(
+        (platform, index, all) => keys.includes(platform) && all.indexOf(platform) === index,
+    );
+
+    return order.map((platform) => ({
+        platform,
+        label: platformLabels[platform] || platformShort[platform] || platform,
+        short: platformShort[platform] || platform,
+        metrics: byPlatform[platform],
+    }));
+}
+
+const metricStyles = {
+    likes: {
+        chip: 'bg-gradient-to-br from-rose-50 to-pink-100 text-rose-800 border-rose-200',
+        card: 'from-rose-500 to-pink-600',
+        label: 'Likes',
+    },
+    comments: {
+        chip: 'bg-gradient-to-br from-sky-50 to-cyan-100 text-sky-800 border-sky-200',
+        card: 'from-sky-500 to-cyan-600',
+        label: 'Comments',
+    },
+    views: {
+        chip: 'bg-gradient-to-br from-violet-50 to-purple-100 text-violet-800 border-violet-200',
+        card: 'from-violet-500 to-purple-600',
+        label: 'Views',
+    },
+    shares: {
+        chip: 'bg-gradient-to-br from-amber-50 to-orange-100 text-amber-900 border-amber-200',
+        card: 'from-amber-500 to-orange-600',
+        label: 'Shares',
+    },
+    reposts: {
+        chip: 'bg-gradient-to-br from-emerald-50 to-teal-100 text-emerald-800 border-emerald-200',
+        card: 'from-emerald-500 to-teal-600',
+        label: 'Reposts',
+    },
+};
+
+function MetricIcon({ type, className = 'h-3.5 w-3.5' }) {
+    const common = {
+        className,
+        fill: 'none',
+        stroke: 'currentColor',
+        strokeWidth: 1.8,
+        viewBox: '0 0 24 24',
+        'aria-hidden': true,
+    };
+
+    if (type === 'likes') {
+        return (
+            <svg {...common}>
+                <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z"
+                />
+            </svg>
+        );
+    }
+    if (type === 'comments') {
+        return (
+            <svg {...common}>
+                <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"
+                />
+            </svg>
+        );
+    }
+    if (type === 'views') {
+        return (
+            <svg {...common}>
+                <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"
+                />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+        );
+    }
+    if (type === 'shares') {
+        return (
+            <svg {...common}>
+                <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
+                />
+            </svg>
+        );
+    }
+
+    return (
+        <svg {...common}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M2.985 19.644l3.181-3.183a8.25 8.25 0 0013.803-3.7" />
+        </svg>
+    );
+}
+
+function EngagementStatChip({ type, value, size = 'sm' }) {
+    const style = metricStyles[type];
+    const sizeClass =
+        size === 'lg'
+            ? 'gap-2 rounded-xl px-4 py-3 text-2xl font-bold'
+            : 'gap-1 rounded-md px-1.5 py-1 text-[11px] font-bold';
+
+    return (
+        <span
+            className={
+                'inline-flex items-center border tabular-nums shadow-sm ' +
+                sizeClass +
+                ' ' +
+                style.chip
+            }
+        >
+            <MetricIcon type={type} className={size === 'lg' ? 'h-5 w-5' : 'h-3 w-3'} />
+            {formatMetric(value)}
+        </span>
+    );
+}
+
+function engagementTotals(engagement) {
+    if (!engagement) {
+        return { likes: 0, comments: 0, views: 0 };
+    }
+
+    return {
+        likes: engagement.likes ?? 0,
+        comments: engagement.comments ?? 0,
+        views: engagement.views ?? 0,
+    };
+}
+
+function platformPermalink(post, platform) {
+    const entry = (post.platform_statuses || []).find((e) => e.platform === platform);
+    if (entry?.permalink) {
+        return entry.permalink;
+    }
+
+    return post.permalinks?.[platform] || null;
+}
+
+function postLiveLinks(post) {
+    const platforms = [
+        ...new Set([
+            ...(post.platforms || []),
+            ...Object.keys(post.permalinks || {}),
+            ...(post.platform_statuses || []).map((e) => e.platform),
+        ]),
+    ];
+
+    return platforms
+        .map((platform) => {
+            const url = platformPermalink(post, platform);
+            if (!url) {
+                return null;
+            }
+
+            return {
+                platform,
+                label: platformLabels[platform] || platformShort[platform] || platform,
+                url,
+            };
+        })
+        .filter(Boolean);
+}
+
+function EngagementSummary({ engagement, onOpen }) {
+    const totals = engagementTotals(engagement);
+    const platformCount = Object.keys(engagement?.by_platform || {}).length;
+
+    return (
+        <button
+            type="button"
+            onClick={onOpen}
+            className="group flex w-full flex-col items-start gap-1 rounded-lg border border-transparent p-1 text-left transition hover:border-signal/30 hover:bg-signal-soft/30"
+            title="View engagement breakdown"
+        >
+            <div className="flex w-full items-center justify-between gap-1">
+                <span className="text-[9px] font-bold uppercase tracking-wide text-ink-muted">
+                    Total
+                </span>
+                {platformCount > 1 ? (
+                    <span className="text-[9px] font-medium text-ink-muted">
+                        {platformCount} platforms
+                    </span>
+                ) : null}
+            </div>
+            <div className="flex flex-wrap gap-1">
+                <EngagementStatChip type="likes" value={totals.likes} />
+                <EngagementStatChip type="comments" value={totals.comments} />
+                <EngagementStatChip type="views" value={totals.views} />
+            </div>
+            <span className="text-[10px] font-semibold text-signal-strong opacity-70 transition group-hover:opacity-100">
+                View breakup →
+            </span>
+        </button>
+    );
+}
+
+function EngagementDetailModal({ post, onClose }) {
+    if (!post?.engagement) {
+        return null;
+    }
+
+    const engagement = post.engagement;
+    const totals = engagementTotals(engagement);
+    const rows = engagementPlatformRows(engagement, post.platforms || []);
+    const liveLinks = postLiveLinks(post);
+    const totalCards = [
+        { type: 'likes', value: totals.likes, label: 'Total likes' },
+        { type: 'comments', value: totals.comments, label: 'Total comments' },
+        { type: 'views', value: totals.views, label: 'Total views' },
+    ];
+
+    return (
+        <Modal show={Boolean(post)} maxWidth="lg" onClose={onClose}>
+            <div className="border-b border-line bg-gradient-to-r from-fuchsia-50 via-sky-50 to-violet-50 px-5 py-4">
+                <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-ink-muted">
+                    Engagement
+                </div>
+                <h3 className="mt-1 font-display text-xl font-bold text-ink">
+                    {post.title || 'Untitled post'}
+                </h3>
+                {engagement.synced_at ? (
+                    <p className="mt-1 text-xs text-ink-muted">Last synced {engagement.synced_at}</p>
+                ) : null}
+                {liveLinks.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                        {liveLinks.map((link) => (
+                            <a
+                                key={link.platform}
+                                href={link.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={
+                                    'inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-semibold transition ' +
+                                    (platformTone[link.platform] ||
+                                        'border-line bg-white text-ink hover:bg-mist')
+                                }
+                            >
+                                Open {link.label}
+                                <span aria-hidden>↗</span>
+                            </a>
+                        ))}
+                    </div>
+                ) : null}
+            </div>
+
+            <div className="px-5 pt-5">
+                <div className="mb-3 text-xs font-bold uppercase tracking-wide text-ink-muted">
+                    Total · all platforms
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                    {totalCards.map((item) => (
+                        <div
+                            key={item.type}
+                            className={
+                                'rounded-xl bg-gradient-to-br p-4 text-white shadow-md ' +
+                                metricStyles[item.type].card
+                            }
+                        >
+                            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-white/85">
+                                <MetricIcon type={item.type} className="h-4 w-4" />
+                                {item.label}
+                            </div>
+                            <div className="mt-2 font-display text-3xl font-bold tabular-nums">
+                                {formatMetric(item.value)}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="border-t border-line px-5 py-4">
+                <div className="mb-1 text-xs font-bold uppercase tracking-wide text-ink-muted">
+                    Platform breakup
+                </div>
+                <p className="mb-3 text-xs text-ink-muted">
+                    Likes, comments, and views from each network for this post.
+                </p>
+                {rows.length > 0 ? (
+                    <div className="space-y-3">
+                        {rows.map((row) => {
+                            const m = row.metrics || {};
+                            const extras = [
+                                { type: 'shares', value: m.shares ?? 0 },
+                                { type: 'reposts', value: m.reposts ?? 0 },
+                            ].filter((x) => x.value > 0);
+                            const permalink = platformPermalink(post, row.platform);
+
+                            return (
+                                <div
+                                    key={row.platform}
+                                    className="rounded-xl border border-line bg-gradient-to-br from-white to-mist/40 p-3 shadow-sm"
+                                >
+                                    <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+                                        <span
+                                            className={
+                                                'inline-flex rounded-md border px-2.5 py-1 text-xs font-bold ' +
+                                                (platformTone[row.platform] ||
+                                                    'bg-mist text-ink border-line')
+                                            }
+                                        >
+                                            {row.label}
+                                        </span>
+                                        {permalink ? (
+                                            <a
+                                                href={permalink}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="truncate text-xs font-semibold text-signal-strong hover:underline"
+                                                title={permalink}
+                                            >
+                                                View live post ↗
+                                            </a>
+                                        ) : null}
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        <EngagementStatChip type="likes" value={m.likes ?? 0} />
+                                        <EngagementStatChip
+                                            type="comments"
+                                            value={m.comments ?? 0}
+                                        />
+                                        <EngagementStatChip type="views" value={m.views ?? 0} />
+                                        {extras.map((x) => (
+                                            <EngagementStatChip
+                                                key={x.type}
+                                                type={x.type}
+                                                value={x.value}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <p className="rounded-lg border border-dashed border-line bg-mist/30 px-3 py-4 text-sm text-ink-muted">
+                        No per-platform data yet. Use Refresh engagement after publish.
+                    </p>
+                )}
+            </div>
+
+            <div className="flex justify-end border-t border-line bg-mist/30 px-5 py-3">
+                <SecondaryButton type="button" onClick={onClose}>
+                    Close
+                </SecondaryButton>
+            </div>
+        </Modal>
+    );
+}
 
 function PlatformStatusPill({ entry, onResend }) {
     const base =
@@ -206,6 +623,7 @@ function socialQuery(filters = {}, extra = {}) {
         if (key === 'status' && params[key] === 'all') delete params[key];
         if (key === 'platform' && params[key] === 'all') delete params[key];
         if (key === 'q' && !params[key]) delete params[key];
+        if (key === 'page' && (!params[key] || params[key] === 1)) delete params[key];
     });
     return params;
 }
@@ -221,14 +639,17 @@ export default function Index({
     calendar,
     posterSizes = [],
     connectionModes = {},
+    social_providers = {},
     pendingPagePick = null,
     enabledPlatforms = null,
     connectedPlatforms = [],
     socialPublish = { isLocal: false, simulate: false },
+    analytics_permissions = {},
     ai_context = null,
     ai_prompt_history = [],
 }) {
     const { flash, plan } = usePage().props;
+    const pageUrl = usePage().url;
     const aiLocked = plan && !plan.features?.ai;
     const availablePlatforms = useMemo(() => {
         if (!Array.isArray(enabledPlatforms) || enabledPlatforms.length === 0) {
@@ -237,8 +658,12 @@ export default function Index({
         return platformOptions.filter((p) => enabledPlatforms.includes(p));
     }, [enabledPlatforms]);
 
+    const syncEngagement = () => {
+        router.post(route('social.analytics.sync'), {}, { preserveScroll: true });
+    };
+
     const filters = {
-        view: serverFilters.view || 'posts',
+        view: parseSocialView(pageUrl),
         status: serverFilters.status || 'all',
         platform: serverFilters.platform || 'all',
         q: serverFilters.q || '',
@@ -323,6 +748,7 @@ export default function Index({
     const [editingPostId, setEditingPostId] = useState(null);
     const [searchDraft, setSearchDraft] = useState(filters.q);
     const [openActionsId, setOpenActionsId] = useState(null);
+    const [engagementDetailPost, setEngagementDetailPost] = useState(null);
     const [aiPrompt, setAiPrompt] = useState('');
     const [aiOffer, setAiOffer] = useState('');
     const [aiGenerating, setAiGenerating] = useState(false);
@@ -348,10 +774,10 @@ export default function Index({
     );
 
     useEffect(() => {
-        // Page refresh: drop prompt field + wipe history table for this user.
+        // Hard refresh on Compose only — wipe prompt UI + DB history (never on Posts list).
         try {
             const nav = performance.getEntriesByType('navigation')[0];
-            if (nav && nav.type === 'reload') {
+            if (nav && nav.type === 'reload' && parseSocialView(pageUrl) === 'compose') {
                 setAiPrompt('');
                 setAiOffer('');
                 setPromptHistory([]);
@@ -445,7 +871,11 @@ export default function Index({
         router.get(
             route('social.index'),
             socialQuery({ ...filters, view: nextView }, extra),
-            { preserveState: true, preserveScroll: true, replace: true },
+            {
+                preserveState: nextView !== 'posts',
+                preserveScroll: true,
+                replace: nextView === 'posts',
+            },
         );
     };
 
@@ -453,7 +883,28 @@ export default function Index({
         router.get(
             route('social.index'),
             socialQuery({ ...filters, ...patch, view: 'posts' }, { page: 1 }),
-            { preserveState: true, preserveScroll: true, replace: true },
+            { preserveState: true, preserveScroll: true, replace: true, only: ['posts', 'filters'] },
+        );
+    };
+
+    const goToPostsPage = (page) => {
+        const target = Number(page);
+        if (!posts?.last_page || target < 1 || target > posts.last_page) {
+            return;
+        }
+        if (target === posts.current_page) {
+            return;
+        }
+
+        router.get(
+            route('social.index'),
+            socialQuery({ ...filters, view: 'posts' }, { page: target }),
+            {
+                preserveState: true,
+                preserveScroll: true,
+                replace: true,
+                only: ['posts'],
+            },
         );
     };
 
@@ -573,6 +1024,12 @@ export default function Index({
         postForm.clearErrors();
         visitView('posts');
     };
+
+    useEffect(() => {
+        if (view !== 'compose') {
+            setEditingPostId(null);
+        }
+    }, [pageUrl, view]);
 
     useEffect(() => {
         setSearchDraft(filters.q);
@@ -829,12 +1286,21 @@ export default function Index({
                                     </p>
                                 </div>
                                 {!Array.isArray(posts) && posts?.total != null ? (
-                                    <div className="text-xs text-ink-muted">
-                                        {posts.total === 0
-                                            ? '0 posts'
-                                            : `${posts.from}–${posts.to} of ${posts.total}`}
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <SecondaryButton type="button" onClick={syncEngagement}>
+                                            Refresh engagement
+                                        </SecondaryButton>
+                                        <div className="text-xs text-ink-muted">
+                                            {posts.total === 0
+                                                ? '0 posts'
+                                                : `${posts.from}–${posts.to} of ${posts.total}`}
+                                        </div>
                                     </div>
-                                ) : null}
+                                ) : (
+                                    <SecondaryButton type="button" onClick={syncEngagement}>
+                                        Refresh engagement
+                                    </SecondaryButton>
+                                )}
                             </div>
 
                             <div className="flex flex-wrap gap-1">
@@ -905,8 +1371,9 @@ export default function Index({
                             </div>
                         </div>
 
-                        <div className="hidden border-b border-line bg-mist/40 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-ink-muted md:grid md:grid-cols-[minmax(0,1.6fr)_minmax(150px,1fr)_130px_44px] md:gap-3">
+                        <div className="hidden border-b border-line bg-mist/40 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-ink-muted md:grid md:grid-cols-[minmax(0,1.4fr)_minmax(140px,0.85fr)_minmax(140px,0.9fr)_130px_44px] md:gap-3">
                             <div>Post</div>
+                            <div>Total</div>
                             <div>Status</div>
                             <div>When</div>
                             <div />
@@ -928,7 +1395,7 @@ export default function Index({
                                     <li
                                         key={post.id}
                                         className={
-                                            'grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,1.6fr)_minmax(150px,1fr)_130px_44px] md:items-center md:gap-3 ' +
+                                            'grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,1.4fr)_minmax(140px,0.85fr)_minmax(140px,0.9fr)_130px_44px] md:items-center md:gap-3 ' +
                                             (openActionsId === post.id ? 'relative z-30' : '')
                                         }
                                     >
@@ -939,6 +1406,22 @@ export default function Index({
                                             <div className="mt-0.5 line-clamp-1 text-sm text-ink-muted">
                                                 {post.body}
                                             </div>
+                                            {postLiveLinks(post).length > 0 ? (
+                                                <div className="mt-1.5 flex flex-wrap gap-2">
+                                                    {postLiveLinks(post).map((link) => (
+                                                        <a
+                                                            key={link.platform}
+                                                            href={link.url}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                            className="text-[11px] font-semibold text-signal-strong hover:underline"
+                                                        >
+                                                            {link.label} ↗
+                                                        </a>
+                                                    ))}
+                                                </div>
+                                            ) : null}
                                             {post.failure_reason ? (
                                                 <div className="mt-1 truncate text-xs text-rose-600">
                                                     {post.failure_reason}
@@ -964,6 +1447,20 @@ export default function Index({
                                                     Ready for approval
                                                 </div>
                                             ) : null}
+                                        </div>
+                                        <div className="text-xs tabular-nums text-ink-muted">
+                                            {hasEngagementMetrics(post.engagement) ? (
+                                                <EngagementSummary
+                                                    engagement={post.engagement}
+                                                    onOpen={() => setEngagementDetailPost(post)}
+                                                />
+                                            ) : post.status === 'published' ? (
+                                                <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-800">
+                                                    Sync pending
+                                                </span>
+                                            ) : (
+                                                '—'
+                                            )}
                                         </div>
                                         <div>
                                             <div className="flex flex-col gap-1.5">
@@ -1154,39 +1651,55 @@ export default function Index({
                             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-3">
                                 <div className="text-xs text-ink-muted">
                                     Page {posts.current_page} of {posts.last_page}
+                                    {posts.total != null ? ` · ${posts.total} posts` : ''}
                                 </div>
                                 <div className="flex flex-wrap gap-1">
-                                    {(posts.links || []).map((link, i) => {
-                                        const label = String(link.label || '')
-                                            .replace('&laquo;', '←')
-                                            .replace('&raquo;', '→')
-                                            .replace(/<[^>]+>/g, '');
-                                        if (!link.url) {
-                                            return (
-                                                <span
-                                                    key={`${label}-${i}`}
-                                                    className="rounded-md px-2.5 py-1.5 text-xs font-semibold text-ink-muted opacity-40"
-                                                >
-                                                    {label}
-                                                </span>
-                                            );
+                                    <button
+                                        type="button"
+                                        disabled={!posts.prev_page_url}
+                                        onClick={() => goToPostsPage(posts.current_page - 1)}
+                                        className={
+                                            'rounded-md border px-2.5 py-1.5 text-xs font-semibold transition ' +
+                                            (posts.prev_page_url
+                                                ? 'border-line bg-white text-ink hover:border-signal/40'
+                                                : 'border-line text-ink-muted opacity-40')
                                         }
-                                        return (
-                                            <Link
-                                                key={`${label}-${i}`}
-                                                href={link.url}
-                                                preserveScroll
-                                                className={
-                                                    'rounded-md border px-2.5 py-1.5 text-xs font-semibold transition ' +
-                                                    (link.active
-                                                        ? 'border-signal bg-signal text-white'
-                                                        : 'border-line bg-white text-ink hover:border-signal/40')
-                                                }
-                                            >
-                                                {label}
-                                            </Link>
-                                        );
-                                    })}
+                                    >
+                                        ← Previous
+                                    </button>
+                                    {Array.from({ length: posts.last_page }, (_, i) => i + 1).map(
+                                        (page) => {
+                                            const active = page === posts.current_page;
+                                            return (
+                                                <button
+                                                    key={page}
+                                                    type="button"
+                                                    onClick={() => goToPostsPage(page)}
+                                                    className={
+                                                        'rounded-md border px-2.5 py-1.5 text-xs font-semibold transition ' +
+                                                        (active
+                                                            ? 'border-signal bg-signal text-white'
+                                                            : 'border-line bg-white text-ink hover:border-signal/40')
+                                                    }
+                                                >
+                                                    {page}
+                                                </button>
+                                            );
+                                        },
+                                    )}
+                                    <button
+                                        type="button"
+                                        disabled={!posts.next_page_url}
+                                        onClick={() => goToPostsPage(posts.current_page + 1)}
+                                        className={
+                                            'rounded-md border px-2.5 py-1.5 text-xs font-semibold transition ' +
+                                            (posts.next_page_url
+                                                ? 'border-line bg-white text-ink hover:border-signal/40'
+                                                : 'border-line text-ink-muted opacity-40')
+                                        }
+                                    >
+                                        Next →
+                                    </button>
                                 </div>
                             </div>
                         ) : null}
@@ -1370,6 +1883,32 @@ export default function Index({
 
                 {view === 'accounts' ? (
                     <section className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+                        {!social_providers?.meta?.configured ? (
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-950 lg:col-span-2">
+                                <div className="font-semibold text-amber-900">
+                                    Add your Meta app keys first
+                                </div>
+                                <p className="mt-1 text-amber-900/90">
+                                    This is a SaaS workspace — each client uses their own Facebook
+                                    Developer app. Server <code className="text-xs">.env</code> keys are
+                                    not used for your social accounts.
+                                </p>
+                                <Link
+                                    href={
+                                        social_providers?.meta?.settings_url ||
+                                        route('settings.index', {
+                                            tab: 'providers',
+                                            category: 'social',
+                                            configure: 'meta',
+                                        })
+                                    }
+                                    className="mt-3 inline-flex rounded-md bg-amber-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-800"
+                                >
+                                    Settings → Providers → Meta
+                                </Link>
+                            </div>
+                        ) : null}
+
                         <form
                             className="atlas-panel space-y-3 p-4"
                             onSubmit={(e) => {
@@ -1448,7 +1987,11 @@ export default function Index({
                                     (connectionModes[accountForm.data.platform] || 'sandbox') !==
                                     'oauth'
                                 }
-                                label="Connect for real (needs API keys)"
+                                label={
+                                    social_providers?.meta?.configured
+                                        ? 'Connect for real (OAuth)'
+                                        : 'Connect for real — add Meta keys in Settings first'
+                                }
                             />
                             <div>
                                 <PrimaryButton processing={accountForm.processing}>
@@ -1458,6 +2001,33 @@ export default function Index({
                         </form>
 
                         <div className="space-y-4">
+                            <div className="atlas-panel space-y-2 p-4 text-sm text-ink-muted">
+                                <div className="font-display text-base font-bold text-ink">
+                                    Analytics permissions
+                                </div>
+                                <p>
+                                    To show likes, comments, and views, reconnect each account after
+                                    enabling these Meta permissions in your app:
+                                </p>
+                                <ul className="list-disc space-y-1 ps-5">
+                                    <li>
+                                        <span className="font-semibold text-ink">Facebook:</span>{' '}
+                                        {(analytics_permissions.facebook || []).join(', ')}
+                                    </li>
+                                    <li>
+                                        <span className="font-semibold text-ink">Instagram:</span>{' '}
+                                        {(analytics_permissions.instagram || []).join(', ')}
+                                    </li>
+                                    <li>
+                                        <span className="font-semibold text-ink">Threads:</span>{' '}
+                                        {(analytics_permissions.threads || []).join(', ')}
+                                    </li>
+                                </ul>
+                                <p className="text-xs">
+                                    Already connected before this update? Disconnect and connect again
+                                    so Meta grants the new read-insights scopes.
+                                </p>
+                            </div>
                             <div className="atlas-panel overflow-hidden">
                                 <div className="border-b border-line px-4 py-3 font-display text-lg font-bold text-ink">
                                     Connected ({connectedAccounts.length})
@@ -2167,6 +2737,11 @@ export default function Index({
                     </form>
                 ) : null}
             </div>
+
+            <EngagementDetailModal
+                post={engagementDetailPost}
+                onClose={() => setEngagementDetailPost(null)}
+            />
         </AuthenticatedLayout>
     );
 }

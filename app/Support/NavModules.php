@@ -7,7 +7,7 @@ final class NavModules
     /**
      * Client sidebar modules (key => meta).
      *
-     * @return array<string, array{label:string, route:string, match:string, icon:string, tone:string}>
+     * @return array<string, array{label:string, route:string, match:string, icon:string, tone:string, params?:array<string, string>}>
      */
     public static function catalog(): array
     {
@@ -36,6 +36,7 @@ final class NavModules
             'social' => [
                 'label' => 'SMM',
                 'route' => 'social.index',
+                'params' => ['view' => 'posts'],
                 'match' => 'social.*',
                 'icon' => 'social',
                 'tone' => 'fuchsia',

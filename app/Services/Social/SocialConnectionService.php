@@ -78,13 +78,13 @@ class SocialConnectionService
                 'redirect_uri' => $this->oauthRedirectUri($platform),
                 'state' => $state,
                 'scope' => $platform === 'instagram'
-                    ? 'pages_show_list,instagram_basic,instagram_content_publish'
-                    : 'pages_show_list,pages_manage_posts',
+                    ? 'pages_show_list,instagram_basic,instagram_content_publish,instagram_manage_insights'
+                    : 'pages_show_list,pages_manage_posts,pages_read_engagement',
             ]),
             'threads' => 'https://threads.net/oauth/authorize?'.http_build_query([
                 'client_id' => $this->integrations->socialCredential($workspace, 'meta', 'threads_app_id'),
                 'redirect_uri' => $this->oauthRedirectUri('threads'),
-                'scope' => 'threads_basic,threads_content_publish',
+                'scope' => 'threads_basic,threads_content_publish,threads_manage_insights',
                 'response_type' => 'code',
                 'state' => $state,
             ]),

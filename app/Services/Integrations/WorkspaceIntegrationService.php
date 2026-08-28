@@ -289,12 +289,35 @@ class WorkspaceIntegrationService
     public function socialModes(Workspace $workspace): array
     {
         return [
-            'facebook' => $this->isConnected($workspace, 'meta') ? 'oauth' : 'sandbox',
-            'instagram' => $this->isConnected($workspace, 'meta') ? 'oauth' : 'sandbox',
-            'threads' => $this->isConnected($workspace, 'meta') ? 'oauth' : 'sandbox',
-            'linkedin' => $this->isConnected($workspace, 'linkedin') ? 'oauth' : 'sandbox',
-            'x' => $this->isConnected($workspace, 'x') ? 'oauth' : 'sandbox',
+            'facebook' => $this->workspaceSocialOAuthReady($workspace, 'meta') ? 'oauth' : 'sandbox',
+            'instagram' => $this->workspaceSocialOAuthReady($workspace, 'meta') ? 'oauth' : 'sandbox',
+            'threads' => $this->workspaceSocialOAuthReady($workspace, 'meta') ? 'oauth' : 'sandbox',
+            'linkedin' => $this->workspaceSocialOAuthReady($workspace, 'linkedin') ? 'oauth' : 'sandbox',
+            'x' => $this->workspaceSocialOAuthReady($workspace, 'x') ? 'oauth' : 'sandbox',
         ];
+    }
+
+    /**
+     * Workspace-owned OAuth credentials only (no server .env fallback — SaaS per tenant).
+     */
+    public function workspaceSocialOAuthReady(Workspace $workspace, string $provider): bool
+    {
+        $def = IntegrationCatalog::find($provider);
+        if (! $def) {
+            return false;
+        }
+
+        $row = WorkspaceIntegration::query()
+            ->where('workspace_id', $workspace->id)
+            ->where('provider', $provider)
+            ->where('enabled', true)
+            ->first();
+
+        if (! $row) {
+            return false;
+        }
+
+        return $this->credentialsReady($def, $row->credentials ?? []);
     }
 
     public function socialCredential(Workspace $workspace, string $provider, string $key): ?string
@@ -312,15 +335,7 @@ class WorkspaceIntegrationService
             return $this->socialCredential($workspace, 'meta', 'app_secret');
         }
 
-        return match ($provider.'.'.$key) {
-            'meta.app_id' => config('services.meta.app_id'),
-            'meta.app_secret' => config('services.meta.app_secret'),
-            'linkedin.client_id' => config('services.linkedin.client_id'),
-            'linkedin.client_secret' => config('services.linkedin.client_secret'),
-            'x.client_id' => config('services.x.client_id'),
-            'x.client_secret' => config('services.x.client_secret'),
-            default => null,
-        };
+        return null;
     }
 
     /**

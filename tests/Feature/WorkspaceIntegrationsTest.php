@@ -131,6 +131,40 @@ class WorkspaceIntegrationsTest extends TestCase
         $this->assertStringContainsString('meta-app-id', $url);
     }
 
+    public function test_server_meta_env_keys_do_not_enable_social_oauth_without_workspace_keys(): void
+    {
+        [, $workspace] = $this->memberWithWorkspace();
+
+        config([
+            'services.meta.app_id' => 'global-meta-app',
+            'services.meta.app_secret' => 'global-meta-secret',
+        ]);
+
+        $integrations = app(WorkspaceIntegrationService::class);
+        $this->assertFalse($integrations->workspaceSocialOAuthReady($workspace, 'meta'));
+
+        $modes = app(SocialConnectionService::class)->modes($workspace);
+        $this->assertSame('sandbox', $modes['facebook']);
+        $this->assertSame('sandbox', $modes['instagram']);
+        $this->assertNull(
+            app(SocialConnectionService::class)->oauthAuthorizeUrl($workspace, 'facebook')
+        );
+    }
+
+    public function test_social_index_exposes_workspace_meta_provider_status(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('social.index', ['view' => 'accounts']))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Social/Index')
+                ->where('social_providers.meta.configured', false)
+                ->has('social_providers.meta.settings_url'));
+    }
+
     public function test_remove_keys_deletes_integration_row(): void
     {
         [$user, $workspace] = $this->memberWithWorkspace();

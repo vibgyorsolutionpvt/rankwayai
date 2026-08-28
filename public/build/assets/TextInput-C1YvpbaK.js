@@ -1,0 +1,1 @@
+import{b as t,j as a}from"./app-Ck_trl-v.js";const p=t.forwardRef(function({type:r="text",className:u="",isFocused:s=!1,...f},n){const e=t.useRef(null);return t.useImperativeHandle(n,()=>({focus:()=>e.current?.focus()})),t.useEffect(()=>{s&&e.current?.focus()},[s]),a.jsx("input",{...f,type:r,className:"atlas-input "+u,ref:e})});export{p as T};

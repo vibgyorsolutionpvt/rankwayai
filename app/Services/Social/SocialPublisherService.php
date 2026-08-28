@@ -103,6 +103,9 @@ class SocialPublisherService
             }
 
             $permalink = (string) ($result['permalink'] ?? '');
+            $externalPostId = filled($result['external_post_id'] ?? null)
+                ? (string) $result['external_post_id']
+                : null;
             if ($permalink !== '') {
                 $newPermalinks[$platform] = $permalink;
             }
@@ -110,9 +113,10 @@ class SocialPublisherService
                 'platform' => $platform,
                 'at' => now()->toIso8601String(),
                 'permalink' => $permalink,
+                'external_post_id' => $externalPostId,
                 'status' => 'published',
             ];
-            $this->writeLog($post, $platform, 'published', $permalink !== '' ? $permalink : null);
+            $this->writeLog($post, $platform, 'published', $permalink !== '' ? $permalink : null, null, $externalPostId);
             $account->update(['health' => 'healthy', 'last_error' => null]);
         }
 
@@ -333,13 +337,20 @@ class SocialPublisherService
         }
 
         $id = (string) ($response->json('id') ?? $response->json('post_id') ?? '');
-        $permalink = $id !== ''
-            ? 'https://www.facebook.com/'.$id
+        $postId = (string) ($response->json('post_id') ?? '');
+        if ($postId === '' && $id !== '' && str_contains($id, '_')) {
+            $postId = $id;
+        } elseif ($postId === '' && $id !== '') {
+            $postId = $pageId.'_'.$id;
+        }
+
+        $permalink = $postId !== ''
+            ? 'https://www.facebook.com/'.$postId
             : null;
 
         // Prefer Graph permalink lookup when we have a post id.
-        if ($id !== '' && str_contains($id, '_')) {
-            $look = Http::timeout(30)->get(self::GRAPH.'/'.rawurlencode($id), [
+        if ($postId !== '' && str_contains($postId, '_')) {
+            $look = Http::timeout(30)->get(self::GRAPH.'/'.rawurlencode($postId), [
                 'fields' => 'permalink_url',
                 'access_token' => $token,
             ]);
@@ -348,7 +359,11 @@ class SocialPublisherService
             }
         }
 
-        return ['ok' => true, 'permalink' => $permalink ?? ('https://facebook.com/'.$pageId)];
+        return [
+            'ok' => true,
+            'permalink' => $permalink ?? ('https://facebook.com/'.$pageId),
+            'external_post_id' => $postId !== '' ? $postId : null,
+        ];
     }
 
     /**
@@ -421,7 +436,11 @@ class SocialPublisherService
             $permalink = (string) $look->json('permalink');
         }
 
-        return ['ok' => true, 'permalink' => $permalink];
+        return [
+            'ok' => true,
+            'permalink' => $permalink,
+            'external_post_id' => $mediaId,
+        ];
     }
 
     /**
@@ -505,7 +524,11 @@ class SocialPublisherService
             $permalink = 'https://www.threads.net/@'.$handle;
         }
 
-        return ['ok' => true, 'permalink' => $permalink];
+        return [
+            'ok' => true,
+            'permalink' => $permalink,
+            'external_post_id' => $mediaId,
+        ];
     }
 
     /**
@@ -723,7 +746,8 @@ class SocialPublisherService
         string $platform,
         string $status,
         ?string $permalink,
-        ?string $error = null
+        ?string $error = null,
+        ?string $externalPostId = null,
     ): void {
         $attempt = SocialPublishLog::query()
             ->where('social_post_id', $post->id)
@@ -736,6 +760,7 @@ class SocialPublisherService
             'platform' => $platform,
             'status' => $status,
             'permalink' => $permalink,
+            'external_post_id' => $externalPostId,
             'error' => $error,
             'attempt' => $attempt,
         ]);
