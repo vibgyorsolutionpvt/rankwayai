@@ -237,14 +237,20 @@ function hasEngagementMetrics(engagement) {
     return (engagement.likes ?? 0) + (engagement.comments ?? 0) + (engagement.views ?? 0) > 0;
 }
 
-function engagementPlatformRows(engagement, postPlatforms = []) {
+function engagementPlatformRows(engagement, post = null) {
     const byPlatform = engagement?.by_platform || {};
-    const keys = Object.keys(byPlatform);
-    if (keys.length === 0) {
-        return [];
-    }
+    const publishedFromStatus = (post?.platform_statuses || [])
+        .filter((entry) => entry.status === 'published')
+        .map((entry) => entry.platform);
+    const fromPermalinks = Object.keys(post?.permalinks || {});
+    const keys =
+        publishedFromStatus.length > 0
+            ? publishedFromStatus
+            : fromPermalinks.length > 0
+              ? fromPermalinks
+              : Object.keys(byPlatform);
 
-    const order = [...postPlatforms, ...platformOptions].filter(
+    const order = [...(post?.platforms || []), ...platformOptions].filter(
         (platform, index, all) => keys.includes(platform) && all.indexOf(platform) === index,
     );
 
@@ -252,7 +258,14 @@ function engagementPlatformRows(engagement, postPlatforms = []) {
         platform,
         label: platformLabels[platform] || platformShort[platform] || platform,
         short: platformShort[platform] || platform,
-        metrics: byPlatform[platform],
+        metrics: byPlatform[platform] || {
+            likes: 0,
+            comments: 0,
+            views: 0,
+            shares: 0,
+            reposts: 0,
+            synced: false,
+        },
     }));
 }
 
@@ -455,7 +468,7 @@ function EngagementDetailModal({ post, onClose }) {
 
     const engagement = post.engagement;
     const totals = engagementTotals(engagement);
-    const rows = engagementPlatformRows(engagement, post.platforms || []);
+    const rows = engagementPlatformRows(engagement, post);
     const liveLinks = postLiveLinks(post);
     const totalCards = [
         { type: 'likes', value: totals.likes, label: 'Total likes' },
@@ -545,15 +558,22 @@ function EngagementDetailModal({ post, onClose }) {
                                     className="rounded-xl border border-line bg-gradient-to-br from-white to-mist/40 p-3 shadow-sm"
                                 >
                                     <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
-                                        <span
-                                            className={
-                                                'inline-flex rounded-md border px-2.5 py-1 text-xs font-bold ' +
-                                                (platformTone[row.platform] ||
-                                                    'bg-mist text-ink border-line')
-                                            }
-                                        >
-                                            {row.label}
-                                        </span>
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <span
+                                                className={
+                                                    'inline-flex rounded-md border px-2.5 py-1 text-xs font-bold ' +
+                                                    (platformTone[row.platform] ||
+                                                        'bg-mist text-ink border-line')
+                                                }
+                                            >
+                                                {row.label}
+                                            </span>
+                                            {m.synced === false ? (
+                                                <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                                    Sync pending
+                                                </span>
+                                            ) : null}
+                                        </div>
                                         {permalink ? (
                                             <a
                                                 href={permalink}

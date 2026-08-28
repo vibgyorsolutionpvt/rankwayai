@@ -139,18 +139,11 @@ class SocialPostAnalyticsService
         $latestSync = null;
 
         foreach ($logs as $log) {
-            $m = $log->metrics ?? [];
-            if ($m === []) {
-                continue;
-            }
-
+            $m = is_array($log->metrics) ? $log->metrics : [];
             $likes = (int) ($m['likes'] ?? 0);
             $comments = (int) ($m['comments'] ?? 0);
             $views = (int) ($m['views'] ?? 0);
-
-            $totals['likes'] += $likes;
-            $totals['comments'] += $comments;
-            $totals['views'] += $views;
+            $synced = $log->metrics_synced_at !== null;
 
             $byPlatform[$log->platform] = [
                 'likes' => $likes,
@@ -158,10 +151,17 @@ class SocialPostAnalyticsService
                 'views' => $views,
                 'reposts' => (int) ($m['reposts'] ?? 0),
                 'shares' => (int) ($m['shares'] ?? 0),
+                'synced' => $synced,
             ];
 
-            if ($log->metrics_synced_at && ($latestSync === null || $log->metrics_synced_at->gt($latestSync))) {
-                $latestSync = $log->metrics_synced_at;
+            if ($synced) {
+                $totals['likes'] += $likes;
+                $totals['comments'] += $comments;
+                $totals['views'] += $views;
+
+                if ($latestSync === null || $log->metrics_synced_at->gt($latestSync)) {
+                    $latestSync = $log->metrics_synced_at;
+                }
             }
         }
 

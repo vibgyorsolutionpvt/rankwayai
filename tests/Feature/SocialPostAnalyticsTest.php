@@ -179,6 +179,54 @@ class SocialPostAnalyticsTest extends TestCase
         $this->assertSame(300, $aggregate['by_platform']['instagram']['views']);
     }
 
+    public function test_aggregate_includes_published_platforms_without_metrics_yet(): void
+    {
+        $user = User::factory()->create();
+        $workspace = Workspace::factory()->create();
+        $post = SocialPost::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'body' => 'Body',
+            'platforms' => ['facebook', 'instagram', 'threads'],
+            'status' => 'published',
+        ]);
+
+        $fbLog = SocialPublishLog::query()->create([
+            'workspace_id' => $workspace->id,
+            'social_post_id' => $post->id,
+            'platform' => 'facebook',
+            'status' => 'published',
+            'external_post_id' => 'fb_1',
+        ]);
+
+        $igLog = SocialPublishLog::query()->create([
+            'workspace_id' => $workspace->id,
+            'social_post_id' => $post->id,
+            'platform' => 'instagram',
+            'status' => 'published',
+            'external_post_id' => 'ig_1',
+            'metrics' => ['likes' => 2, 'comments' => 0, 'views' => 0],
+            'metrics_synced_at' => now(),
+        ]);
+
+        $thLog = SocialPublishLog::query()->create([
+            'workspace_id' => $workspace->id,
+            'social_post_id' => $post->id,
+            'platform' => 'threads',
+            'status' => 'published',
+            'external_post_id' => 'th_1',
+        ]);
+
+        $aggregate = app(SocialPostAnalyticsService::class)->aggregateLogs(collect([$fbLog, $igLog, $thLog]));
+
+        $this->assertArrayHasKey('facebook', $aggregate['by_platform']);
+        $this->assertArrayHasKey('instagram', $aggregate['by_platform']);
+        $this->assertArrayHasKey('threads', $aggregate['by_platform']);
+        $this->assertFalse($aggregate['by_platform']['facebook']['synced']);
+        $this->assertTrue($aggregate['by_platform']['instagram']['synced']);
+        $this->assertSame(2, $aggregate['likes']);
+    }
+
     public function test_sync_post_syncs_all_logs_for_post(): void
     {
         $user = User::factory()->create();
