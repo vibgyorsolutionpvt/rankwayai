@@ -2,6 +2,7 @@
 
 namespace App\Services\Billing;
 
+use App\Models\BillingAccount;
 use App\Models\CreditRecharge;
 use App\Models\User;
 use App\Models\Workspace;
@@ -12,7 +13,8 @@ class CreditRechargeService
     public function __construct(
         private BillingService $billing,
         private CreditWalletService $wallet,
-        private CashfreeClient $cashfree,
+        private RazorpayClient $razorpay,
+        private BillingAccountService $accounts,
     ) {}
 
     /**
@@ -25,8 +27,11 @@ class CreditRechargeService
             return ['ok' => false, 'message' => 'Invalid credit pack.'];
         }
 
+        $account = $this->accounts->account($user);
+
         $recharge = CreditRecharge::query()->create([
             'workspace_id' => $workspace->id,
+            'billing_account_id' => $account->id,
             'user_id' => $user->id,
             'pack_id' => $pack['id'],
             'credits' => $pack['credits'],
@@ -36,7 +41,7 @@ class CreditRechargeService
             'status' => 'pending',
         ]);
 
-        return $this->cashfreeCheckout($workspace, $user, $recharge, $pack);
+        return $this->razorpayCheckout($workspace, $user, $account, $recharge, $pack);
     }
 
     public function markPaid(CreditRecharge $recharge, string $provider, ?string $providerRef = null): void
@@ -51,24 +56,52 @@ class CreditRechargeService
             'provider_ref' => $providerRef ?: $recharge->provider_ref,
         ]);
 
+        $account = $recharge->billingAccount
+            ?? $this->accounts->accountForWorkspace($recharge->workspace);
+
+        if ($account) {
+            $this->accounts->recordTransaction(
+                $account,
+                'credit_recharge',
+                (float) $recharge->amount,
+                (string) $recharge->currency,
+                'paid',
+                $provider,
+                $providerRef,
+                $recharge->user,
+                $recharge->workspace,
+                null,
+                $recharge->pack_id,
+                (int) $recharge->credits,
+            );
+        }
+
         $this->wallet->addTopup($recharge->workspace, (int) $recharge->credits);
     }
 
     /**
-     * When webhooks can't reach localhost, sync PAID links on billing page load.
+     * When webhooks can't reach localhost, sync paid links on billing page load.
      *
      * @return list<CreditRecharge>
      */
-    public function syncPendingCashfree(Workspace $workspace, ?string $linkId = null): array
-    {
-        if (! $this->billing->cashfreeConfigured()) {
+    public function syncPendingRazorpay(
+        Workspace $workspace,
+        ?BillingAccount $account = null,
+        ?string $linkId = null
+    ): array {
+        if (! $this->billing->razorpayConfigured()) {
+            return [];
+        }
+
+        $account ??= $this->accounts->accountForWorkspace($workspace);
+        if (! $account) {
             return [];
         }
 
         $query = CreditRecharge::query()
-            ->where('workspace_id', $workspace->id)
+            ->where('billing_account_id', $account->id)
             ->where('status', 'pending')
-            ->where('provider', 'cashfree')
+            ->where('provider', 'razorpay')
             ->whereNotNull('provider_ref')
             ->latest()
             ->limit(10);
@@ -79,13 +112,13 @@ class CreditRechargeService
 
         $paid = [];
         foreach ($query->get() as $recharge) {
-            $link = $this->cashfree->getPaymentLink((string) $recharge->provider_ref);
+            $link = $this->razorpay->getPaymentLink((string) $recharge->provider_ref);
             if (! ($link['ok'] ?? false)) {
                 continue;
             }
 
-            if (($link['status'] ?? '') === 'PAID' || (float) ($link['amount_paid'] ?? 0) > 0) {
-                $this->markPaid($recharge, 'cashfree', $recharge->provider_ref);
+            if (($link['status'] ?? '') === 'paid' || (float) ($link['amount_paid'] ?? 0) > 0) {
+                $this->markPaid($recharge, 'razorpay', $recharge->provider_ref);
                 $paid[] = $recharge->fresh();
             }
         }
@@ -97,9 +130,14 @@ class CreditRechargeService
      * @param  array{id:string,credits:int,amount:float,currency:string}  $pack
      * @return array{ok:bool, message:string, checkout_url?:string}
      */
-    private function cashfreeCheckout(Workspace $workspace, User $user, CreditRecharge $recharge, array $pack): array
-    {
-        if (! $this->billing->cashfreeConfigured()) {
+    private function razorpayCheckout(
+        Workspace $workspace,
+        User $user,
+        BillingAccount $account,
+        CreditRecharge $recharge,
+        array $pack
+    ): array {
+        if (! $this->billing->razorpayConfigured()) {
             $this->markPaid($recharge, 'manual');
 
             return [
@@ -110,12 +148,12 @@ class CreditRechargeService
 
         $linkId = 'cr_'.$recharge->id.'_'.Str::lower(Str::random(6));
 
-        $result = $this->cashfree->createPaymentLink([
+        $result = $this->razorpay->createPaymentLink([
             'link_id' => $linkId,
             'amount' => (float) $pack['amount'],
             'currency' => (string) $pack['currency'],
             'purpose' => 'AI credits top-up: '.$pack['credits'].' credits',
-            'customer_id' => 'ws_'.$workspace->id.'_u_'.$user->id,
+            'customer_id' => 'acct_'.$account->id.'_u_'.$user->id,
             'customer_email' => $user->email,
             'customer_phone' => null,
             'customer_name' => $user->name,
@@ -123,6 +161,7 @@ class CreditRechargeService
             'notes' => [
                 'type' => 'credit_recharge',
                 'recharge_id' => (string) $recharge->id,
+                'billing_account_id' => (string) $account->id,
                 'workspace_id' => (string) $workspace->id,
                 'credits' => (string) $pack['credits'],
             ],
@@ -130,15 +169,16 @@ class CreditRechargeService
 
         if (! $result['ok']) {
             $recharge->update(['status' => 'failed']);
+            report(new \RuntimeException('Razorpay credit recharge link failed: '.($result['error'] ?? 'unknown')));
 
             return [
                 'ok' => false,
-                'message' => 'Couldn’t start recharge payment. Please try again.',
+                'message' => $this->paymentStartErrorMessage($result['error'] ?? null),
             ];
         }
 
         $recharge->update([
-            'provider' => 'cashfree',
+            'provider' => 'razorpay',
             'provider_ref' => $result['link_id'],
         ]);
 
@@ -147,5 +187,24 @@ class CreditRechargeService
             'message' => 'Redirecting to payment…',
             'checkout_url' => $result['link_url'],
         ];
+    }
+
+    private function paymentStartErrorMessage(?string $razorpayError): string
+    {
+        if (blank($razorpayError)) {
+            return 'Couldn’t start recharge payment. Please try again.';
+        }
+
+        $lower = strtolower($razorpayError);
+
+        if (str_contains($lower, 'expired')) {
+            return 'Razorpay API keys have expired. Generate new Test keys in Razorpay Dashboard → API Keys, then update `.env`.';
+        }
+
+        if (str_contains($lower, 'authentication')) {
+            return 'Razorpay authentication failed. Check `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` in `.env`.';
+        }
+
+        return 'Couldn’t start recharge payment: '.$razorpayError;
     }
 }

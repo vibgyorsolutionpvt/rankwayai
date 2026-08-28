@@ -2,15 +2,62 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import DateTimePicker from '@/Components/DateTimePicker';
 import HelpGuide, { HELP } from '@/Components/HelpGuide';
 import InputLabel from '@/Components/InputLabel';
+import MediaPickerModal from '@/Components/MediaPickerModal';
 import PrimaryButton from '@/Components/PrimaryButton';
+import RichTextEditor from '@/Components/RichTextEditor';
 import SecondaryButton from '@/Components/SecondaryButton';
 import SelectMenu from '@/Components/SelectMenu';
 import TextInput from '@/Components/TextInput';
-import { Head, Link, router, useForm } from '@inertiajs/react';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
 import { toast } from '@/Components/ToastProvider';
 import { confirmAsk } from '@/Components/ConfirmProvider';
 import Toggle from '@/Components/Toggle';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+
+function escapeHtml(text) {
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+/** Plain caption → TipTap HTML (social APIs still get plain text). */
+function plainToEditorHtml(text) {
+    const raw = String(text || '').trim();
+    if (!raw) {
+        return '';
+    }
+    if (/<[a-z][\s\S]*>/i.test(raw)) {
+        return raw;
+    }
+
+    return raw
+        .split(/\n{2,}/)
+        .map((block) => {
+            const withBreaks = escapeHtml(block).replace(/\n/g, '<br>');
+            return `<p>${withBreaks || '<br>'}</p>`;
+        })
+        .join('');
+}
+
+function htmlToPlainCaption(html) {
+    if (!html) {
+        return '';
+    }
+    return String(html)
+        .replace(/<\/p>/gi, '\n\n')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/h[1-6]>/gi, '\n\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
 
 const platformOptions = ['facebook', 'instagram', 'threads', 'linkedin', 'x'];
 
@@ -178,7 +225,11 @@ export default function Index({
     enabledPlatforms = null,
     connectedPlatforms = [],
     socialPublish = { isLocal: false, simulate: false },
+    ai_context = null,
+    ai_prompt_history = [],
 }) {
+    const { flash, plan } = usePage().props;
+    const aiLocked = plan && !plan.features?.ai;
     const availablePlatforms = useMemo(() => {
         if (!Array.isArray(enabledPlatforms) || enabledPlatforms.length === 0) {
             return platformOptions;
@@ -272,9 +323,108 @@ export default function Index({
     const [editingPostId, setEditingPostId] = useState(null);
     const [searchDraft, setSearchDraft] = useState(filters.q);
     const [openActionsId, setOpenActionsId] = useState(null);
+    const [aiPrompt, setAiPrompt] = useState('');
+    const [aiOffer, setAiOffer] = useState('');
+    const [aiGenerating, setAiGenerating] = useState(false);
+    const [promptHistory, setPromptHistory] = useState(() => {
+        // Hard refresh → empty UI history (table is cleared in effect below).
+        try {
+            const nav = performance.getEntriesByType('navigation')[0];
+            if (nav && nav.type === 'reload') {
+                return [];
+            }
+        } catch {
+            /* ignore */
+        }
+        return Array.isArray(ai_prompt_history) ? ai_prompt_history : [];
+    });
+    const [captionHtml, setCaptionHtml] = useState(() =>
+        plainToEditorHtml(postForm.data.body || ''),
+    );
+    const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
+    const [pickedMedia, setPickedMedia] = useState(null);
     const [selectedPageId, setSelectedPageId] = useState(
         pendingPagePick?.suggested_id || pendingPagePick?.pages?.[0]?.id || '',
     );
+
+    useEffect(() => {
+        // Page refresh: drop prompt field + wipe history table for this user.
+        try {
+            const nav = performance.getEntriesByType('navigation')[0];
+            if (nav && nav.type === 'reload') {
+                setAiPrompt('');
+                setAiOffer('');
+                setPromptHistory([]);
+                router.delete(route('social.compose.prompt-history.clear'), {
+                    preserveScroll: true,
+                    preserveState: true,
+                });
+            }
+        } catch {
+            /* ignore */
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useEffect(() => {
+        const draft = flash?.ai_compose;
+        if (flash?.ai_prompt) {
+            setAiPrompt(String(flash.ai_prompt));
+        }
+        if (flash?.ai_offer != null && flash.ai_offer !== '') {
+            setAiOffer(String(flash.ai_offer));
+        } else if (flash?.ai_prompt && flash?.ai_offer === '') {
+            setAiOffer('');
+        }
+
+        if (!draft?.body) {
+            return;
+        }
+        postForm.setData({
+            ...postForm.data,
+            title: draft.title || postForm.data.title,
+            body: draft.body,
+            platforms:
+                Array.isArray(draft.platforms) && draft.platforms.length
+                    ? draft.platforms
+                    : postForm.data.platforms,
+        });
+        setCaptionHtml(plainToEditorHtml(draft.body));
+
+        if (flash?.ai_prompt) {
+            const nextPrompt = String(flash.ai_prompt);
+            const nextOffer = flash.ai_offer != null ? String(flash.ai_offer) : '';
+            setPromptHistory((prev) => {
+                const without = (Array.isArray(prev) ? prev : []).filter(
+                    (row) => row.prompt !== nextPrompt,
+                );
+                return [
+                    {
+                        id: `tmp-${Date.now()}`,
+                        prompt: nextPrompt,
+                        offer: nextOffer || null,
+                    },
+                    ...without,
+                ].slice(0, 12);
+            });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [flash?.ai_compose, flash?.ai_prompt, flash?.ai_offer]);
+
+    useEffect(() => {
+        if (!Array.isArray(ai_prompt_history)) {
+            return;
+        }
+        try {
+            const nav = performance.getEntriesByType('navigation')[0];
+            if (nav && nav.type === 'reload') {
+                return;
+            }
+        } catch {
+            /* ignore */
+        }
+        setPromptHistory(ai_prompt_history);
+    }, [ai_prompt_history]);
 
     useEffect(() => {
         if (!pendingPagePick?.pages?.length) return;
@@ -324,7 +474,7 @@ export default function Index({
     const blankPost = () => ({
         title: '',
         body: '',
-        platforms: ['instagram'],
+        platforms: availablePlatforms[0] ? [availablePlatforms[0]] : ['instagram'],
         scheduled_at: '',
         delivery: 'draft',
         requires_approval: false,
@@ -334,9 +484,49 @@ export default function Index({
         generate_posters: true,
     });
 
+    // Workspace switch keeps the same Inertia page instance — wipe compose so
+    // the previous brand's caption/prompt cannot be posted here by mistake.
+    const composeWorkspaceId = useRef(workspace?.id);
+    useEffect(() => {
+        if (composeWorkspaceId.current === workspace?.id) {
+            return;
+        }
+        composeWorkspaceId.current = workspace?.id;
+
+        postForm.setData(blankPost());
+        postForm.clearErrors();
+        setCaptionHtml('');
+        setAiPrompt('');
+        setAiOffer('');
+        setPromptHistory(Array.isArray(ai_prompt_history) ? ai_prompt_history : []);
+        setPickedMedia(null);
+        setEditingPostId(null);
+        setMediaPickerOpen(false);
+        setOpenActionsId(null);
+        setActivePreview(availablePlatforms[0] || 'instagram');
+        accountForm.setData({
+            platform: availablePlatforms.includes('facebook')
+                ? 'facebook'
+                : availablePlatforms[0] || 'facebook',
+            account_name: workspace?.name || '',
+            account_type: 'page',
+            use_oauth:
+                (connectionModes[
+                    availablePlatforms.includes('facebook')
+                        ? 'facebook'
+                        : availablePlatforms[0] || 'facebook'
+                ] || 'sandbox') === 'oauth',
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [workspace?.id]);
+
     const beginCompose = () => {
         setEditingPostId(null);
         postForm.setData(blankPost());
+        setCaptionHtml('');
+        setAiPrompt('');
+        setAiOffer('');
+        setPickedMedia(null);
         postForm.clearErrors();
         visitView('compose');
     };
@@ -344,9 +534,10 @@ export default function Index({
     const beginEdit = (post) => {
         const delivery = post.status === 'scheduled' ? 'schedule' : 'draft';
         const kitId = post.brand_kit_id || defaultBrandKitId;
+        const body = post.body || '';
         postForm.setData({
             title: post.title || '',
-            body: post.body || '',
+            body,
             platforms: post.platforms?.length ? post.platforms : ['instagram'],
             scheduled_at: post.scheduled_at_local || '',
             delivery,
@@ -356,6 +547,18 @@ export default function Index({
             brand_kit_id: kitId ? String(kitId) : '',
             generate_posters: false,
         });
+        setCaptionHtml(plainToEditorHtml(body));
+        setPickedMedia(
+            post.media_asset_id
+                ? {
+                      id: post.media_asset_id,
+                      name: 'Selected image',
+                      url: post.media_url || null,
+                      thumb_url: post.media_url || null,
+                      mime_type: null,
+                  }
+                : null,
+        );
         postForm.clearErrors();
         setEditingPostId(post.id);
         setOpenActionsId(null);
@@ -365,6 +568,8 @@ export default function Index({
     const cancelEdit = () => {
         setEditingPostId(null);
         postForm.setData(blankPost());
+        setCaptionHtml('');
+        setPickedMedia(null);
         postForm.clearErrors();
         visitView('posts');
     };
@@ -387,8 +592,11 @@ export default function Index({
     const selectedMedia = useMemo(() => {
         const id = String(postForm.data.media_asset_id || '');
         if (!id) return null;
-        return mediaOptions.find((m) => String(m.id) === id) || null;
-    }, [mediaOptions, postForm.data.media_asset_id]);
+        if (pickedMedia && String(pickedMedia.id) === id) {
+            return pickedMedia;
+        }
+        return mediaOptions.find((m) => String(m.id) === id) || pickedMedia || null;
+    }, [mediaOptions, postForm.data.media_asset_id, pickedMedia]);
 
     const previewAccount =
         accounts.find((a) => a.platform === activePreview && a.status === 'connected') ||
@@ -453,6 +661,8 @@ export default function Index({
             onSuccess: () => {
                 setEditingPostId(null);
                 postForm.setData(blankPost());
+                setCaptionHtml('');
+                setPickedMedia(null);
                 visitView('posts');
             },
         };
@@ -653,8 +863,8 @@ export default function Index({
                             {missingThreads ? (
                                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                                     <span className="font-semibold">Threads not connected.</span>{' '}
-                                    Connect a Threads account under the Accounts tab — AI posts only
-                                    target platforms with a live connection (currently Facebook +
+                                    Connect a Threads account under the Accounts tab — AI compose only
+                                    targets platforms with a live connection (currently Facebook +
                                     Instagram).
                                 </div>
                             ) : null}
@@ -1416,7 +1626,7 @@ export default function Index({
 
                 {view === 'compose' ? (
                     <form
-                        className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]"
+                        className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.95fr)] xl:items-start"
                         onSubmit={submitPost}
                     >
                         <div className="atlas-panel space-y-3 p-4">
@@ -1437,6 +1647,182 @@ export default function Index({
                                     Editing draft/scheduled post — save to update.
                                 </div>
                             ) : null}
+
+                            <div className="rounded-lg border-2 border-signal/40 bg-gradient-to-br from-signal-soft/50 to-white p-3.5 space-y-2.5 shadow-sm">
+                                <div className="flex flex-wrap items-start justify-between gap-2">
+                                    <div>
+                                        <h4 className="text-sm font-bold text-ink">
+                                            Write with AI
+                                        </h4>
+                                        <p className="mt-0.5 text-xs text-ink-muted">
+                                            Specific brief do — outcome + audience + place (e.g.
+                                            “cloud migration for Noida SMEs, cut weekend downtime”).
+                                            Vague “post likho” = weaker copy.
+                                        </p>
+                                    </div>
+                                    {ai_context?.settings_url ? (
+                                        <Link
+                                            href={ai_context.settings_url}
+                                            className="text-xs font-semibold text-signal-strong underline"
+                                        >
+                                            Edit industry / contact
+                                        </Link>
+                                    ) : null}
+                                </div>
+                                {ai_context ? (
+                                    <p className="text-[11px] text-ink-muted">
+                                        Using:{' '}
+                                        <span className="font-semibold text-ink">
+                                            {ai_context.industry || '—'}
+                                        </span>
+                                        {' · '}
+                                        {ai_context.location || '—'}
+                                        {ai_context.cta ? ` · CTA: ${ai_context.cta}` : ''}
+                                        {!ai_context.has_business_profile ? (
+                                            <span className="ms-1 font-semibold text-amber-800">
+                                                (set real industry in Settings so AI stays on-topic)
+                                            </span>
+                                        ) : null}
+                                    </p>
+                                ) : null}
+                                <textarea
+                                    className="atlas-input min-h-[72px] w-full text-sm"
+                                    placeholder="Example: Announce cloud migration support for Noida SMEs this month — free consultation call"
+                                    value={aiPrompt}
+                                    onChange={(e) => setAiPrompt(e.target.value)}
+                                    disabled={!!editingPostId}
+                                />
+                                {promptHistory.length > 0 ? (
+                                    <div className="space-y-1.5">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                                                Recent prompts
+                                            </p>
+                                            <button
+                                                type="button"
+                                                className="text-[11px] font-semibold text-ink-muted underline hover:text-ink"
+                                                disabled={!!editingPostId}
+                                                onClick={() => {
+                                                    setPromptHistory([]);
+                                                    router.delete(
+                                                        route(
+                                                            'social.compose.prompt-history.clear',
+                                                        ),
+                                                        {
+                                                            preserveScroll: true,
+                                                            preserveState: true,
+                                                        },
+                                                    );
+                                                }}
+                                            >
+                                                Clear
+                                            </button>
+                                        </div>
+                                        <div className="flex flex-col gap-1.5">
+                                            {promptHistory.map((row) => (
+                                                <button
+                                                    key={row.id}
+                                                    type="button"
+                                                    disabled={!!editingPostId}
+                                                    title={[
+                                                        row.prompt,
+                                                        row.provider
+                                                            ? `Provider: ${row.provider}`
+                                                            : null,
+                                                        row.api_url || null,
+                                                        row.model
+                                                            ? `Model: ${row.model}`
+                                                            : null,
+                                                    ]
+                                                        .filter(Boolean)
+                                                        .join('\n')}
+                                                    onClick={() => {
+                                                        setAiPrompt(row.prompt || '');
+                                                        setAiOffer(row.offer || '');
+                                                    }}
+                                                    className="w-full rounded-md border border-line bg-white px-2.5 py-1.5 text-left hover:border-signal hover:bg-signal-soft/40"
+                                                >
+                                                    <div className="truncate text-[11px] text-ink">
+                                                        {row.prompt}
+                                                    </div>
+                                                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-ink-muted">
+                                                        {row.provider ? (
+                                                            <span className="font-semibold text-ink">
+                                                                {row.provider}
+                                                            </span>
+                                                        ) : null}
+                                                        {row.model ? (
+                                                            <span>{row.model}</span>
+                                                        ) : null}
+                                                        {row.http_status ? (
+                                                            <span>HTTP {row.http_status}</span>
+                                                        ) : null}
+                                                        {row.api_url ? (
+                                                            <span className="truncate font-mono">
+                                                                {row.api_url}
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : null}
+                                <TextInput
+                                    className="block w-full text-sm"
+                                    placeholder="Optional CTA / offer (e.g. Book a free consult)"
+                                    value={aiOffer}
+                                    onChange={(e) => setAiOffer(e.target.value)}
+                                    disabled={!!editingPostId}
+                                />
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <PrimaryButton
+                                        type="button"
+                                        processing={aiGenerating}
+                                        disabled={
+                                            !!editingPostId ||
+                                            aiLocked ||
+                                            aiPrompt.trim().length < 12
+                                        }
+                                        onClick={() => {
+                                            if (aiLocked) {
+                                                toast.error(
+                                                    'AI needs a paid plan or credit top-up.',
+                                                );
+                                                return;
+                                            }
+                                            setAiGenerating(true);
+                                            router.post(
+                                                route('social.compose.ai'),
+                                                {
+                                                    prompt: aiPrompt,
+                                                    offer: aiOffer,
+                                                    platforms: postForm.data.platforms,
+                                                },
+                                                {
+                                                    preserveScroll: true,
+                                                    preserveState: true,
+                                                    onFinish: () => setAiGenerating(false),
+                                                    onError: () =>
+                                                        toast.error(
+                                                            'Could not generate — check prompt and try again.',
+                                                        ),
+                                                },
+                                            );
+                                        }}
+                                    >
+                                        {aiGenerating
+                                            ? 'Writing…'
+                                            : 'Generate title + caption'}
+                                    </PrimaryButton>
+                                    {aiLocked ? (
+                                        <span className="text-xs text-amber-800">
+                                            Unlock AI via Billing.
+                                        </span>
+                                    ) : null}
+                                </div>
+                            </div>
+
                             <div>
                                 <InputLabel value="Title" />
                                 <TextInput
@@ -1447,12 +1833,23 @@ export default function Index({
                             </div>
                             <div>
                                 <InputLabel value="Caption" />
-                                <textarea
-                                    className="atlas-input mt-1.5 min-h-[120px]"
-                                    value={postForm.data.body}
-                                    onChange={(e) => postForm.setData('body', e.target.value)}
-                                    required
-                                />
+                                <div className="mt-1.5 overflow-hidden rounded-md border border-line bg-white">
+                                    <RichTextEditor
+                                        id="social-caption"
+                                        compact
+                                        value={captionHtml}
+                                        onChange={(html) => {
+                                            setCaptionHtml(html);
+                                            postForm.setData('body', htmlToPlainCaption(html));
+                                        }}
+                                        placeholder="Write or edit the caption…"
+                                    />
+                                </div>
+                                {postForm.errors.body ? (
+                                    <p className="mt-1 text-xs font-medium text-rose-600">
+                                        {postForm.errors.body}
+                                    </p>
+                                ) : null}
                             </div>
                             <div className="flex flex-wrap gap-2">
                                 {availablePlatforms.map((platform) => {
@@ -1493,51 +1890,135 @@ export default function Index({
                                             : 'Media'
                                     }
                                 />
-                                <div className="mt-1.5">
-                                    <SelectMenu
-                                        value={postForm.data.media_asset_id}
-                                        onChange={(v) => {
-                                            postForm.setData({
-                                                ...postForm.data,
-                                                media_asset_id: v,
-                                                public_media_url: v ? '' : postForm.data.public_media_url,
-                                            });
-                                        }}
-                                        placeholder="Pick an image"
-                                        options={[
-                                            { value: '', label: 'Pick an image' },
-                                            ...mediaOptions.map((asset) => ({
-                                                value: String(asset.id),
-                                                label: asset.name,
-                                                meta: asset.mime_type,
-                                            })),
-                                        ]}
-                                    />
-                                </div>
-                                {postForm.data.platforms.length > 0 ? (
-                                    <div className="mt-2">
-                                        <InputLabel value="Or public https image URL" />
-                                        <TextInput
-                                            className="mt-1 w-full"
-                                            type="url"
-                                            placeholder="https://…/image.jpg"
-                                            value={postForm.data.public_media_url || ''}
-                                            onChange={(e) =>
-                                                postForm.setData({
-                                                    ...postForm.data,
-                                                    public_media_url: e.target.value,
-                                                    media_asset_id: e.target.value
-                                                        ? ''
-                                                        : postForm.data.media_asset_id,
-                                                })
-                                            }
-                                        />
-                                        <p className="mt-1 text-xs text-ink-muted">
-                                            Every post needs an image. On localhost, paste a public https
-                                            URL — Meta cannot fetch local files.
+                                <div className="mt-1.5 space-y-2">
+                                    {selectedMedia?.url || selectedMedia?.thumb_url ? (
+                                        <div className="flex items-center gap-3 rounded-lg border border-line bg-white p-2.5">
+                                            <div className="h-16 w-16 shrink-0 overflow-hidden rounded-md bg-mist">
+                                                <img
+                                                    src={
+                                                        selectedMedia.thumb_url ||
+                                                        selectedMedia.url
+                                                    }
+                                                    alt={selectedMedia.name || 'Selected'}
+                                                    className="h-full w-full object-cover"
+                                                />
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <div className="truncate text-sm font-semibold text-ink">
+                                                    {selectedMedia.name || 'Selected image'}
+                                                </div>
+                                                <div className="truncate text-[11px] text-ink-muted">
+                                                    {selectedMedia.mime_type || 'Image'}
+                                                </div>
+                                                <div className="mt-1.5 flex flex-wrap gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setMediaPickerOpen(true)}
+                                                        className="text-xs font-semibold text-signal-strong underline"
+                                                    >
+                                                        Change
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setPickedMedia(null);
+                                                            postForm.setData({
+                                                                ...postForm.data,
+                                                                media_asset_id: '',
+                                                            });
+                                                        }}
+                                                        className="text-xs font-semibold text-rose-600 underline"
+                                                    >
+                                                        Remove
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => setMediaPickerOpen(true)}
+                                            className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-signal/40 bg-signal-soft/20 px-4 py-8 text-sm font-semibold text-signal-strong transition hover:border-signal hover:bg-signal-soft/40"
+                                        >
+                                            <svg
+                                                viewBox="0 0 24 24"
+                                                className="h-5 w-5"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth="2"
+                                                aria-hidden
+                                            >
+                                                <path
+                                                    d="M4 16l4.5-4.5a2 2 0 012.8 0L16 16M14 14l1.5-1.5a2 2 0 012.8 0L20 14"
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                />
+                                                <rect
+                                                    x="3"
+                                                    y="5"
+                                                    width="18"
+                                                    height="14"
+                                                    rx="2"
+                                                />
+                                                <circle cx="8.5" cy="9.5" r="1.2" />
+                                            </svg>
+                                            Choose from Media library
+                                        </button>
+                                    )}
+                                    {postForm.errors.media_asset_id ? (
+                                        <p className="text-xs font-medium text-rose-600">
+                                            {postForm.errors.media_asset_id}
                                         </p>
-                                    </div>
-                                ) : null}
+                                    ) : null}
+                                    {postForm.data.platforms.length > 0 ? (
+                                        <details className="rounded-md border border-line bg-mist/20 px-3 py-2">
+                                            <summary className="cursor-pointer text-xs font-semibold text-ink-muted">
+                                                Or paste a public https image URL
+                                            </summary>
+                                            <div className="mt-2">
+                                                <TextInput
+                                                    className="w-full"
+                                                    type="url"
+                                                    placeholder="https://…/image.jpg"
+                                                    value={postForm.data.public_media_url || ''}
+                                                    onChange={(e) => {
+                                                        const url = e.target.value;
+                                                        setPickedMedia(null);
+                                                        postForm.setData({
+                                                            ...postForm.data,
+                                                            public_media_url: url,
+                                                            media_asset_id: url
+                                                                ? ''
+                                                                : postForm.data.media_asset_id,
+                                                        });
+                                                    }}
+                                                />
+                                                <p className="mt-1 text-[11px] text-ink-muted">
+                                                    Localhost pe Meta local files nahi padh sakta —
+                                                    public https URL use karo.
+                                                </p>
+                                            </div>
+                                        </details>
+                                    ) : null}
+                                </div>
+                                <MediaPickerModal
+                                    show={mediaPickerOpen}
+                                    multiple={false}
+                                    onClose={() => setMediaPickerOpen(false)}
+                                    onSelect={(assets) => {
+                                        const asset = assets?.[0];
+                                        if (!asset?.id) {
+                                            return;
+                                        }
+                                        setPickedMedia(asset);
+                                        postForm.setData({
+                                            ...postForm.data,
+                                            media_asset_id: String(asset.id),
+                                            public_media_url: '',
+                                        });
+                                        postForm.clearErrors('media_asset_id');
+                                    }}
+                                />
                             </div>
                             <div>
                                 <InputLabel value="Delivery" />
@@ -1647,7 +2128,7 @@ export default function Index({
                             </div>
                         </div>
 
-                        <div className="atlas-panel space-y-3 p-4">
+                        <div className="atlas-panel sticky top-4 space-y-3 p-4 xl:min-h-[min(100vh-6rem,720px)]">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
                                     Live preview
@@ -1716,19 +2197,10 @@ function SocialPreview({ platform, title, body, media, accountName }) {
     const imageUrl = media?.url || null;
     const isImage = !media?.mime_type || String(media.mime_type).startsWith('image/');
 
-    const frameClass =
-        platform === 'instagram'
-            ? 'max-w-[300px]'
-            : platform === 'x'
-              ? 'max-w-[340px]'
-              : 'max-w-full';
-
     return (
-        <div
-            className={`mx-auto overflow-hidden rounded-xl border border-line bg-white shadow-sm ${frameClass}`}
-        >
-            <div className="flex items-center gap-2.5 border-b border-line/70 px-3 py-2.5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 via-rose-500 to-amber-400 text-xs font-bold text-white">
+        <div className="mx-auto w-full max-w-[440px] overflow-hidden rounded-xl border border-line bg-white shadow-md">
+            <div className="flex items-center gap-2.5 border-b border-line/70 px-3.5 py-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-fuchsia-500 via-rose-500 to-amber-400 text-sm font-bold text-white">
                     {String(accountName || 'A').charAt(0).toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -1751,10 +2223,10 @@ function SocialPreview({ platform, title, body, media, accountName }) {
             <div
                 className={
                     platform === 'instagram'
-                        ? 'relative aspect-square bg-mist'
+                        ? 'relative aspect-square min-h-[280px] bg-mist'
                         : platform === 'x'
-                          ? 'relative aspect-[16/9] bg-mist'
-                          : 'relative aspect-[1.91/1] bg-mist'
+                          ? 'relative aspect-[16/9] min-h-[200px] bg-mist'
+                          : 'relative aspect-[1.91/1] min-h-[220px] bg-mist'
                 }
             >
                 {imageUrl && isImage ? (
@@ -1784,7 +2256,7 @@ function SocialPreview({ platform, title, body, media, accountName }) {
                 )}
             </div>
 
-            <div className="space-y-2 px-3 py-2.5">
+            <div className="space-y-2.5 px-3.5 py-3">
                 {platform === 'instagram' || platform === 'facebook' ? (
                     <div className="flex gap-3 text-ink-muted">
                         <HeartIcon />
@@ -1797,7 +2269,7 @@ function SocialPreview({ platform, title, body, media, accountName }) {
                     <div className="text-sm font-semibold text-ink">{headline}</div>
                 ) : null}
 
-                <p className="whitespace-pre-wrap text-sm leading-snug text-ink">
+                <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-ink">
                     {(platform === 'instagram' || platform === 'x') && (
                         <span className="font-semibold">{handle} </span>
                     )}

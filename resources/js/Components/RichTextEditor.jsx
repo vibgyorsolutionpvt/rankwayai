@@ -44,11 +44,15 @@ export default function RichTextEditor({
     onChange,
     placeholder = 'Write your post…',
     id = 'body',
+    compact = false,
 }) {
     const editorRef = useRef(null);
     const lastEmittedHtml = useRef(value || '');
     const [linkModal, setLinkModal] = useState(null);
     const [mediaOpen, setMediaOpen] = useState(false);
+    const heightClass = compact
+        ? 'min-h-[12rem] sm:min-h-[16rem]'
+        : 'min-h-[18rem] sm:min-h-[28rem]';
 
     const editor = useEditor({
         immediatelyRender: false,
@@ -92,7 +96,7 @@ export default function RichTextEditor({
         editorProps: {
             attributes: {
                 id,
-                class: 'tiptap rich-content min-h-[18rem] max-w-full overflow-x-hidden px-3 py-3 text-ink focus:outline-none sm:min-h-[28rem]',
+                class: `tiptap rich-content max-w-full overflow-x-hidden px-3 py-3 text-ink focus:outline-none ${heightClass}`,
             },
         },
         onCreate: ({ editor: created }) => {

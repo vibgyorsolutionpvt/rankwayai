@@ -54,13 +54,6 @@ final class NavModules
                 'icon' => 'blog',
                 'tone' => 'sky',
             ],
-            'ai' => [
-                'label' => 'AI posts',
-                'route' => 'ai.index',
-                'match' => 'ai.*',
-                'icon' => 'platform',
-                'tone' => 'rose',
-            ],
             'channels' => [
                 'label' => 'Channels',
                 'route' => 'channels.index',

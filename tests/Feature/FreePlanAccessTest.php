@@ -45,7 +45,8 @@ class FreePlanAccessTest extends TestCase
         // All menus visible; plan only locks access.
         $this->assertContains('seo', $navKeys);
         $this->assertContains('crm', $navKeys);
-        $this->assertContains('ai', $navKeys);
+        $this->assertContains('social', $navKeys);
+        $this->assertNotContains('ai', $navKeys);
         $this->assertContains('billing', $navKeys);
 
         $access = app(ModuleAccess::class);
@@ -84,7 +85,7 @@ class FreePlanAccessTest extends TestCase
 
         $this->assertContains('seo', $navKeys);
         $this->assertContains('crm', $navKeys);
-        $this->assertContains('ai', $navKeys);
+        $this->assertNotContains('ai', $navKeys);
     }
 
     public function test_free_plan_with_topup_credits_unlocks_all_paid_features(): void
@@ -107,7 +108,7 @@ class FreePlanAccessTest extends TestCase
 
         $access = app(ModuleAccess::class);
         $this->assertTrue($access->canAccess($user, $workspace, 'crm'));
-        $this->assertTrue($access->canAccess($user, $workspace, 'ai'));
+        $this->assertTrue($access->canAccess($user, $workspace, 'social'));
 
         $summary = $plans->summary($workspace);
         $this->assertFalse($summary['paid']);
@@ -130,7 +131,6 @@ class FreePlanAccessTest extends TestCase
 
         $second = Workspace::factory()->create(['name' => 'Second Brand']);
         $second->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
-        app(BillingService::class)->changePlan($second, 'free', 'active');
 
         $plans = app(PlanAccess::class);
         $this->assertTrue($plans->hasUnlockedAccess($primary));
@@ -140,7 +140,6 @@ class FreePlanAccessTest extends TestCase
 
         $third = Workspace::factory()->create(['name' => 'Third Brand']);
         $third->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
-        app(BillingService::class)->changePlan($third, 'free', 'active');
 
         $this->assertFalse($plans->hasUnlockedAccess($third));
         $this->assertFalse($plans->allows($third, 'seo_apis'));

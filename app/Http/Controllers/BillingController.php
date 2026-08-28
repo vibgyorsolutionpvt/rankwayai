@@ -3,8 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ResolvesWorkspace;
+use App\Models\BillingTransaction;
 use App\Models\CreditRecharge;
+use App\Models\Workspace;
 use App\Models\WorkspaceSubscription;
+use App\Services\Billing\BillingAccountService;
 use App\Services\Billing\BillingService;
 use App\Services\Billing\CreditPackCatalog;
 use App\Services\Billing\CreditRechargeService;
@@ -29,19 +32,23 @@ class BillingController extends Controller
         UsageMeterService $usage,
         PlanAccess $plans,
         CreditRechargeService $recharges,
+        BillingAccountService $accounts,
         \App\Services\Billing\CreditWalletService $wallet
     ): Response {
         $workspace = $this->workspace($request);
+        $user = $request->user();
+        $billingAccount = $billing->account($user);
         $subscription = $billing->subscription($workspace);
         $account = $plans->accountEntitlementForWorkspace($workspace);
-        $isAdmin = (bool) $request->user()?->is_superadmin;
-        $market = $this->resolveMarket($request, $subscription, $isAdmin);
+        $isAdmin = (bool) $user?->is_superadmin;
+        $market = $this->resolveMarket($request, $subscription, $billingAccount, $isAdmin);
 
         $linkId = $request->string('link_id')->toString() ?: null;
-        $syncedCredits = $recharges->syncPendingCashfree($workspace, $linkId);
-        $syncedPlan = $billing->syncPendingCashfreeCheckout($workspace, $linkId);
+        $syncedCredits = $recharges->syncPendingRazorpay($workspace, $billingAccount, $linkId);
+        $syncedPlan = $billing->syncPendingRazorpayCheckout($billingAccount, $linkId);
         if ($syncedCredits !== [] || $syncedPlan) {
             $subscription = $billing->subscription($workspace);
+            $billingAccount = $billingAccount->fresh();
             $totalCredits = collect($syncedCredits)->sum(fn ($row) => (int) $row->credits);
             if ($totalCredits > 0) {
                 session()->flash('success', $totalCredits.' credits added to your wallet.');
@@ -50,9 +57,9 @@ class BillingController extends Controller
             }
         }
 
-        $cashfree = $billing->cashfreeConfigured();
-        $gatewayReady = $cashfree;
-        $interval = $this->resolveInterval($request, $subscription);
+        $razorpay = $billing->razorpayConfigured();
+        $gatewayReady = $razorpay;
+        $interval = $this->resolveInterval($request, $subscription, $billingAccount);
         $historyPeriod = $usage->normalizeHistoryPeriod(
             $request->string('history')->toString() ?: UsageMeterService::HISTORY_7D
         );
@@ -61,10 +68,36 @@ class BillingController extends Controller
             $tab = 'plan';
         }
 
+        $ownedIds = $accounts->ownedWorkspaceIds($user);
+        $historyWorkspaceFilter = $request->filled('workspace_filter')
+            ? $request->integer('workspace_filter')
+            : null;
+        if ($historyWorkspaceFilter && ! in_array($historyWorkspaceFilter, $ownedIds, true)) {
+            $historyWorkspaceFilter = null;
+        }
+
+        $ownedWorkspaces = Workspace::query()
+            ->whereIn('id', $ownedIds)
+            ->orderBy('id')
+            ->get(['id', 'name'])
+            ->map(fn (Workspace $w) => ['id' => $w->id, 'name' => $w->name])
+            ->values()
+            ->all();
+
         $creditSnap = $wallet->snapshot($workspace, $subscription);
 
         return Inertia::render('Billing/Index', [
             'workspace' => ['id' => $workspace->id, 'name' => $workspace->name],
+            'billing_account' => [
+                'plan' => $billingAccount->plan,
+                'status' => $billingAccount->status,
+                'billing_market' => $billingAccount->billing_market,
+                'billing_currency' => $billingAccount->billing_currency,
+                'billing_interval' => $billingAccount->billing_interval,
+                'mrr_amount' => (float) $billingAccount->mrr_amount,
+                'mrr_usd' => (float) $billingAccount->mrr_usd,
+                'topup_credits' => (int) $billingAccount->topup_credits,
+            ],
             'subscription' => $subscription,
             'account_plan' => [
                 'plan' => $account['plan'],
@@ -73,6 +106,8 @@ class BillingController extends Controller
                 'workspaces_used' => $account['used'],
                 'covers_this_workspace' => in_array((int) $workspace->id, $account['covered_ids'], true),
             ],
+            'owned_workspaces' => $ownedWorkspaces,
+            'history_workspace_filter' => $historyWorkspaceFilter,
             'market' => $market,
             'interval' => $interval,
             'tab' => $tab,
@@ -83,16 +118,16 @@ class BillingController extends Controller
                     [
                         'id' => PlanCatalog::MARKET_IN,
                         'label' => 'India (₹)',
-                        'ready' => $cashfree,
+                        'ready' => $razorpay,
                     ],
                     [
                         'id' => PlanCatalog::MARKET_GLOBAL,
                         'label' => 'International ($)',
-                        'ready' => $cashfree,
+                        'ready' => $razorpay,
                     ],
                 ]
                 : [],
-            'cashfree_configured' => $cashfree,
+            'razorpay_configured' => $razorpay,
             'providers' => ProviderStatus::snapshot(),
             'plans' => PlanCatalog::plansForMarket($market, $interval),
             'credit_packs' => CreditPackCatalog::packsForMarket($market),
@@ -105,21 +140,38 @@ class BillingController extends Controller
                     'currency' => $row->currency,
                     'status' => $row->status,
                     'provider' => $row->provider,
+                    'workspace' => $row->workspace?->name,
+                    'at' => $row->created_at?->timezone(config('app.timezone'))->format('d M Y, g:i A'),
+                ])
+                ->values()
+                ->all(),
+            'payment_history' => $accounts->paymentHistory($billingAccount)
+                ->map(fn (BillingTransaction $row) => [
+                    'id' => $row->id,
+                    'type' => $row->type,
+                    'plan' => $row->plan,
+                    'pack_id' => $row->pack_id,
+                    'credits' => $row->credits,
+                    'amount' => (float) $row->amount,
+                    'currency' => $row->currency,
+                    'status' => $row->status,
+                    'provider' => $row->provider,
+                    'workspace' => $row->workspace?->name,
                     'at' => $row->created_at?->timezone(config('app.timezone'))->format('d M Y, g:i A'),
                 ])
                 ->values()
                 ->all(),
             'credits_shared' => ($creditSnap['source'] ?? '') === 'account',
             'usage' => $usage->forWorkspace($workspace, $subscription),
-            'ai_history' => $usage->aiHistory($workspace, $historyPeriod),
+            'ai_history' => $usage->aiHistoryForAccount($user, $historyPeriod, $historyWorkspaceFilter),
             'note' => $market === PlanCatalog::MARKET_IN
-                ? 'Pay in Indian Rupees via Cashfree. Choose monthly or yearly.'
-                : 'Pay in US Dollars via Cashfree. Choose monthly or yearly.',
+                ? 'Pay in Indian Rupees via Razorpay. Choose monthly or yearly.'
+                : 'Pay in US Dollars via Razorpay. Choose monthly or yearly.',
             'is_platform_admin' => $isAdmin,
             'admin_note' => $isAdmin ? $this->adminNote($gatewayReady) : null,
-            'local_checkout_hint' => ! (app(\App\Services\Billing\CashfreeClient::class)->appUrlIsPublic())
-                && $cashfree
-                ? 'Local test: after Cashfree shows Payment Success, open Billing again — credits/plan sync automatically (webhooks can’t reach localhost).'
+            'local_checkout_hint' => ! (app(\App\Services\Billing\RazorpayClient::class)->appUrlIsPublic())
+                && $razorpay
+                ? 'Local test: after Razorpay shows Payment Success, open Billing again — credits/plan sync automatically (webhooks can’t reach localhost).'
                 : null,
         ]);
     }
@@ -138,12 +190,11 @@ class BillingController extends Controller
 
         $market = $isAdmin && ! empty($data['market'])
             ? $data['market']
-            : $this->resolveMarket($request, $subscription, false);
+            : $this->resolveMarket($request, $subscription, $billing->account($request->user()), false);
 
         $result = $recharges->start($workspace, $request->user(), $data['pack'], $market);
 
         if (! empty($result['checkout_url'])) {
-            // Full browser navigation — Axios must not follow Cashfree (CORS).
             return Inertia::location($result['checkout_url']);
         }
 
@@ -163,17 +214,15 @@ class BillingController extends Controller
             'interval' => ['nullable', 'in:month,year'],
         ]);
 
-        // Clients cannot pick the other currency — market is assigned, not chosen.
         $market = $isAdmin && ! empty($data['market'])
             ? $data['market']
-            : $this->resolveMarket($request, $subscription, false);
+            : $this->resolveMarket($request, $subscription, $billing->account($request->user()), false);
 
         $interval = PlanCatalog::normalizeInterval($data['interval'] ?? PlanCatalog::INTERVAL_MONTH);
 
-        $result = $billing->startCheckout($workspace, $data['plan'], $market, $interval);
+        $result = $billing->startCheckout($workspace, $data['plan'], $market, $interval, $request->user());
 
         if (! empty($result['checkout_url'])) {
-            // Full browser navigation — Axios must not follow Cashfree (CORS).
             return Inertia::location($result['checkout_url']);
         }
 
@@ -190,9 +239,26 @@ class BillingController extends Controller
         return back()->with('success', 'You’re on the Free plan now.');
     }
 
-    private function resolveMarket(Request $request, WorkspaceSubscription $subscription, bool $isAdmin): string
-    {
-        // Already on a paid market — keep them there.
+    private function resolveMarket(
+        Request $request,
+        WorkspaceSubscription $subscription,
+        \App\Models\BillingAccount $billingAccount,
+        bool $isAdmin
+    ): string {
+        if ($billingAccount->plan !== 'free' && filled($billingAccount->billing_market)) {
+            $locked = $billingAccount->billing_market;
+            if (in_array($locked, [PlanCatalog::MARKET_IN, PlanCatalog::MARKET_GLOBAL], true)) {
+                if ($isAdmin && $request->filled('market')) {
+                    $q = $request->query('market');
+                    if (in_array($q, [PlanCatalog::MARKET_IN, PlanCatalog::MARKET_GLOBAL], true)) {
+                        return $q;
+                    }
+                }
+
+                return $locked;
+            }
+        }
+
         if ($subscription->plan !== 'free' && filled($subscription->billing_market)) {
             $locked = $subscription->billing_market;
             if (in_array($locked, [PlanCatalog::MARKET_IN, PlanCatalog::MARKET_GLOBAL], true)) {
@@ -207,7 +273,6 @@ class BillingController extends Controller
             }
         }
 
-        // Superadmin can preview either market.
         if ($isAdmin && $request->filled('market')) {
             $q = $request->query('market');
             if (in_array($q, [PlanCatalog::MARKET_IN, PlanCatalog::MARKET_GLOBAL], true)) {
@@ -218,10 +283,17 @@ class BillingController extends Controller
         return app(IpCountryResolver::class)->marketFor($request);
     }
 
-    private function resolveInterval(Request $request, WorkspaceSubscription $subscription): string
-    {
+    private function resolveInterval(
+        Request $request,
+        WorkspaceSubscription $subscription,
+        \App\Models\BillingAccount $billingAccount
+    ): string {
         if ($request->filled('interval')) {
             return PlanCatalog::normalizeInterval((string) $request->query('interval'));
+        }
+
+        if ($billingAccount->plan !== 'free' && filled($billingAccount->billing_interval)) {
+            return PlanCatalog::normalizeInterval($billingAccount->billing_interval);
         }
 
         if ($subscription->plan !== 'free' && filled($subscription->billing_interval)) {
@@ -234,7 +306,7 @@ class BillingController extends Controller
     private function adminNote(bool $ready): string
     {
         return $ready
-            ? 'Admin: Cashfree configured for India (₹) and Global ($) checkout.'
-            : 'Admin: Cashfree keys missing — plans/credits apply manually. Set CASHFREE_CLIENT_ID, CASHFREE_CLIENT_SECRET, CASHFREE_ENV (sandbox|production).';
+            ? 'Admin: Razorpay configured for India (₹) and Global ($) checkout.'
+            : 'Admin: Razorpay keys missing — plans/credits apply manually. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.';
     }
 }

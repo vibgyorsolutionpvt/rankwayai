@@ -92,14 +92,6 @@ return [
         'connect_timeout' => (int) env('ASKEFY_CONNECT_TIMEOUT', 5),
     ],
 
-    'cashfree' => [
-        'env' => env('CASHFREE_ENV', 'sandbox'), // sandbox | production
-        'client_id' => env('CASHFREE_CLIENT_ID'),
-        'client_secret' => env('CASHFREE_CLIENT_SECRET'),
-        'webhook_secret' => env('CASHFREE_WEBHOOK_SECRET'), // defaults to client_secret if blank
-        'api_version' => env('CASHFREE_API_VERSION', '2023-08-01'),
-    ],
-
     'stripe' => [
         'secret' => env('STRIPE_SECRET'),
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),

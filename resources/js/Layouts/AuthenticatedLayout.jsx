@@ -322,7 +322,10 @@ export default function AuthenticatedLayout({ header, children }) {
                                                         router.post(
                                                             route('workspaces.switch', ws.id),
                                                             { redirect: 'back' },
-                                                            { preserveScroll: true },
+                                                            {
+                                                                preserveScroll: false,
+                                                                preserveState: false,
+                                                            },
                                                         )
                                                     }
                                                     className={

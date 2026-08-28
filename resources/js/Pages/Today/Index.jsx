@@ -25,19 +25,19 @@ export default function Index({ workspace, brand, site, seoTasks, posts, keyword
                     <div className="min-w-0">
                         <div className="flex items-center gap-1">
                             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
-                                AI posts
+                                SMM compose
                             </div>
-                            <HelpGuide help={HELP.ai} className="!h-6 !w-6" />
+                            <HelpGuide help={HELP.social} className="!h-6 !w-6" />
                         </div>
                         <p className="mt-0.5 text-sm text-ink-muted">
-                            3 social drafts — then publish from SMM.
+                            Write a prompt in SMM → AI fills caption → review & publish.
                         </p>
                     </div>
                     <Link
-                        href={route('ai.index')}
+                        href={route('social.index', { view: 'compose' })}
                         className="inline-flex items-center gap-2 rounded-md bg-signal px-4 py-2 text-sm font-semibold text-white transition hover:bg-signal-strong"
                     >
-                        Create today&apos;s posts
+                        Compose with AI
                     </Link>
                 </section>
 

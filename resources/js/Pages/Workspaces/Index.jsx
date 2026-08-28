@@ -76,7 +76,9 @@ export default function Index({ workspaces, activeWorkspace, members, roles }) {
                                                 key={workspace.id}
                                                 type="button"
                                                 onClick={() =>
-                                                    router.post(route('workspaces.switch', workspace.id))
+                                                    router.post(route('workspaces.switch', workspace.id), {}, {
+                                                        preserveState: false,
+                                                    })
                                                 }
                                                 className={
                                                     'group rounded-md border px-4 py-4 text-left transition duration-200 ' +

@@ -47,4 +47,33 @@ class WorkspacePageTest extends TestCase
             ->post(route('workspaces.switch', $workspace))
             ->assertForbidden();
     }
+
+    public function test_workspace_switch_clears_compose_ai_flash(): void
+    {
+        $user = User::factory()->create();
+        $a = Workspace::factory()->create(['name' => 'Alpha']);
+        $b = Workspace::factory()->create(['name' => 'Beta']);
+        $a->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
+        $b->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
+
+        $this->actingAs($user)
+            ->withSession([
+                'active_workspace_id' => $a->id,
+                'ai_compose' => [
+                    'title' => 'Old brand title',
+                    'body' => 'Old brand caption',
+                    'platforms' => ['instagram'],
+                ],
+                'ai_prompt' => 'old prompt about Alpha services',
+                'ai_offer' => 'Book Alpha',
+            ])
+            ->from(route('social.index', ['view' => 'compose']))
+            ->post(route('workspaces.switch', $b), ['redirect' => 'back'])
+            ->assertRedirect(route('social.index', ['view' => 'compose']));
+
+        $this->assertSame($b->id, (int) session('active_workspace_id'));
+        $this->assertNull(session('ai_compose'));
+        $this->assertNull(session('ai_prompt'));
+        $this->assertNull(session('ai_offer'));
+    }
 }

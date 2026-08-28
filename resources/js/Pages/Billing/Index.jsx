@@ -32,10 +32,14 @@ function formatMoney(amount, currency) {
 
 export default function Index({
     workspace,
+    billing_account = null,
     subscription,
     plans = [],
     credit_packs = [],
     credit_history = [],
+    payment_history = [],
+    owned_workspaces = [],
+    history_workspace_filter = null,
     markets = [],
     market = 'in',
     interval = 'month',
@@ -81,6 +85,9 @@ export default function Index({
             history: history_period,
             ...extra,
         };
+        if (history_workspace_filter) {
+            params.workspace_filter = history_workspace_filter;
+        }
         if (can_switch_market) {
             params.market = extra.market ?? market;
         } else {
@@ -115,6 +122,21 @@ export default function Index({
         router.get(
             route('billing.index'),
             billingQuery({ history: period, tab: 'history' }),
+            {
+                preserveState: true,
+                replace: true,
+                preserveScroll: true,
+            },
+        );
+    };
+
+    const switchHistoryWorkspace = (workspaceId) => {
+        router.get(
+            route('billing.index'),
+            billingQuery({
+                tab: 'history',
+                workspace_filter: workspaceId || undefined,
+            }),
             {
                 preserveState: true,
                 replace: true,
@@ -164,12 +186,16 @@ export default function Index({
             header={
                 <div>
                     <div className="text-xs font-semibold uppercase tracking-[0.16em] text-ink-muted">
-                        {workspace.name}
+                        Account billing
                     </div>
                     <div className="flex items-center gap-1.5">
                         <h2 className="font-display text-2xl font-bold text-ink">Billing</h2>
                         <HelpGuide help={HELP.billing} />
                     </div>
+                    <p className="mt-1 text-sm text-ink-muted">
+                        One plan and credit wallet for all your workspaces. Active workspace:{' '}
+                        {workspace.name}
+                    </p>
                 </div>
             }
         >
@@ -532,11 +558,32 @@ export default function Index({
                                         AI usage history
                                     </div>
                                     <p className="mt-0.5 text-sm text-ink-muted">
-                                        Credits and tokens by team member
+                                        Account-wide credits and tokens by team member
                                         {ai_history?.from ? ` · since ${ai_history.from}` : ''}.
                                     </p>
                                 </div>
-                                <div className="inline-flex rounded-md border border-line bg-mist/80 p-0.5">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    {owned_workspaces.length > 1 ? (
+                                        <select
+                                            value={history_workspace_filter || ''}
+                                            onChange={(e) =>
+                                                switchHistoryWorkspace(
+                                                    e.target.value
+                                                        ? Number(e.target.value)
+                                                        : null,
+                                                )
+                                            }
+                                            className="rounded-md border border-line bg-white px-2.5 py-1.5 text-sm font-medium text-ink"
+                                        >
+                                            <option value="">All workspaces</option>
+                                            {owned_workspaces.map((w) => (
+                                                <option key={w.id} value={w.id}>
+                                                    {w.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    ) : null}
+                                    <div className="inline-flex rounded-md border border-line bg-mist/80 p-0.5">
                                     {HISTORY_TABS.map((t) => {
                                         const active =
                                             (ai_history?.period || history_period) === t.id;
@@ -555,6 +602,7 @@ export default function Index({
                                             </button>
                                         );
                                     })}
+                                </div>
                                 </div>
                             </div>
 
@@ -637,9 +685,12 @@ export default function Index({
                                             </p>
                                         ) : (
                                             <ul className="mt-2 divide-y divide-line rounded-md border border-line">
-                                                <li className="grid grid-cols-[1fr_1fr_auto] gap-2 bg-mist/50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted sm:grid-cols-[1.2fr_1fr_0.8fr_auto]">
+                                                <li className="grid grid-cols-[1fr_1fr_auto] gap-2 bg-mist/50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted sm:grid-cols-[1.1fr_0.9fr_0.7fr_0.7fr_auto]">
                                                     <span>Action</span>
                                                     <span>Member</span>
+                                                    <span className="hidden sm:inline">
+                                                        Workspace
+                                                    </span>
                                                     <span className="hidden sm:inline">
                                                         Tokens
                                                     </span>
@@ -648,7 +699,7 @@ export default function Index({
                                                 {ai_history.activities.map((row, i) => (
                                                     <li
                                                         key={`${row.action}-${row.at}-${i}`}
-                                                        className="grid grid-cols-[1fr_1fr_auto] items-center gap-2 px-3 py-2 text-sm sm:grid-cols-[1.2fr_1fr_0.8fr_auto]"
+                                                        className="grid grid-cols-[1fr_1fr_auto] items-center gap-2 px-3 py-2 text-sm sm:grid-cols-[1.1fr_0.9fr_0.7fr_0.7fr_auto]"
                                                     >
                                                         <div className="min-w-0">
                                                             <div className="truncate font-medium text-ink">
@@ -660,6 +711,9 @@ export default function Index({
                                                         </div>
                                                         <div className="truncate text-ink-muted">
                                                             {row.member}
+                                                        </div>
+                                                        <div className="hidden truncate text-ink-muted sm:block">
+                                                            {row.workspace || '—'}
                                                         </div>
                                                         <div className="hidden tabular-nums text-ink-muted sm:block">
                                                             {row.tokens.toLocaleString()}
@@ -679,6 +733,58 @@ export default function Index({
                                     </div>
                                 </>
                             ) : null}
+                        </section>
+
+                        <section className="atlas-panel space-y-3 p-4">
+                            <div>
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                                    Payment history
+                                </div>
+                                <p className="mt-0.5 text-sm text-ink-muted">
+                                    Plan upgrades and credit pack purchases on your account.
+                                </p>
+                            </div>
+                            {payment_history.length === 0 ? (
+                                <p className="text-sm text-ink-muted">No payments yet.</p>
+                            ) : (
+                                <ul className="divide-y divide-line rounded-md border border-line">
+                                    {payment_history.map((row) => (
+                                        <li
+                                            key={row.id}
+                                            className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm"
+                                        >
+                                            <div className="min-w-0">
+                                                <div className="font-semibold text-ink">
+                                                    {row.type === 'plan_checkout'
+                                                        ? `${row.plan || 'Plan'} subscription`
+                                                        : `+${Number(row.credits || 0).toLocaleString()} credits`}
+                                                </div>
+                                                <div className="text-xs text-ink-muted">
+                                                    {row.at}
+                                                    {row.workspace ? ` · ${row.workspace}` : ''}
+                                                    {row.provider ? ` · ${row.provider}` : ''}
+                                                    {row.pack_id ? ` · ${row.pack_id}` : ''}
+                                                </div>
+                                            </div>
+                                            <div className="flex shrink-0 items-center gap-2">
+                                                <span className="tabular-nums text-ink-muted">
+                                                    {formatMoney(row.amount, row.currency)}
+                                                </span>
+                                                <span
+                                                    className={
+                                                        'rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase ' +
+                                                        (row.status === 'paid'
+                                                            ? 'bg-emerald-100 text-emerald-800'
+                                                            : 'bg-amber-100 text-amber-800')
+                                                    }
+                                                >
+                                                    {row.status}
+                                                </span>
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
                         </section>
 
                         <section className="atlas-panel space-y-3 p-4">
