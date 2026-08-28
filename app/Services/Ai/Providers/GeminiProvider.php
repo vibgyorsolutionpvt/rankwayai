@@ -25,46 +25,84 @@ class GeminiProvider implements AiProvider
         }
 
         $cfg = config('ai.providers.gemini');
-        $model = $cfg['model'] ?? 'gemini-2.0-flash';
-        $url = rtrim($cfg['base_url'] ?? '', '/').'/models/'.$model.':generateContent';
+        $model = (string) ($cfg['model'] ?? 'gemini-2.0-flash');
+        // Never append API key to stored URL.
+        $apiUrl = rtrim((string) ($cfg['base_url'] ?? ''), '/').'/models/'.$model.':generateContent';
+
+        $payload = [
+            'system_instruction' => [
+                'parts' => [['text' => $system]],
+            ],
+            'contents' => [
+                [
+                    'role' => 'user',
+                    'parts' => [['text' => $user]],
+                ],
+            ],
+            'generationConfig' => [
+                'maxOutputTokens' => $maxTokens,
+                'temperature' => 0.7,
+            ],
+        ];
 
         try {
             $response = Http::timeout(25)
                 ->withQueryParameters(['key' => $cfg['key']])
-                ->post($url, [
-                    'system_instruction' => [
-                        'parts' => [['text' => $system]],
-                    ],
-                    'contents' => [
-                        [
-                            'role' => 'user',
-                            'parts' => [['text' => $user]],
-                        ],
-                    ],
-                    'generationConfig' => [
-                        'maxOutputTokens' => $maxTokens,
-                        'temperature' => 0.7,
-                    ],
-                ]);
+                ->post($apiUrl, $payload);
+
+            $json = $response->json();
+            $status = $response->status();
 
             if (! $response->successful()) {
                 return AiCompletion::failed(
                     $this->name(),
-                    $response->json('error.message') ?? 'Gemini request failed'
+                    is_array($json) ? (string) (data_get($json, 'error.message') ?? 'Gemini request failed') : 'Gemini request failed',
+                    $apiUrl,
+                    $status,
+                    $payload,
+                    $json ?? $response->body(),
+                    $model,
                 );
             }
 
-            $parts = data_get($response->json(), 'candidates.0.content.parts', []);
+            $parts = data_get($json, 'candidates.0.content.parts', []);
             $text = collect($parts)->pluck('text')->filter()->implode("\n");
-            $tokens = (int) data_get($response->json(), 'usageMetadata.totalTokenCount', 0);
+            $tokens = (int) data_get($json, 'usageMetadata.totalTokenCount', 0);
 
             if (blank($text)) {
-                return AiCompletion::failed($this->name(), 'Empty Gemini response');
+                return AiCompletion::failed(
+                    $this->name(),
+                    'Empty Gemini response',
+                    $apiUrl,
+                    $status,
+                    $payload,
+                    $json,
+                    $model,
+                );
             }
 
-            return new AiCompletion($text, $this->name(), $tokens);
+            return new AiCompletion(
+                $text,
+                $this->name(),
+                $tokens,
+                true,
+                null,
+                $apiUrl,
+                $status,
+                $payload,
+                $json,
+                $model,
+            );
         } catch (\Throwable $e) {
-            return AiCompletion::failed($this->name(), $e->getMessage());
+            return AiCompletion::failed(
+                $this->name(),
+                $e->getMessage(),
+                $apiUrl,
+                null,
+                $payload,
+                null,
+                $model,
+            );
         }
     }
 }

@@ -4,6 +4,7 @@ namespace App\Services\Billing;
 
 use App\Models\AiUsageLog;
 use App\Models\ChannelCampaign;
+use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceSubscription;
 use Carbon\CarbonInterface;
@@ -98,13 +99,52 @@ class UsageMeterService
      */
     public function aiHistory(Workspace $workspace, string $period = self::HISTORY_7D): array
     {
+        $owner = app(BillingAccountService::class)->primaryOwner($workspace);
+
+        if ($owner) {
+            return $this->aiHistoryForAccount($owner, $period, (int) $workspace->id);
+        }
+
+        return $this->aiHistoryForWorkspaceIds([(int) $workspace->id], $period);
+    }
+
+    public function aiHistoryForAccount(User $user, string $period = self::HISTORY_7D, ?int $workspaceFilter = null): array
+    {
+        $accounts = app(BillingAccountService::class);
+        $ownedIds = $accounts->ownedWorkspaceIds($user);
+
+        if ($workspaceFilter && in_array($workspaceFilter, $ownedIds, true)) {
+            $ids = [$workspaceFilter];
+        } else {
+            $ids = $ownedIds;
+        }
+
+        return $this->aiHistoryForWorkspaceIds($ids, $period);
+    }
+
+    /**
+     * @param  list<int>  $workspaceIds
+     */
+    private function aiHistoryForWorkspaceIds(array $workspaceIds, string $period): array
+    {
         $period = $this->normalizeHistoryPeriod($period);
         $from = $this->historyStart($period);
         $tz = config('app.timezone');
 
+        if ($workspaceIds === []) {
+            return [
+                'period' => $period,
+                'label' => $this->historyLabel($period),
+                'from' => $from->timezone($tz)->format('d M Y'),
+                'totals' => ['credits' => 0, 'tokens' => 0, 'events' => 0],
+                'members' => [],
+                'activities' => [],
+            ];
+        }
+
         $logs = AiUsageLog::query()
-            ->with(['user:id,name,email'])
-            ->where('workspace_id', $workspace->id)
+            ->with(['user:id,name,email', 'workspace:id,name'])
+            ->whereIn('workspace_id', $workspaceIds)
             ->where('created_at', '>=', $from)
             ->latest()
             ->limit(150)
@@ -144,6 +184,7 @@ class UsageMeterService
         $activities = $logs->take(50)->map(fn (AiUsageLog $row) => [
             'action' => $row->action,
             'member' => $row->user?->name ?: 'System / unknown',
+            'workspace' => $row->workspace?->name,
             'credits' => CreditPackCatalog::costToCredits((float) $row->cost_usd),
             'tokens' => (int) $row->tokens,
             'at' => $row->created_at?->timezone($tz)->format('d M, g:i A'),

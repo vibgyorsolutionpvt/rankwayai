@@ -142,7 +142,9 @@ export default function WorkspacePanel({
                                         key={workspace.id}
                                         type="button"
                                         onClick={() =>
-                                            router.post(route('workspaces.switch', workspace.id))
+                                            router.post(route('workspaces.switch', workspace.id), {}, {
+                                                preserveState: false,
+                                            })
                                         }
                                         className={
                                             'rounded-md border px-4 py-3.5 text-left transition ' +
@@ -195,7 +197,7 @@ export default function WorkspacePanel({
                                 Business profile
                             </div>
                             <p className="mt-0.5 text-xs text-ink-muted">
-                                Used by AI posts — business type, city, and contact details.
+                                Used by SMM Write with AI — business type, city, and contact details.
                             </p>
                             <div className="mt-3 grid gap-3 sm:grid-cols-2">
                                 <div>

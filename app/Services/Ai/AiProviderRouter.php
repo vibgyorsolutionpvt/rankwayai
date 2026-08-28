@@ -88,9 +88,12 @@ class AiProviderRouter
             return AiCompletion::failed('template', 'No live AI provider configured');
         }
 
+        $attempts = [];
         $result = $provider->complete($system, $user, $maxTokens);
+        $attempts[] = $this->attemptSnapshot($result);
+
         if ($result->ok) {
-            return $result;
+            return $this->withAttempts($result, $attempts);
         }
 
         foreach ($this->priority() as $id) {
@@ -99,12 +102,49 @@ class AiProviderRouter
                 continue;
             }
             $retry = $fallback->complete($system, $user, $maxTokens);
+            $attempts[] = $this->attemptSnapshot($retry);
             if ($retry->ok) {
-                return $retry;
+                return $this->withAttempts($retry, $attempts);
             }
         }
 
-        return $result;
+        return $this->withAttempts($result, $attempts);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $attempts
+     */
+    private function withAttempts(AiCompletion $completion, array $attempts): AiCompletion
+    {
+        return new AiCompletion(
+            $completion->text,
+            $completion->provider,
+            $completion->tokens,
+            $completion->ok,
+            $completion->error,
+            $completion->apiUrl,
+            $completion->httpStatus,
+            $completion->requestPayload,
+            $completion->rawResponse,
+            $completion->model,
+            $attempts,
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function attemptSnapshot(AiCompletion $completion): array
+    {
+        return [
+            'provider' => $completion->provider,
+            'api_url' => $completion->apiUrl,
+            'model' => $completion->model,
+            'http_status' => $completion->httpStatus,
+            'ok' => $completion->ok,
+            'error' => $completion->error,
+            'tokens' => $completion->tokens,
+        ];
     }
 
     public function costFor(?string $provider = null): float

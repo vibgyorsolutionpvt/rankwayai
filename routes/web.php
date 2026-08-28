@@ -76,9 +76,6 @@ Route::post('/webhooks/stripe', [BillingWebhookController::class, 'stripe'])
 Route::post('/webhooks/razorpay', [BillingWebhookController::class, 'razorpay'])
     ->middleware('throttle:120,1')
     ->name('webhooks.razorpay');
-Route::post('/webhooks/cashfree', [BillingWebhookController::class, 'cashfree'])
-    ->middleware('throttle:180,1')
-    ->name('webhooks.cashfree');
 Route::post('/webhooks/zavu/{workspace}', \App\Http\Controllers\ZavuWebhookController::class)
     ->middleware('throttle:180,1')
     ->name('webhooks.zavu');
@@ -232,20 +229,21 @@ Route::middleware(['auth', 'verified', 'module'])->group(function () {
     Route::post('/blog/posts/{post}/share', [BlogController::class, 'shareBlogPost'])
         ->name('blog.posts.share');
 
-    Route::get('/ai', [AiStudioController::class, 'index'])->name('ai.index');
-    Route::post('/ai/settings', [AiStudioController::class, 'updateSettings'])->name('ai.settings');
-    Route::post('/ai/generate-today', [AiStudioController::class, 'generateToday'])
-        ->middleware(['throttle:20,1', 'plan:ai'])
-        ->name('ai.generate-today');
-    Route::post('/ai/preview-today', [AiStudioController::class, 'previewToday'])
-        ->middleware(['throttle:30,1', 'plan:ai'])
-        ->name('ai.preview-today');
+    Route::get('/ai', function () {
+        return redirect()->route('social.index', ['view' => 'compose']);
+    })->name('ai.index');
     Route::post('/ai/blog-outline', [AiStudioController::class, 'blogOutline'])
         ->middleware(['throttle:20,1', 'plan:ai'])
         ->name('ai.blog-outline');
     Route::post('/ai/seo-metas', [AiStudioController::class, 'seoMetas'])
         ->middleware(['throttle:20,1', 'plan:ai'])
         ->name('ai.seo-metas');
+
+    Route::post('/social/compose-ai', [SocialController::class, 'composeWithAi'])
+        ->middleware(['throttle:20,1', 'plan:ai'])
+        ->name('social.compose.ai');
+    Route::delete('/social/compose-ai/prompt-history', [SocialController::class, 'clearComposePromptHistory'])
+        ->name('social.compose.prompt-history.clear');
 
     Route::get('/channels', [ChannelsController::class, 'index'])->name('channels.index');
     Route::post('/channels', [ChannelsController::class, 'store'])

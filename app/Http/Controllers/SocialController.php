@@ -7,7 +7,9 @@ use App\Jobs\GeneratePosterVariantsJob;
 use App\Jobs\PublishSocialPostJob;
 use App\Models\MediaAsset;
 use App\Models\SocialAccount;
+use App\Models\SocialComposePromptHistory;
 use App\Models\SocialPost;
+use App\Services\Ai\AiContentService;
 use App\Services\Billing\PlanAccess;
 use App\Services\Social\SocialConnectionService;
 use App\Services\Social\SocialPublisherService;
@@ -15,6 +17,7 @@ use App\Support\SocialPlatforms;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
@@ -181,7 +184,114 @@ class SocialController extends Controller
                 'isLocal' => app()->environment('local'),
                 'simulate' => (bool) config('social.simulate_publish'),
             ],
+            'ai_context' => (function () use ($workspace) {
+                $ai = app(AiContentService::class);
+                $settings = $ai->syncSettingsFromWorkspace($workspace);
+                $contact = $workspace->contactDetails();
+
+                return [
+                    'industry' => $settings->industry,
+                    'location' => $settings->location,
+                    'tone' => $settings->tone,
+                    'caption_word_limit' => (int) ($settings->caption_word_limit ?? 50),
+                    'cta' => $workspace->resolveBrandKit()?->default_cta_label,
+                    'phone' => $contact['phone'] ?? null,
+                    'email' => $contact['email'] ?? null,
+                    'website' => $contact['website'] ?? null,
+                    'has_business_profile' => $workspace->hasBusinessProfile(),
+                    'settings_url' => route('settings.index', ['tab' => 'workspace']),
+                ];
+            })(),
+            'ai_prompt_history' => SocialComposePromptHistory::query()
+                ->where('workspace_id', $workspace->id)
+                ->when($request->user()?->id, fn ($q, $userId) => $q->where('user_id', $userId))
+                ->latest('updated_at')
+                ->limit(12)
+                ->get()
+                ->map(fn (SocialComposePromptHistory $row) => [
+                    'id' => $row->id,
+                    'prompt' => $row->prompt,
+                    'offer' => $row->offer,
+                    'provider' => $row->provider,
+                    'api_url' => $row->api_url,
+                    'model' => $row->model,
+                    'http_status' => $row->http_status,
+                    'tokens' => $row->tokens,
+                    'ok' => $row->ok,
+                    'error' => $row->error,
+                    'response_text' => $row->response_text
+                        ? Str::limit($row->response_text, 400, '…')
+                        : null,
+                    'updated_at' => $row->updated_at?->toDateTimeString(),
+                ])
+                ->values()
+                ->all(),
         ]);
+    }
+
+    public function composeWithAi(Request $request, AiContentService $ai): RedirectResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+
+        $data = $request->validate([
+            'prompt' => ['required', 'string', 'min:12', 'max:2000'],
+            'offer' => ['nullable', 'string', 'max:200'],
+            'platforms' => ['nullable', 'array'],
+            'platforms.*' => ['string', 'max:40'],
+        ]);
+
+        $prompt = trim($data['prompt']);
+        $offer = trim((string) ($data['offer'] ?? ''));
+
+        $result = $ai->composeSocialFromPrompt($workspace, $request->user()?->id, [
+            'prompt' => $prompt,
+            'offer' => $offer,
+            'platforms' => $data['platforms'] ?? [],
+        ]);
+
+        // Keep the prompt in the form after redirect; history survives until hard refresh.
+        $redirect = redirect()
+            ->route('social.index', ['view' => 'compose'])
+            ->with('ai_prompt', $prompt)
+            ->with('ai_offer', $offer);
+
+        if (! ($result['ok'] ?? false)) {
+            return $redirect->with('error', $result['message'] ?? 'Could not generate caption.');
+        }
+
+        SocialComposePromptHistory::remember(
+            $workspace,
+            $request->user()?->id,
+            $prompt,
+            $offer,
+            is_array($result['api'] ?? null) ? $result['api'] : [
+                'provider' => $result['provider'] ?? 'template',
+                'draft' => $result['draft'] ?? null,
+            ],
+        );
+
+        return $redirect
+            ->with('success', $result['message'])
+            ->with('ai_compose', $result['draft']);
+    }
+
+    public function clearComposePromptHistory(Request $request): RedirectResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+
+        SocialComposePromptHistory::query()
+            ->where('workspace_id', $workspace->id)
+            ->when(
+                $request->user()?->id,
+                fn ($q, $userId) => $q->where('user_id', $userId),
+                fn ($q) => $q->whereNull('user_id'),
+            )
+            ->delete();
+
+        return redirect()
+            ->route('social.index', ['view' => 'compose']);
     }
 
     /**

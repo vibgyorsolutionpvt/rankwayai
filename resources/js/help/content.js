@@ -243,45 +243,24 @@ export const HELP = {
     social: entry(
         'SMM',
         {
-            what: 'सोशल मीडिया पोस्ट बनाएँ, शेड्यूल करें और पब्लिश करें।',
+            what: 'सोशल मीडिया पोस्ट बनाएँ — प्रॉम्प्ट से AI कैप्शन भर सकता है, फिर शेड्यूल / पब्लिश।',
             how: [
-                'New post से कॉम्पोज़ खोलें।',
-                'एकाउंट चुनें, कैप्शन लिखें, मीडिया जोड़ें।',
-                'Draft सेव करें या शेड्यूल / पब्लिश करें।',
+                'Compose खोलें और Write with AI में साफ़ प्रॉम्प्ट लिखें।',
+                'Generate से title + caption भरें — industry / contact Settings से।',
+                'Review करें, मीडिया जोड़ें, Draft सेव या शेड्यूल / पब्लिश करें।',
                 'Queue टैब से आने वाले पोस्ट देखें।',
             ],
-            note: 'लाइव पब्लिश के लिए Integrations में सोशल अकाउंट कनेक्ट करें।',
+            note: 'गलत niche copy से बचने के लिए Settings → Workspace में सही industry सेट करें।',
         },
         {
-            what: 'Create, schedule, and publish social posts.',
+            what: 'Create social posts — optionally fill caption from your prompt with AI, then schedule or publish.',
             how: [
-                'Click New post to compose.',
-                'Pick accounts, write a caption, add media.',
-                'Save as draft or schedule / publish.',
+                'Open Compose and write a clear prompt under Write with AI.',
+                'Generate fills title + caption using Settings (industry, contact, CTA).',
+                'Review, add media, then save draft or schedule / publish.',
                 'Use Queue to review upcoming posts.',
             ],
-            note: 'Connect social accounts under Integrations for live publishing.',
-        },
-    ),
-    ai: entry(
-        'AI posts',
-        {
-            what: 'Apna topic likho — AI 3 social drafts banata hai, phir SMM se publish.',
-            how: [
-                'Business type, city, language save karein.',
-                '“Aaj kya post karna hai” mein topic / offer likhein.',
-                'Confirm karke drafts banao → SMM se review.',
-            ],
-            note: 'Bina topic ke generate nahi hota. AI sirf draft banata hai.',
-        },
-        {
-            what: 'Describe your topic — AI creates 3 social drafts, then publish from SMM.',
-            how: [
-                'Save business type, city, and language.',
-                'Write today’s topic / offer in the brief field.',
-                'Confirm and create drafts → review in SMM.',
-            ],
-            note: 'Generation requires your brief. AI only creates drafts.',
+            note: 'Set the correct industry in Settings → Workspace so AI stays on-topic.',
         },
     ),
     channels: entry(

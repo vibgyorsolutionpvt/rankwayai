@@ -44,14 +44,14 @@ class PlanCatalog
             self::MARKET_IN => [
                 'currency' => 'INR',
                 'symbol' => '₹',
-                'gateway' => 'cashfree',
-                'label' => 'India (₹ · Cashfree)',
+                'gateway' => 'razorpay',
+                'label' => 'India (₹ · Razorpay)',
             ],
             default => [
                 'currency' => 'USD',
                 'symbol' => '$',
-                'gateway' => 'cashfree',
-                'label' => 'Global ($ · Cashfree)',
+                'gateway' => 'razorpay',
+                'label' => 'Global ($ · Razorpay)',
             ],
         };
     }

@@ -9,6 +9,7 @@ class CreditRecharge extends Model
 {
     protected $fillable = [
         'workspace_id',
+        'billing_account_id',
         'user_id',
         'pack_id',
         'credits',
@@ -31,5 +32,10 @@ class CreditRecharge extends Model
     public function workspace(): BelongsTo
     {
         return $this->belongsTo(Workspace::class);
+    }
+
+    public function billingAccount(): BelongsTo
+    {
+        return $this->belongsTo(BillingAccount::class);
     }
 }

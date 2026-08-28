@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Enums\WorkspaceRole;
 use App\Models\AiGeneration;
 use App\Models\AiUsageLog;
-use App\Models\FestivalEvent;
 use App\Models\SocialAccount;
 use App\Models\SocialPost;
 use App\Models\User;
@@ -41,92 +40,166 @@ class AiLayerTest extends TestCase
     }
 
     /** @return array<string, mixed> */
-    private function validPostInput(array $overrides = []): array
+    private function validComposeInput(array $overrides = []): array
     {
         return array_merge([
-            'brief' => 'Promote our Lucknow to Goa monsoon travel package with 15% off for families',
+            'prompt' => 'Promote our Lucknow to Goa monsoon travel package with 15% off for families',
             'offer' => 'Book now — 15% off',
         ], $overrides);
     }
 
-    public function test_ai_studio_page_loads(): void
+    public function test_legacy_ai_index_redirects_to_smm_compose(): void
     {
-        config(['festivals.nager_enabled' => false, 'festivals.ics_enabled' => false]);
-        \Illuminate\Support\Facades\Cache::forget('festivals:last_sync');
-
         [$user, $workspace] = $this->memberWithWorkspace();
-
-        FestivalEvent::query()->create([
-            'name' => 'Test Fest',
-            'occurs_on' => now()->addDays(3)->toDateString(),
-            'region' => 'IN',
-            'category' => 'festival',
-            'suggested_angles' => ['Offer'],
-        ]);
 
         $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])
             ->get(route('ai.index'))
+            ->assertRedirect(route('social.index', ['view' => 'compose']));
+    }
+
+    public function test_smm_compose_page_includes_ai_context(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('social.index', ['view' => 'compose']))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->component('Ai/Index')
-                ->has('credits')
-                ->has('festivals')
-                ->where('setup_complete', true));
+                ->component('Social/Index')
+                ->has('ai_context')
+                ->where('ai_context.industry', 'Travel agency')
+                ->where('ai_context.location', 'Lucknow'));
     }
 
-    public function test_generate_today_creates_drafts_and_logs_cost(): void
+    public function test_compose_ai_fills_draft_flash_without_creating_post(): void
     {
         [$user, $workspace] = $this->memberWithWorkspace();
 
         $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])
-            ->post(route('ai.generate-today'), $this->validPostInput())
-            ->assertRedirect(route('social.index', ['status' => 'draft']))
-            ->assertSessionHas('success');
+            ->post(route('social.compose.ai'), $this->validComposeInput())
+            ->assertRedirect(route('social.index', ['view' => 'compose']))
+            ->assertSessionHas('success')
+            ->assertSessionHas('ai_compose')
+            ->assertSessionHas('ai_prompt');
 
-        $this->assertSame(1, SocialPost::query()->where('workspace_id', $workspace->id)->count());
-        $this->assertSame(1, SocialPost::query()->where('status', 'draft')->where('requires_approval', true)->count());
+        $draft = session('ai_compose');
+        $this->assertIsArray($draft);
+        $this->assertNotEmpty($draft['title'] ?? null);
+        $this->assertNotEmpty($draft['body'] ?? null);
+        $this->assertIsArray($draft['platforms'] ?? null);
+        $this->assertSame(
+            $this->validComposeInput()['prompt'],
+            session('ai_prompt'),
+        );
+
+        $this->assertSame(0, SocialPost::query()->where('workspace_id', $workspace->id)->count());
         $this->assertDatabaseHas('ai_generations', [
             'workspace_id' => $workspace->id,
-            'type' => 'today_pack',
+            'type' => 'social_compose',
             'status' => 'ready',
         ]);
+        $this->assertDatabaseHas('social_compose_prompt_histories', [
+            'workspace_id' => $workspace->id,
+            'user_id' => $user->id,
+            'prompt' => $this->validComposeInput()['prompt'],
+        ]);
+        $history = \App\Models\SocialComposePromptHistory::query()
+            ->where('workspace_id', $workspace->id)
+            ->latest('id')
+            ->first();
+        $this->assertNotNull($history);
+        $this->assertNotEmpty($history->provider);
+        // Live providers store URL+response; template fallback still records provider.
+        if ($history->provider !== 'template') {
+            $this->assertNotEmpty($history->api_url);
+            $this->assertTrue(
+                filled($history->response_text) || filled($history->response_payload),
+            );
+        }
         $this->assertDatabaseHas('ai_usage_logs', [
             'workspace_id' => $workspace->id,
-            'action' => 'generate_today',
-            'provider' => 'template',
+            'action' => 'social_compose',
+        ]);
+        $this->assertNotNull(
+            AiUsageLog::query()->where('workspace_id', $workspace->id)->where('action', 'social_compose')->value('provider')
+        );
+
+        $account = \App\Models\BillingAccount::query()->where('user_id', $user->id)->first();
+        $this->assertNotNull($account);
+        $this->assertGreaterThan(0, (float) $account->spent_usd);
+    }
+
+    public function test_compose_prompt_history_can_be_cleared(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        \App\Models\SocialComposePromptHistory::remember(
+            $workspace,
+            $user->id,
+            'Promote our Lucknow to Goa monsoon travel package with 15% off for families',
+            'Book now',
+        );
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->delete(route('social.compose.prompt-history.clear'))
+            ->assertRedirect(route('social.index', ['view' => 'compose']));
+
+        $this->assertSame(
+            0,
+            \App\Models\SocialComposePromptHistory::query()->where('workspace_id', $workspace->id)->count(),
+        );
+    }
+
+    public function test_compose_ai_uses_settings_industry_in_template_body(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        $prompt = 'company ki service ke sath social media ke lie post likho';
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('social.compose.ai'), [
+                'prompt' => $prompt,
+                'offer' => 'Book a call',
+            ])
+            ->assertSessionHas('ai_compose');
+
+        $title = (string) session('ai_compose.title');
+        $body = (string) session('ai_compose.body');
+
+        $this->assertNotSame(mb_strtolower($prompt), mb_strtolower($title));
+        $this->assertStringNotContainsString($prompt, $title);
+        $this->assertStringNotContainsString($prompt, $body);
+        $this->assertDoesNotMatchRegularExpression('/company\s+service/i', $title);
+        $this->assertDoesNotMatchRegularExpression('/with\s+Atlas Demo$/i', $title);
+        $this->assertDoesNotMatchRegularExpression('/^Book a call\s*[—\-]/i', $title);
+        $this->assertStringContainsString('Atlas Demo', $body);
+        $this->assertDoesNotMatchRegularExpression('/If IT Company feels noisy/i', $body);
+        $this->assertGreaterThanOrEqual(25, str_word_count(strip_tags($body)));
+    }
+
+    public function test_budget_blocks_compose(): void
+    {
+        Queue::fake();
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        $sub = app(BillingService::class)->subscription($workspace);
+        $planBudget = (float) ($sub->limits['ai_budget_usd'] ?? 20);
+
+        $account = \App\Models\BillingAccount::query()->where('user_id', $user->id)->first();
+        $account?->update([
+            'spent_usd' => $planBudget,
+            'topup_credits' => 0,
         ]);
 
-        $settings = WorkspaceAiSetting::query()->where('workspace_id', $workspace->id)->first();
-        $this->assertNotNull($settings);
-        $this->assertGreaterThan(0, (float) $settings->spent_usd);
-
-        if (function_exists('imagecreatetruecolor')) {
-            SocialPost::query()
-                ->where('workspace_id', $workspace->id)
-                ->get()
-                ->each(fn (SocialPost $post) => $this->assertNotNull(
-                    $post->media_asset_id,
-                    'All social drafts should include a generated poster image',
-                ));
-        }
-    }
-
-    public function test_budget_blocks_generation(): void
-    {
-        Queue::fake();
-        [$user, $workspace] = $this->memberWithWorkspace();
-
-        $sub = app(BillingService::class)->subscription($workspace);
-        $planBudget = (float) ($sub->limits['ai_budget_usd'] ?? 20);
-
         WorkspaceAiSetting::query()->updateOrCreate(
             ['workspace_id' => $workspace->id],
             [
                 'monthly_budget_usd' => $planBudget,
-                'spent_usd' => $planBudget,
-                'topup_credits' => 0,
                 'template_first' => true,
                 'tone' => 'mixed',
                 'industry' => 'Travel agency',
@@ -136,16 +209,16 @@ class AiLayerTest extends TestCase
 
         $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])
-            ->post(route('ai.generate-today'), $this->validPostInput())
+            ->post(route('social.compose.ai'), $this->validComposeInput())
             ->assertRedirect()
             ->assertSessionHas('error');
 
-        $this->assertSame(0, SocialPost::query()->count());
         $this->assertSame(0, AiGeneration::query()->count());
         $this->assertSame(0, AiUsageLog::query()->count());
+        $this->assertNull(session('ai_compose'));
     }
 
-    public function test_topup_credits_allow_generation_when_plan_exhausted(): void
+    public function test_topup_credits_allow_compose_when_plan_exhausted(): void
     {
         Queue::fake();
         [$user, $workspace] = $this->memberWithWorkspace();
@@ -153,12 +226,16 @@ class AiLayerTest extends TestCase
         $sub = app(BillingService::class)->subscription($workspace);
         $planBudget = (float) ($sub->limits['ai_budget_usd'] ?? 20);
 
+        $account = \App\Models\BillingAccount::query()->where('user_id', $user->id)->first();
+        $account?->update([
+            'spent_usd' => $planBudget,
+            'topup_credits' => 500,
+        ]);
+
         WorkspaceAiSetting::query()->updateOrCreate(
             ['workspace_id' => $workspace->id],
             [
                 'monthly_budget_usd' => $planBudget,
-                'spent_usd' => $planBudget,
-                'topup_credits' => 500,
                 'template_first' => true,
                 'tone' => 'mixed',
                 'industry' => 'Travel agency',
@@ -168,40 +245,45 @@ class AiLayerTest extends TestCase
 
         $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])
-            ->post(route('ai.generate-today'), $this->validPostInput())
-            ->assertRedirect(route('social.index', ['status' => 'draft']))
-            ->assertSessionHas('success');
+            ->post(route('social.compose.ai'), $this->validComposeInput())
+            ->assertRedirect(route('social.index', ['view' => 'compose']))
+            ->assertSessionHas('success')
+            ->assertSessionHas('ai_compose');
 
-        $settings = WorkspaceAiSetting::query()->where('workspace_id', $workspace->id)->first();
-        $this->assertLessThan(500, (int) $settings->topup_credits);
-        $this->assertSame($planBudget, (float) $settings->spent_usd);
+        $account = \App\Models\BillingAccount::query()->where('user_id', $user->id)->first();
+        $this->assertNotNull($account);
+        $this->assertLessThan(500, (int) $account->topup_credits);
+        $this->assertSame($planBudget, (float) $account->spent_usd);
     }
 
-    public function test_free_plan_blocks_ai_generation(): void
+    public function test_free_plan_blocks_ai_compose(): void
     {
         [$user, $workspace] = $this->memberWithWorkspace('free');
 
         $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])
-            ->post(route('ai.generate-today'), $this->validPostInput())
+            ->post(route('social.compose.ai'), $this->validComposeInput())
             ->assertRedirect()
             ->assertSessionHas('error');
 
-        $this->assertSame(0, SocialPost::query()->count());
         $this->assertSame(0, AiGeneration::query()->count());
+        $this->assertNull(session('ai_compose'));
     }
 
-    public function test_free_plan_can_use_ai_with_topup_credits(): void
+    public function test_free_plan_can_compose_with_topup_credits(): void
     {
         Queue::fake();
         [$user, $workspace] = $this->memberWithWorkspace('free');
+
+        \App\Models\BillingAccount::query()->where('user_id', $user->id)->update([
+            'topup_credits' => 500,
+            'spent_usd' => 0,
+        ]);
 
         WorkspaceAiSetting::query()->updateOrCreate(
             ['workspace_id' => $workspace->id],
             [
                 'monthly_budget_usd' => 0,
-                'spent_usd' => 0,
-                'topup_credits' => 500,
                 'template_first' => true,
                 'tone' => 'mixed',
                 'industry' => 'Travel agency',
@@ -211,103 +293,50 @@ class AiLayerTest extends TestCase
 
         $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])
-            ->post(route('ai.generate-today'), $this->validPostInput())
-            ->assertRedirect(route('social.index', ['status' => 'draft']))
-            ->assertSessionHas('success');
+            ->post(route('social.compose.ai'), $this->validComposeInput())
+            ->assertRedirect(route('social.index', ['view' => 'compose']))
+            ->assertSessionHas('success')
+            ->assertSessionHas('ai_compose');
 
-        $settings = WorkspaceAiSetting::query()->where('workspace_id', $workspace->id)->first();
-        $this->assertLessThan(500, (int) $settings->topup_credits);
-        $this->assertGreaterThan(0, SocialPost::query()->count());
+        $account = \App\Models\BillingAccount::query()->where('user_id', $user->id)->first();
+        $this->assertNotNull($account);
+        $this->assertLessThan(500, (int) $account->topup_credits);
     }
 
-    public function test_generate_requires_brief(): void
+    public function test_compose_requires_prompt(): void
     {
         [$user, $workspace] = $this->memberWithWorkspace();
 
         $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])
-            ->post(route('ai.generate-today'), [])
-            ->assertSessionHasErrors(['brief']);
+            ->post(route('social.compose.ai'), [])
+            ->assertSessionHasErrors(['prompt']);
 
-        $this->assertSame(0, SocialPost::query()->count());
+        $this->assertNull(session('ai_compose'));
     }
 
-    public function test_generate_requires_business_details(): void
+    public function test_compose_includes_workspace_contact_details(): void
     {
-        [$user, $workspace] = $this->memberWithWorkspace();
-
-        WorkspaceAiSetting::query()->where('workspace_id', $workspace->id)->update([
-            'industry' => 'local business',
-            'location' => 'India',
-        ]);
-
-        $this->actingAs($user)
-            ->withSession(['active_workspace_id' => $workspace->id])
-            ->post(route('ai.generate-today'), $this->validPostInput())
-            ->assertSessionHasErrors(['industry', 'location']);
-
-        $this->assertSame(0, SocialPost::query()->count());
-    }
-
-    public function test_generate_saves_business_details_in_same_request(): void
-    {
-        Queue::fake();
-        [$user, $workspace] = $this->memberWithWorkspace();
-
-        WorkspaceAiSetting::query()->where('workspace_id', $workspace->id)->update([
-            'industry' => 'local business',
-            'location' => 'India',
-        ]);
-
-        $this->actingAs($user)
-            ->withSession(['active_workspace_id' => $workspace->id])
-            ->post(route('ai.generate-today'), $this->validPostInput([
-                'industry' => 'IT company',
-                'location' => 'Delhi',
-                'tone' => 'english',
-            ]))
-            ->assertRedirect(route('social.index', ['status' => 'draft']))
-            ->assertSessionHas('success');
-
-        $this->assertDatabaseHas('workspace_ai_settings', [
-            'workspace_id' => $workspace->id,
-            'industry' => 'IT company',
-            'location' => 'Delhi',
-            'tone' => 'english',
-        ]);
-        $this->assertDatabaseHas('workspaces', [
-            'id' => $workspace->id,
-            'industry' => 'IT company',
-            'city' => 'Delhi',
-        ]);
-        $this->assertSame(1, SocialPost::query()->where('workspace_id', $workspace->id)->count());
-    }
-
-    public function test_ai_uses_saved_workspace_profile_without_reposting_business_fields(): void
-    {
-        Queue::fake();
         [$user, $workspace] = $this->memberWithWorkspace();
 
         $workspace->update([
-            'industry' => 'Travel agency',
-            'city' => 'Lucknow',
+            'phone' => '+91 9876543210',
+            'email' => 'hello@vibgyor.com',
+            'website' => 'https://vibgyor.com',
         ]);
 
         $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])
-            ->get(route('ai.index'))
-            ->assertOk()
-            ->assertInertia(fn ($page) => $page
-                ->where('setup_complete', true)
-                ->where('workspace.has_business_profile', true));
+            ->post(route('social.compose.ai'), $this->validComposeInput())
+            ->assertSessionHas('ai_compose');
 
-        $this->actingAs($user)
-            ->withSession(['active_workspace_id' => $workspace->id])
-            ->post(route('ai.generate-today'), $this->validPostInput())
-            ->assertRedirect(route('social.index', ['status' => 'draft']));
+        $body = (string) session('ai_compose.body');
+        $this->assertStringContainsString('9876543210', $body);
+        $this->assertStringContainsString('hello@vibgyor.com', $body);
+        $this->assertStringContainsString('vibgyor.com', $body);
     }
 
-    public function test_generate_only_targets_connected_enabled_platforms(): void
+    public function test_compose_targets_connected_enabled_platforms(): void
     {
         Queue::fake();
         [$user, $workspace] = $this->memberWithWorkspace();
@@ -335,134 +364,16 @@ class AiLayerTest extends TestCase
 
         $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])
-            ->post(route('ai.generate-today'), $this->validPostInput())
-            ->assertRedirect(route('social.index', ['status' => 'draft']))
-            ->assertSessionHas('success');
+            ->post(route('social.compose.ai'), $this->validComposeInput())
+            ->assertRedirect(route('social.index', ['view' => 'compose']))
+            ->assertSessionHas('ai_compose');
 
-        $posts = SocialPost::query()->where('workspace_id', $workspace->id)->get();
-        $this->assertSame(1, $posts->count());
-
-        foreach ($posts as $post) {
-            $this->assertNotContains('linkedin', $post->platforms);
-            foreach ($post->platforms as $platform) {
-                $this->assertContains($platform, ['facebook', 'instagram', 'threads']);
-            }
+        $platforms = session('ai_compose.platforms');
+        $this->assertIsArray($platforms);
+        $this->assertNotContains('linkedin', $platforms);
+        foreach ($platforms as $platform) {
+            $this->assertContains($platform, ['facebook', 'instagram', 'threads']);
         }
-    }
-
-    public function test_generate_respects_draft_count(): void
-    {
-        [$user, $workspace] = $this->memberWithWorkspace();
-
-        $this->actingAs($user)
-            ->withSession(['active_workspace_id' => $workspace->id])
-            ->post(route('ai.generate-today'), $this->validPostInput(['draft_count' => 3]))
-            ->assertRedirect(route('social.index', ['status' => 'draft']))
-            ->assertSessionHas('success');
-
-        $this->assertSame(3, SocialPost::query()->where('workspace_id', $workspace->id)->count());
-    }
-
-    public function test_preview_respects_word_limit(): void
-    {
-        [$user, $workspace] = $this->memberWithWorkspace();
-
-        $response = $this->actingAs($user)
-            ->withSession(['active_workspace_id' => $workspace->id])
-            ->postJson(route('ai.preview-today'), [
-                'brief' => 'Goa family packages 15% off for summer holidays',
-                'word_limit' => 50,
-            ])
-            ->assertOk()
-            ->assertJsonPath('ok', true)
-            ->assertJsonPath('word_limit', 50);
-
-        foreach ($response->json('previews') as $post) {
-            $contentWords = (int) ($post['word_count'] ?? 0);
-            $this->assertGreaterThanOrEqual(25, $contentWords);
-            $this->assertLessThanOrEqual(55, $contentWords);
-            $this->assertGreaterThan($contentWords, $this->wordCountHelper((string) $post['body']));
-        }
-    }
-
-    private function wordCountHelper(string $text): int
-    {
-        preg_match_all('/\S+/u', trim(strip_tags($text)), $matches);
-
-        return count($matches[0] ?? []);
-    }
-
-    public function test_preview_includes_workspace_contact_details(): void
-    {
-        [$user, $workspace] = $this->memberWithWorkspace();
-
-        $workspace->update([
-            'phone' => '+91 9876543210',
-            'email' => 'hello@vibgyor.com',
-            'website' => 'https://vibgyor.com',
-        ]);
-
-        $response = $this->actingAs($user)
-            ->withSession(['active_workspace_id' => $workspace->id])
-            ->postJson(route('ai.preview-today'), [
-                'brief' => 'Goa family packages 15% off for summer',
-            ])
-            ->assertOk()
-            ->assertJsonPath('ok', true);
-
-        $body = (string) $response->json('previews.0.body');
-        $this->assertStringContainsString('9876543210', $body);
-        $this->assertStringContainsString('hello@vibgyor.com', $body);
-        $this->assertStringContainsString('vibgyor.com', $body);
-    }
-
-    public function test_preview_with_festival_includes_festival_and_hashtags(): void
-    {
-        [$user, $workspace] = $this->memberWithWorkspace();
-
-        $festival = FestivalEvent::query()->create([
-            'name' => 'Independence Day',
-            'occurs_on' => now()->addDays(5)->toDateString(),
-            'region' => 'IN',
-            'category' => 'festival',
-            'suggested_angles' => ['Patriotic travel deals'],
-        ]);
-
-        $response = $this->actingAs($user)
-            ->withSession(['active_workspace_id' => $workspace->id])
-            ->postJson(route('ai.preview-today'), [
-                'festival_id' => $festival->id,
-                'brief' => 'Goa family packages 15% off',
-                'draft_count' => 3,
-            ])
-            ->assertOk()
-            ->assertJsonPath('ok', true);
-
-        $previews = $response->json('previews');
-        $this->assertCount(3, $previews);
-
-        foreach ($previews as $post) {
-            $this->assertStringContainsString('Independence Day', $post['body']);
-            $this->assertMatchesRegularExpression('/#\w+/', $post['body']);
-        }
-    }
-
-    public function test_preview_today_returns_captions_without_credits(): void
-    {
-        [$user, $workspace] = $this->memberWithWorkspace();
-
-        $this->actingAs($user)
-            ->withSession(['active_workspace_id' => $workspace->id])
-            ->postJson(route('ai.preview-today'), [
-                'brief' => 'Promote our Lucknow to Goa monsoon travel package with 15% off',
-            ])
-            ->assertOk()
-            ->assertJsonPath('ok', true)
-            ->assertJsonCount(1, 'previews')
-            ->assertJsonPath('brief', 'Promote our Lucknow to Goa monsoon travel package with 15% off');
-
-        $this->assertSame(0, SocialPost::query()->count());
-        $this->assertSame(0, AiUsageLog::query()->where('action', 'preview_today')->count());
     }
 
     public function test_write_blog_article_returns_full_html(): void

@@ -16,7 +16,6 @@ class ProviderStatus
             'browserless' => filled(config('services.browserless.token')) || filled(config('services.browserless.url')),
             'stripe' => filled(config('services.stripe.secret')),
             'razorpay' => filled(config('services.razorpay.key_id')) && filled(config('services.razorpay.key_secret')),
-            'cashfree' => filled(config('services.cashfree.client_id')) && filled(config('services.cashfree.client_secret')),
             'zavu' => filled(config('services.zavu.key')),
             'openai' => filled(config('ai.providers.openai.key')),
             'groq' => filled(config('ai.providers.groq.key')),

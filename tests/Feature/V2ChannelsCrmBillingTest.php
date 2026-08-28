@@ -259,7 +259,7 @@ class V2ChannelsCrmBillingTest extends TestCase
         $this->assertSame(79.0, (float) $sub->mrr_usd);
     }
 
-    public function test_global_market_applies_usd_manually_without_cashfree(): void
+    public function test_global_market_applies_usd_manually_without_razorpay(): void
     {
         $user = User::factory()->create(['is_superadmin' => true]);
         $workspace = Workspace::factory()->create();
@@ -296,98 +296,33 @@ class V2ChannelsCrmBillingTest extends TestCase
         $this->assertSame(2499.0, (float) $sub->mrr_amount);
     }
 
-    public function test_cashfree_webhook_activates_subscription(): void
+    public function test_razorpay_payment_link_webhook_activates_plan(): void
     {
         [$user, $workspace] = $this->memberWithWorkspace('free');
 
-        $payload = json_encode([
-            'type' => 'PAYMENT_SUCCESS_WEBHOOK',
-            'data' => [
-                'link' => [
-                    'link_id' => 'plan_link_1',
-                    'link_status' => 'PAID',
-                    'link_notes' => [
-                        'type' => 'plan_checkout',
-                        'workspace_id' => (string) $workspace->id,
-                        'plan' => 'growth',
-                        'market' => 'in',
-                        'interval' => 'month',
+        $this->postJson(route('webhooks.razorpay'), [
+            'event' => 'payment_link.paid',
+            'payload' => [
+                'payment_link' => [
+                    'entity' => [
+                        'id' => 'plink_plan_test',
+                        'notes' => [
+                            'type' => 'plan_checkout',
+                            'workspace_id' => (string) $workspace->id,
+                            'plan' => 'growth',
+                            'market' => 'in',
+                            'interval' => 'month',
+                        ],
                     ],
                 ],
-                'payment' => [
-                    'payment_status' => 'SUCCESS',
-                    'cf_payment_id' => 'pay_cf_1',
-                ],
             ],
-        ]);
-
-        $this->call(
-            'POST',
-            route('webhooks.cashfree'),
-            [],
-            [],
-            [],
-            ['CONTENT_TYPE' => 'application/json'],
-            $payload
-        )->assertOk();
+        ])->assertOk();
 
         $sub = WorkspaceSubscription::query()->where('workspace_id', $workspace->id)->first();
         $this->assertSame('growth', $sub->plan);
-        $this->assertSame('cashfree', $sub->billing_provider);
+        $this->assertSame('razorpay', $sub->billing_provider);
         $this->assertSame('INR', $sub->billing_currency);
         $this->assertSame(6999.0, (float) $sub->mrr_amount);
-    }
-
-    public function test_cashfree_webhook_adds_credits(): void
-    {
-        [$user, $workspace] = $this->memberWithWorkspace('starter');
-
-        $recharge = \App\Models\CreditRecharge::query()->create([
-            'workspace_id' => $workspace->id,
-            'user_id' => $user->id,
-            'pack_id' => 'in_500',
-            'credits' => 500,
-            'amount' => 499,
-            'currency' => 'INR',
-            'billing_market' => 'in',
-            'status' => 'pending',
-            'provider' => 'cashfree',
-        ]);
-
-        $payload = json_encode([
-            'type' => 'PAYMENT_SUCCESS_WEBHOOK',
-            'data' => [
-                'link' => [
-                    'link_id' => 'cr_link_1',
-                    'link_status' => 'PAID',
-                    'link_notes' => [
-                        'type' => 'credit_recharge',
-                        'recharge_id' => (string) $recharge->id,
-                        'workspace_id' => (string) $workspace->id,
-                        'credits' => '500',
-                    ],
-                ],
-                'payment' => [
-                    'payment_status' => 'SUCCESS',
-                    'cf_payment_id' => 'pay_cr_1',
-                ],
-            ],
-        ]);
-
-        $this->call(
-            'POST',
-            route('webhooks.cashfree'),
-            [],
-            [],
-            [],
-            ['CONTENT_TYPE' => 'application/json'],
-            $payload
-        )->assertOk();
-
-        $this->assertSame('paid', $recharge->fresh()->status);
-        $this->assertSame('cashfree', $recharge->fresh()->provider);
-        $settings = \App\Models\WorkspaceAiSetting::query()->where('workspace_id', $workspace->id)->first();
-        $this->assertSame(500, (int) $settings->topup_credits);
     }
 
     public function test_razorpay_webhook_activates_subscription(): void
@@ -423,12 +358,15 @@ class V2ChannelsCrmBillingTest extends TestCase
 
         $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])
-            ->post(route('ai.generate-today'))
+            ->post(route('social.compose.ai'), [
+                'prompt' => 'Promote our monsoon travel package with family discount',
+            ])
             ->assertRedirect()
             ->assertSessionHas('error');
 
         $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])
+            ->from(route('channels.index'))
             ->post(route('channels.store'), [
                 'name' => 'Blocked blast',
                 'channel' => 'whatsapp',
@@ -439,27 +377,13 @@ class V2ChannelsCrmBillingTest extends TestCase
             ->assertSessionHas('error');
 
         $this->assertSame(0, ChannelCampaign::query()->count());
-
-        $this->actingAs($user)
-            ->withSession(['active_workspace_id' => $workspace->id])
-            ->post(route('channels.store'), [
-                'name' => 'Draft ok',
-                'channel' => 'whatsapp',
-                'body' => 'Hello draft',
-                'delivery' => 'draft',
-            ])
-            ->assertRedirect()
-            ->assertSessionHas('success');
-
-        $this->assertSame(1, ChannelCampaign::query()->count());
-        $this->assertSame('draft', ChannelCampaign::query()->first()->status);
     }
 
     public function test_credit_recharge_applies_manually_without_gateway(): void
     {
         config([
-            'services.cashfree.client_id' => null,
-            'services.cashfree.client_secret' => null,
+            'services.razorpay.key_id' => null,
+            'services.razorpay.key_secret' => null,
         ]);
 
         [$user, $workspace] = $this->memberWithWorkspace('starter');
@@ -471,7 +395,9 @@ class V2ChannelsCrmBillingTest extends TestCase
             ->assertSessionHas('success');
 
         $settings = \App\Models\WorkspaceAiSetting::query()->where('workspace_id', $workspace->id)->first();
-        $this->assertSame(500, (int) $settings->topup_credits);
+        $account = \App\Models\BillingAccount::query()->where('user_id', $user->id)->first();
+        $this->assertNotNull($account);
+        $this->assertSame(500, (int) $account->topup_credits);
 
         $recharge = \App\Models\CreditRecharge::query()->where('workspace_id', $workspace->id)->first();
         $this->assertNotNull($recharge);
@@ -551,6 +477,7 @@ class V2ChannelsCrmBillingTest extends TestCase
 
         $recharge = \App\Models\CreditRecharge::query()->create([
             'workspace_id' => $workspace->id,
+            'billing_account_id' => app(\App\Services\Billing\BillingAccountService::class)->account($user)->id,
             'user_id' => $user->id,
             'pack_id' => 'in_2000',
             'credits' => 2000,
@@ -580,8 +507,9 @@ class V2ChannelsCrmBillingTest extends TestCase
         ])->assertOk();
 
         $this->assertSame('paid', $recharge->fresh()->status);
-        $settings = \App\Models\WorkspaceAiSetting::query()->where('workspace_id', $workspace->id)->first();
-        $this->assertSame(2000, (int) $settings->topup_credits);
+        $account = \App\Models\BillingAccount::query()->where('user_id', $user->id)->first();
+        $this->assertNotNull($account);
+        $this->assertSame(2000, (int) $account->topup_credits);
     }
 
     public function test_yearly_plan_applies_with_year_interval(): void

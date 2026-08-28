@@ -116,6 +116,9 @@ class HandleInertiaRequests extends Middleware
                 'error' => fn () => $request->session()->get('error'),
                 'keyword_research' => fn () => $request->session()->get('keyword_research'),
                 'share_open_url' => fn () => $request->session()->get('share_open_url'),
+                'ai_compose' => fn () => $request->session()->get('ai_compose'),
+                'ai_prompt' => fn () => $request->session()->get('ai_prompt'),
+                'ai_offer' => fn () => $request->session()->get('ai_offer'),
             ],
         ];
     }

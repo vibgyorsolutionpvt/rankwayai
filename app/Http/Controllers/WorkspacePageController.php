@@ -98,6 +98,15 @@ class WorkspacePageController extends Controller
 
         $request->session()->put('active_workspace_id', $workspace->id);
 
+        // Never carry compose draft / AI flash from the previous workspace.
+        $request->session()->forget([
+            'ai_compose',
+            'ai_prompt',
+            'ai_offer',
+            'success',
+            'error',
+        ]);
+
         $redirect = $request->string('redirect')->toString();
 
         return match ($redirect) {
@@ -105,7 +114,7 @@ class WorkspacePageController extends Controller
             'today' => redirect()->route('today'),
             'billing' => redirect()->route('billing.index'),
             'social' => redirect()->route('social.index'),
-            'ai' => redirect()->route('ai.index'),
+            'ai' => redirect()->route('social.index', ['view' => 'compose']),
             'settings' => redirect()->route('settings.index', ['tab' => 'workspace']),
             'back' => back(),
             default => redirect()->route('settings.index', ['tab' => 'workspace']),

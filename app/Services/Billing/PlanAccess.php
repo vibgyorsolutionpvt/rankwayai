@@ -3,6 +3,7 @@
 namespace App\Services\Billing;
 
 use App\Enums\WorkspaceRole;
+use App\Models\BillingAccount;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceSubscription;
@@ -16,6 +17,7 @@ class PlanAccess
     public function __construct(
         private BillingService $billing,
         private CreditWalletService $wallet,
+        private BillingAccountService $accounts,
     ) {}
 
     /**
@@ -45,7 +47,7 @@ class PlanAccess
         return [
             'plan' => $effectivePlan,
             'status' => $this->isPaid($local) ? $local->status : ($account['status'] ?? $local->status),
-            'paid' => $unlocked && ($this->isPaid($local) || $this->isPaid($account['subscription'] ?? null)),
+            'paid' => $unlocked && ($this->isPaid($local) || $this->isPaidAccount($account['account'] ?? null)),
             'unlocked' => $unlocked,
             'topup' => $topupCredits,
             'features' => $this->featuresFor($unlocked),
@@ -83,9 +85,6 @@ class PlanAccess
         return (bool) ($features[$feature] ?? false);
     }
 
-    /**
-     * Paid local subscription, top-up credits, or covered by the owner's account plan seats.
-     */
     public function hasUnlockedAccess(Workspace $workspace): bool
     {
         $sub = $this->billing->subscription($workspace);
@@ -108,9 +107,11 @@ class PlanAccess
 
     public function ownedWorkspaceCount(User $user): int
     {
-        return $user->workspaces()
-            ->wherePivot('role', WorkspaceRole::Owner->value)
-            ->count();
+        return $this->accounts->ownedWorkspaceIds($user) !== []
+            ? count($this->accounts->ownedWorkspaceIds($user))
+            : $user->workspaces()
+                ->wherePivot('role', WorkspaceRole::Owner->value)
+                ->count();
     }
 
     public function canCreateWorkspace(User $user): bool
@@ -159,54 +160,52 @@ class PlanAccess
     }
 
     /**
-     * Best paid plan among workspaces this user owns.
-     *
-     * @return array{plan:string,status:string,limit:int,used:int,subscription:?WorkspaceSubscription,covered_ids:list<int>}
+     * @return array{
+     *   plan:string,
+     *   status:string,
+     *   limit:int,
+     *   used:int,
+     *   subscription:?WorkspaceSubscription,
+     *   covered_ids:list<int>,
+     *   account:?BillingAccount
+     * }
      */
     public function accountEntitlementForUser(User $user): array
     {
-        $owned = $user->workspaces()
-            ->wherePivot('role', WorkspaceRole::Owner->value)
-            ->orderBy('workspaces.id')
-            ->get(['workspaces.id']);
+        $account = $this->accounts->account($user);
+        $ownedIds = $this->accounts->ownedWorkspaceIds($user);
+        $coveredIds = $this->accounts->coveredWorkspaceIds($account);
+        $limit = PlanCatalog::workspaceLimit($account->plan);
 
-        $ownedIds = $owned->pluck('id')->map(fn ($id) => (int) $id)->all();
-        $used = count($ownedIds);
-
-        $best = null;
-        $bestRank = 0;
-        foreach ($ownedIds as $workspaceId) {
-            $workspace = Workspace::query()->find($workspaceId);
-            if (! $workspace) {
-                continue;
-            }
-            $sub = $this->billing->subscription($workspace);
-            if (! $this->isPaid($sub)) {
-                continue;
-            }
-            $rank = PlanCatalog::planRank($sub->plan);
-            if ($rank > $bestRank) {
-                $bestRank = $rank;
-                $best = $sub;
+        $sub = null;
+        if ($this->isPaidAccount($account) && $coveredIds !== []) {
+            $workspace = Workspace::query()->find($coveredIds[0]);
+            if ($workspace) {
+                $sub = $this->billing->subscription($workspace);
             }
         }
 
-        $plan = $best?->plan ?? 'free';
-        $limit = PlanCatalog::workspaceLimit($plan);
-        $coveredIds = array_slice($ownedIds, 0, $limit);
-
         return [
-            'plan' => $plan,
-            'status' => $best?->status ?? 'active',
+            'plan' => $account->plan,
+            'status' => $account->status,
             'limit' => $limit,
-            'used' => $used,
-            'subscription' => $best,
+            'used' => count($ownedIds),
+            'subscription' => $sub,
             'covered_ids' => $coveredIds,
+            'account' => $account,
         ];
     }
 
     /**
-     * @return array{plan:string,status:string,limit:int,used:int,subscription:?WorkspaceSubscription,covered_ids:list<int>}
+     * @return array{
+     *   plan:string,
+     *   status:string,
+     *   limit:int,
+     *   used:int,
+     *   subscription:?WorkspaceSubscription,
+     *   covered_ids:list<int>,
+     *   account:?BillingAccount
+     * }
      */
     public function accountEntitlementForWorkspace(Workspace $workspace): array
     {
@@ -221,6 +220,7 @@ class PlanAccess
             'used' => 0,
             'subscription' => null,
             'covered_ids' => [],
+            'account' => null,
         ];
         $bestRank = 0;
 
@@ -244,7 +244,7 @@ class PlanAccess
 
         foreach ($owners as $owner) {
             $ent = $this->accountEntitlementForUser($owner);
-            if (! $this->isPaid($ent['subscription'] ?? null)) {
+            if (! $this->isPaidAccount($ent['account'] ?? null)) {
                 continue;
             }
             if (in_array((int) $workspace->id, $ent['covered_ids'], true)) {
@@ -255,9 +255,16 @@ class PlanAccess
         return false;
     }
 
+    private function isPaidAccount(?BillingAccount $account): bool
+    {
+        if (! $account || $account->plan === 'free') {
+            return false;
+        }
+
+        return ! in_array($account->status, ['cancelled', 'canceled', 'expired', 'pending'], true);
+    }
+
     /**
-     * Free = crawl + settings only (no external APIs). Paid / top-up unlocks APIs + modules.
-     *
      * @return array<string, bool>
      */
     private function featuresFor(bool $unlocked): array

@@ -35,26 +35,35 @@ class OpenAiCompatibleProvider implements AiProvider
         $base = rtrim((string) ($cfg['base_url'] ?? ''), '/');
         $model = (string) ($cfg['model'] ?? '');
         $key = $cfg['key'] ?? null;
+        $apiUrl = $base !== '' ? $base.'/chat/completions' : null;
 
         if ($base === '' || $model === '') {
-            return AiCompletion::failed($this->name(), 'Missing base_url/model for '.$this->id);
+            return AiCompletion::failed(
+                $this->name(),
+                'Missing base_url/model for '.$this->id,
+                $apiUrl,
+                null,
+                null,
+                null,
+                $model !== '' ? $model : null,
+            );
         }
+
+        $payload = [
+            'model' => $model,
+            'messages' => [
+                ['role' => 'system', 'content' => $system],
+                ['role' => 'user', 'content' => $user],
+            ],
+            'max_tokens' => $maxTokens,
+            'temperature' => 0.7,
+        ];
 
         try {
             $request = Http::timeout(30)->acceptJson();
             if (filled($key)) {
                 $request = $request->withToken($key);
             }
-
-            $payload = [
-                'model' => $model,
-                'messages' => [
-                    ['role' => 'system', 'content' => $system],
-                    ['role' => 'user', 'content' => $user],
-                ],
-                'max_tokens' => $maxTokens,
-                'temperature' => 0.7,
-            ];
 
             // OpenRouter free-model hint
             if ($this->id === 'openrouter' && ! empty($cfg['http_referer'])) {
@@ -64,25 +73,59 @@ class OpenAiCompatibleProvider implements AiProvider
                 ]);
             }
 
-            $response = $request->post($base.'/chat/completions', $payload);
+            $response = $request->post($apiUrl, $payload);
+            $json = $response->json();
+            $status = $response->status();
 
             if (! $response->successful()) {
                 return AiCompletion::failed(
                     $this->name(),
-                    $response->json('error.message') ?? ($this->id.' request failed')
+                    is_array($json) ? (string) (data_get($json, 'error.message') ?? ($this->id.' request failed')) : ($this->id.' request failed'),
+                    $apiUrl,
+                    $status,
+                    $payload,
+                    $json ?? $response->body(),
+                    $model,
                 );
             }
 
-            $text = (string) data_get($response->json(), 'choices.0.message.content', '');
-            $tokens = (int) data_get($response->json(), 'usage.total_tokens', 0);
+            $text = (string) data_get($json, 'choices.0.message.content', '');
+            $tokens = (int) data_get($json, 'usage.total_tokens', 0);
 
             if (blank($text)) {
-                return AiCompletion::failed($this->name(), 'Empty '.$this->id.' response');
+                return AiCompletion::failed(
+                    $this->name(),
+                    'Empty '.$this->id.' response',
+                    $apiUrl,
+                    $status,
+                    $payload,
+                    $json,
+                    $model,
+                );
             }
 
-            return new AiCompletion($text, $this->name(), $tokens);
+            return new AiCompletion(
+                $text,
+                $this->name(),
+                $tokens,
+                true,
+                null,
+                $apiUrl,
+                $status,
+                $payload,
+                $json,
+                $model,
+            );
         } catch (\Throwable $e) {
-            return AiCompletion::failed($this->name(), $e->getMessage());
+            return AiCompletion::failed(
+                $this->name(),
+                $e->getMessage(),
+                $apiUrl,
+                null,
+                $payload,
+                null,
+                $model,
+            );
         }
     }
 }

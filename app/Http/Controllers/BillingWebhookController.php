@@ -7,86 +7,12 @@ use App\Models\Workspace;
 use App\Services\Billing\BillingService;
 use App\Services\Billing\CreditRechargeService;
 use App\Services\Billing\PlanCatalog;
+use App\Services\Billing\RazorpayClient;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
 class BillingWebhookController extends Controller
 {
-    public function cashfree(
-        Request $request,
-        BillingService $billing,
-        CreditRechargeService $recharges,
-        \App\Services\Billing\CashfreeClient $cashfree
-    ): Response {
-        $payload = $request->getContent();
-        $signature = $request->header('x-webhook-signature');
-        $timestamp = $request->header('x-webhook-timestamp');
-
-        if (! $cashfree->verifyWebhookSignature($payload, $signature, $timestamp)) {
-            return response('Invalid signature', 400);
-        }
-
-        $event = json_decode($payload, true) ?: [];
-        $type = (string) ($event['type'] ?? $event['event'] ?? '');
-        $data = $event['data'] ?? [];
-
-        $notes = $data['link_notes']
-            ?? $data['order']['order_tags']
-            ?? $data['payment']['payment_tags']
-            ?? $data['order_tags']
-            ?? [];
-
-        // Payment link success payloads vary by API version.
-        if (
-            str_contains(strtoupper($type), 'PAYMENT') && str_contains(strtoupper($type), 'SUCCESS')
-            || in_array($type, ['PAYMENT_SUCCESS_WEBHOOK', 'PAYMENT_LINK_EVENT'], true)
-            || (($data['link']['link_status'] ?? null) === 'PAID')
-            || (($data['payment']['payment_status'] ?? null) === 'SUCCESS')
-        ) {
-            $linkNotes = $data['link']['link_notes'] ?? $notes;
-            if (is_array($linkNotes) && ($linkNotes['type'] ?? '') === 'credit_recharge') {
-                $recharge = CreditRecharge::query()->find((int) ($linkNotes['recharge_id'] ?? 0));
-                if ($recharge) {
-                    $recharges->markPaid(
-                        $recharge,
-                        'cashfree',
-                        $data['payment']['cf_payment_id']
-                            ?? $data['link']['link_id']
-                            ?? $linkNotes['recharge_id']
-                            ?? null
-                    );
-                }
-
-                return response('ok', 200);
-            }
-
-            if (is_array($linkNotes) && ($linkNotes['type'] ?? '') === 'plan_checkout') {
-                $workspaceId = (int) ($linkNotes['workspace_id'] ?? 0);
-                $plan = (string) ($linkNotes['plan'] ?? 'starter');
-                $market = ($linkNotes['market'] ?? '') === PlanCatalog::MARKET_GLOBAL
-                    ? PlanCatalog::MARKET_GLOBAL
-                    : PlanCatalog::MARKET_IN;
-                $interval = PlanCatalog::normalizeInterval($linkNotes['interval'] ?? PlanCatalog::INTERVAL_MONTH);
-                $workspace = Workspace::query()->find($workspaceId);
-                if ($workspace) {
-                    $billing->applyCheckoutSuccess(
-                        $workspace,
-                        $plan,
-                        $market,
-                        'cashfree',
-                        $data['customer_details']['customer_id'] ?? null,
-                        $data['order']['order_id'] ?? $data['link']['link_id'] ?? null,
-                        $interval
-                    );
-                }
-
-                return response('ok', 200);
-            }
-        }
-
-        return response('ok', 200);
-    }
-
     public function stripe(Request $request, BillingService $billing, CreditRechargeService $recharges): Response
     {
         $payload = $request->getContent();
@@ -147,17 +73,17 @@ class BillingWebhookController extends Controller
         return response('ok', 200);
     }
 
-    public function razorpay(Request $request, BillingService $billing, CreditRechargeService $recharges): Response
-    {
+    public function razorpay(
+        Request $request,
+        BillingService $billing,
+        CreditRechargeService $recharges,
+        RazorpayClient $razorpay
+    ): Response {
         $payload = $request->getContent();
-        $secret = config('services.razorpay.webhook_secret');
+        $sig = $request->header('X-Razorpay-Signature', '');
 
-        if (filled($secret)) {
-            $sig = $request->header('X-Razorpay-Signature', '');
-            $expected = hash_hmac('sha256', $payload, $secret);
-            if (! hash_equals($expected, $sig)) {
-                return response('Invalid signature', 400);
-            }
+        if (! $razorpay->verifyWebhookSignature($payload, $sig)) {
+            return response('Invalid signature', 400);
         }
 
         $event = json_decode($payload, true);
@@ -173,6 +99,59 @@ class BillingWebhookController extends Controller
                 $recharge = CreditRecharge::query()->find((int) ($notes['recharge_id'] ?? 0));
                 if ($recharge) {
                     $recharges->markPaid($recharge, 'razorpay', $entity['id'] ?? null);
+                }
+
+                return response('ok', 200);
+            }
+
+            if (($notes['type'] ?? '') === 'plan_checkout') {
+                $billingAccountId = (int) ($notes['billing_account_id'] ?? 0);
+                $workspaceId = (int) ($notes['workspace_id'] ?? 0);
+                $plan = (string) ($notes['plan'] ?? 'starter');
+                $market = ($notes['market'] ?? '') === PlanCatalog::MARKET_GLOBAL
+                    ? PlanCatalog::MARKET_GLOBAL
+                    : PlanCatalog::MARKET_IN;
+                $interval = PlanCatalog::normalizeInterval($notes['interval'] ?? PlanCatalog::INTERVAL_MONTH);
+                $workspace = $workspaceId ? Workspace::query()->find($workspaceId) : null;
+                $account = $billingAccountId
+                    ? \App\Models\BillingAccount::query()->find($billingAccountId)
+                    : null;
+
+                if ($account && $workspace) {
+                    $billing->applyCheckoutSuccess(
+                        $workspace,
+                        $plan,
+                        $market,
+                        'razorpay',
+                        $entity['customer_id'] ?? null,
+                        $entity['id'] ?? null,
+                        $interval,
+                        $account,
+                        $account->user,
+                        (float) ($entity['amount_paid'] ?? 0),
+                    );
+                } elseif ($workspace) {
+                    $billing->applyCheckoutSuccess(
+                        $workspace,
+                        $plan,
+                        $market,
+                        'razorpay',
+                        $entity['customer_id'] ?? null,
+                        $entity['id'] ?? null,
+                        $interval
+                    );
+                } elseif ($account) {
+                    $billing->applyAccountCheckoutSuccess(
+                        $account,
+                        $plan,
+                        $market,
+                        'razorpay',
+                        $entity['customer_id'] ?? null,
+                        $entity['id'] ?? null,
+                        $interval,
+                        null,
+                        (float) ($entity['amount_paid'] ?? 0),
+                    );
                 }
 
                 return response('ok', 200);
