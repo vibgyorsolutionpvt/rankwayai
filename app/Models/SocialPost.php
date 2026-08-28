@@ -65,6 +65,14 @@ class SocialPost extends Model
     public function toLibraryArray(): array
     {
         $publisher = app(\App\Services\Social\SocialPublisherService::class);
+        $analytics = app(\App\Services\Social\SocialPostAnalyticsService::class);
+
+        $publishedLogs = SocialPublishLog::query()
+            ->where('social_post_id', $this->id)
+            ->where('status', 'published')
+            ->orderByDesc('id')
+            ->get()
+            ->unique('platform');
 
         return [
             'id' => $this->id,
@@ -88,6 +96,7 @@ class SocialPost extends Model
             'failed_platforms' => $publisher->failedPlatforms($this),
             'has_publish_failures' => $publisher->hasPublishFailures($this),
             'platform_statuses' => $publisher->platformStatuses($this),
+            'engagement' => $analytics->aggregateLogs($publishedLogs),
             'calendar_day' => $this->scheduled_at?->toDateString()
                 ?: $this->published_at?->toDateString()
                 ?: $this->created_at?->toDateString(),

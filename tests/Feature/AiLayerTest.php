@@ -145,8 +145,9 @@ class AiLayerTest extends TestCase
 
         $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])
+            ->from(route('social.index', ['view' => 'posts']))
             ->delete(route('social.compose.prompt-history.clear'))
-            ->assertRedirect(route('social.index', ['view' => 'compose']));
+            ->assertRedirect(route('social.index', ['view' => 'posts']));
 
         $this->assertSame(
             0,

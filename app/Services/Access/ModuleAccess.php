@@ -146,7 +146,7 @@ class ModuleAccess
     }
 
     /**
-     * @return list<array{key:string,label:string,route:string,match:string,icon:string,tone:string}>
+     * @return list<array{key:string,label:string,route:string,match:string,icon:string,tone:string,params?:array<string, string>}>
      */
     public function navItemsFor(User $user, ?Workspace $workspace): array
     {
@@ -170,6 +170,7 @@ class ModuleAccess
                             'match' => $meta['match'],
                             'icon' => $meta['icon'],
                             'tone' => $meta['tone'],
+                            'params' => $meta['params'] ?? null,
                         ];
                     })
                     ->filter()
@@ -258,6 +259,7 @@ class ModuleAccess
                     'match' => $meta['match'],
                     'icon' => $meta['icon'],
                     'tone' => $meta['tone'],
+                    'params' => $meta['params'] ?? null,
                 ];
             })
             ->filter()

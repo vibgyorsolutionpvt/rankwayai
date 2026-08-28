@@ -11,7 +11,9 @@ use App\Models\SocialComposePromptHistory;
 use App\Models\SocialPost;
 use App\Services\Ai\AiContentService;
 use App\Services\Billing\PlanAccess;
+use App\Services\Integrations\WorkspaceIntegrationService;
 use App\Services\Social\SocialConnectionService;
+use App\Services\Social\SocialPostAnalyticsService;
 use App\Services\Social\SocialPublisherService;
 use App\Support\SocialPlatforms;
 use Illuminate\Http\RedirectResponse;
@@ -26,8 +28,13 @@ class SocialController extends Controller
 {
     use ResolvesWorkspace;
 
-    public function index(Request $request, SocialConnectionService $connections, PlanAccess $plans): Response
-    {
+    public function index(
+        Request $request,
+        SocialConnectionService $connections,
+        PlanAccess $plans,
+        SocialPostAnalyticsService $analytics,
+        WorkspaceIntegrationService $integrations,
+    ): Response {
         $workspace = $this->workspace($request);
 
         $month = $request->query('month', now()->format('Y-m'));
@@ -41,6 +48,19 @@ class SocialController extends Controller
         $view = (string) $request->query('view', 'posts');
         if (! in_array($view, ['posts', 'calendar', 'accounts', 'compose'], true)) {
             $view = 'posts';
+        }
+
+        if (! $request->has('view')) {
+            return redirect()->route('social.index', array_merge(
+                ['view' => 'posts'],
+                array_filter([
+                    'month' => $request->query('month'),
+                    'status' => $request->query('status'),
+                    'platform' => $request->query('platform'),
+                    'q' => $request->query('q'),
+                    'page' => $request->query('page'),
+                ], fn ($value) => $value !== null && $value !== '' && $value !== 'all')
+            ));
         }
 
         $status = (string) $request->query('status', 'all');
@@ -160,6 +180,16 @@ class SocialController extends Controller
                 'token_expires_at' => $a->token_expires_at?->toDateTimeString(),
             ]),
             'connectionModes' => $connections->modes($workspace),
+            'social_providers' => [
+                'meta' => [
+                    'configured' => $integrations->workspaceSocialOAuthReady($workspace, 'meta'),
+                    'settings_url' => route('settings.index', [
+                        'tab' => 'providers',
+                        'category' => 'social',
+                        'configure' => 'meta',
+                    ]),
+                ],
+            ],
             'posts' => $posts,
             'filters' => $filters,
             'mediaOptions' => $mediaOptions,
@@ -184,6 +214,7 @@ class SocialController extends Controller
                 'isLocal' => app()->environment('local'),
                 'simulate' => (bool) config('social.simulate_publish'),
             ],
+            'analytics_permissions' => SocialPostAnalyticsService::requiredScopes(),
             'ai_context' => (function () use ($workspace) {
                 $ai = app(AiContentService::class);
                 $settings = $ai->syncSettingsFromWorkspace($workspace);
@@ -227,6 +258,21 @@ class SocialController extends Controller
                 ->values()
                 ->all(),
         ]);
+    }
+
+    public function syncAnalytics(Request $request, SocialPostAnalyticsService $analytics): RedirectResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+
+        $count = $analytics->syncWorkspace($workspace, 100);
+
+        return back()->with(
+            'success',
+            $count > 0
+                ? "Engagement synced for {$count} published post(s)."
+                : 'No published posts to sync yet — publish live posts first, then refresh.'
+        );
     }
 
     public function composeWithAi(Request $request, AiContentService $ai): RedirectResponse
@@ -290,8 +336,7 @@ class SocialController extends Controller
             )
             ->delete();
 
-        return redirect()
-            ->route('social.index', ['view' => 'compose']);
+        return back();
     }
 
     /**

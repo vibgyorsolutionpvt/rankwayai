@@ -14,9 +14,20 @@ class SocialPublishLog extends Model
         'platform',
         'status',
         'permalink',
+        'external_post_id',
+        'metrics',
+        'metrics_synced_at',
         'error',
         'attempt',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'metrics' => 'array',
+            'metrics_synced_at' => 'datetime',
+        ];
+    }
 
     public function post(): BelongsTo
     {

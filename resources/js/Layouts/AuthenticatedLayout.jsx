@@ -135,11 +135,25 @@ function NavLink({ item, onNavigate }) {
     const active = route().current(item.match);
     const tone = toneStyles[item.tone] || toneStyles.signal;
     const locked = Boolean(item.locked);
+    const href = route(item.routeName, item.routeParams || {});
+
+    const handleClick = (event) => {
+        onNavigate?.();
+
+        const isSocial = item.key === 'social' || item.routeName === 'social.index';
+        if (!isSocial || locked) {
+            return;
+        }
+
+        event.preventDefault();
+        window.location.assign(route('social.index', { view: 'posts' }));
+    };
 
     return (
         <Link
-            href={route(item.routeName)}
-            onClick={onNavigate}
+            href={href}
+            preserveState={item.key === 'social' ? false : undefined}
+            onClick={handleClick}
             title={locked ? 'Paid plan required' : undefined}
             className={
                 'group flex items-center gap-2.5 rounded-md px-2 py-2 text-sm font-semibold transition duration-150 ' +
@@ -195,6 +209,7 @@ export default function AuthenticatedLayout({ header, children }) {
                     key: item.key,
                     label: item.label,
                     routeName: item.route,
+                    routeParams: item.params || {},
                     match: item.match,
                     icon: item.icon,
                     tone: item.tone,
