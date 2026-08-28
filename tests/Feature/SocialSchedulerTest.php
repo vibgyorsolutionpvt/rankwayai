@@ -391,4 +391,68 @@ class SocialSchedulerTest extends TestCase
                 ->where('filters.view', 'calendar')
                 ->has('calendar.days'));
     }
+
+    public function test_posts_queue_puts_todays_scheduled_first_and_filters_by_date(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        app(BillingService::class)->changePlan($workspace, 'starter', 'active');
+
+        $today = now()->setTime(14, 0);
+        $tomorrow = now()->addDay()->setTime(10, 0);
+        $lastWeek = now()->subDays(7)->setTime(9, 0);
+
+        $older = SocialPost::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'title' => 'Tomorrow scheduled',
+            'body' => 'Body',
+            'platforms' => ['instagram'],
+            'status' => 'scheduled',
+            'scheduled_at' => $tomorrow,
+            'created_at' => now()->subHour(),
+        ]);
+
+        $todayPost = SocialPost::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'title' => 'Today scheduled',
+            'body' => 'Body',
+            'platforms' => ['facebook'],
+            'status' => 'scheduled',
+            'scheduled_at' => $today,
+            'created_at' => now()->subHours(2),
+        ]);
+
+        SocialPost::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'title' => 'Last week',
+            'body' => 'Body',
+            'platforms' => ['facebook'],
+            'status' => 'scheduled',
+            'scheduled_at' => $lastWeek,
+            'created_at' => now()->subDays(2),
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('social.index', ['view' => 'posts', 'status' => 'scheduled']))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('posts.data.0.id', $todayPost->id)
+                ->where('posts.data.1.id', $older->id));
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('social.index', [
+                'view' => 'posts',
+                'date_preset' => 'today',
+                'date_field' => 'scheduled',
+            ]))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('posts.data', 1)
+                ->where('posts.data.0.id', $todayPost->id)
+                ->where('filters.date_preset', 'today'));
+    }
 }

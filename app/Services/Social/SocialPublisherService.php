@@ -2,6 +2,7 @@
 
 namespace App\Services\Social;
 
+use App\Jobs\SyncSocialPostEngagementJob;
 use App\Models\SocialAccount;
 use App\Models\SocialPost;
 use App\Models\SocialPublishLog;
@@ -136,6 +137,12 @@ class SocialPublisherService
             'published_at' => $ok || count($permalinks) > 0 ? ($post->published_at ?? now()) : null,
             'failure_reason' => $remainingErrors !== [] ? $this->formatPlatformErrors($remainingErrors) : null,
         ]);
+
+        if (count($permalinks) > 0) {
+            $delay = max(1, (int) config('social.metrics_sync_delay_minutes', 3));
+            SyncSocialPostEngagementJob::dispatch($post->id)
+                ->delay(now()->addMinutes($delay));
+        }
 
         return ['ok' => $ok, 'permalinks' => $permalinks, 'errors' => $remainingErrors];
     }
