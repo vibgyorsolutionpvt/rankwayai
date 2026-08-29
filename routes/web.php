@@ -125,6 +125,7 @@ Route::middleware(['auth', 'verified', 'module'])->group(function () {
     Route::delete('/media/{media}', [MediaLibraryController::class, 'destroy'])->name('media.destroy');
 
     Route::post('/social/analytics/sync', [SocialController::class, 'syncAnalytics'])->name('social.analytics.sync');
+    Route::post('/social/posts/{post}/analytics/sync', [SocialController::class, 'syncPostAnalytics'])->name('social.posts.analytics.sync');
     Route::get('/social', [SocialController::class, 'index'])->name('social.index');
     Route::post('/social/posts', [SocialController::class, 'store'])->name('social.posts.store');
     Route::patch('/social/posts/{post}', [SocialController::class, 'update'])->name('social.posts.update');

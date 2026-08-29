@@ -461,7 +461,7 @@ function EngagementSummary({ engagement, onOpen }) {
     );
 }
 
-function EngagementDetailModal({ post, onClose }) {
+function EngagementDetailModal({ post, onClose, onSync, syncingPlatform }) {
     if (!post?.engagement) {
         return null;
     }
@@ -470,6 +470,7 @@ function EngagementDetailModal({ post, onClose }) {
     const totals = engagementTotals(engagement);
     const rows = engagementPlatformRows(engagement, post);
     const liveLinks = postLiveLinks(post);
+    const hasPending = rows.some((row) => row.metrics?.synced === false);
     const totalCards = [
         { type: 'likes', value: totals.likes, label: 'Total likes' },
         { type: 'comments', value: totals.comments, label: 'Total comments' },
@@ -488,9 +489,17 @@ function EngagementDetailModal({ post, onClose }) {
                 {engagement.synced_at ? (
                     <p className="mt-1 text-xs text-ink-muted">Last synced {engagement.synced_at}</p>
                 ) : null}
-                {liveLinks.length > 0 ? (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                        {liveLinks.map((link) => (
+                <div className="mt-3 flex flex-wrap gap-2">
+                    {hasPending ? (
+                        <SecondaryButton
+                            type="button"
+                            processing={syncingPlatform === 'all'}
+                            onClick={() => onSync?.(post.id, null)}
+                        >
+                            Sync all platforms
+                        </SecondaryButton>
+                    ) : null}
+                    {liveLinks.map((link) => (
                             <a
                                 key={link.platform}
                                 href={link.url}
@@ -506,8 +515,7 @@ function EngagementDetailModal({ post, onClose }) {
                                 <span aria-hidden>↗</span>
                             </a>
                         ))}
-                    </div>
-                ) : null}
+                </div>
             </div>
 
             <div className="px-5 pt-5">
@@ -573,7 +581,20 @@ function EngagementDetailModal({ post, onClose }) {
                                                     Sync pending
                                                 </span>
                                             ) : null}
+                                            {m.synced === false ? (
+                                                <SecondaryButton
+                                                    type="button"
+                                                    className="px-2 py-1 text-[11px]"
+                                                    processing={syncingPlatform === row.platform}
+                                                    onClick={() => onSync?.(post.id, row.platform)}
+                                                >
+                                                    Sync
+                                                </SecondaryButton>
+                                            ) : null}
                                         </div>
+                                        {m.sync_error ? (
+                                            <p className="mb-2 text-[11px] text-rose-600">{m.sync_error}</p>
+                                        ) : null}
                                         {permalink ? (
                                             <a
                                                 href={permalink}
@@ -760,6 +781,21 @@ export default function Index({
         router.post(route('social.analytics.sync'), {}, { preserveScroll: true });
     };
 
+    const [syncingPlatform, setSyncingPlatform] = useState(null);
+
+    const syncPostEngagement = (postId, platform = null) => {
+        const key = platform || 'all';
+        setSyncingPlatform(key);
+        const url =
+            route('social.posts.analytics.sync', postId) +
+            (platform ? `?platform=${encodeURIComponent(platform)}` : '');
+        router.post(url, {}, {
+            preserveScroll: true,
+            only: ['posts'],
+            onFinish: () => setSyncingPlatform(null),
+        });
+    };
+
     const filters = {
         view: parseSocialView(pageUrl),
         status: serverFilters.status || 'all',
@@ -862,6 +898,17 @@ export default function Index({
     const [dateToDraft, setDateToDraft] = useState(filters.date_to || '');
     const [openActionsId, setOpenActionsId] = useState(null);
     const [engagementDetailPost, setEngagementDetailPost] = useState(null);
+
+    useEffect(() => {
+        if (!engagementDetailPost?.id) {
+            return;
+        }
+        const fresh = postRows.find((row) => row.id === engagementDetailPost.id);
+        if (fresh) {
+            setEngagementDetailPost(fresh);
+        }
+    }, [posts]); // eslint-disable-line react-hooks/exhaustive-deps
+
     const [aiPrompt, setAiPrompt] = useState('');
     const [aiOffer, setAiOffer] = useState('');
     const [aiGenerating, setAiGenerating] = useState(false);
@@ -3076,6 +3123,8 @@ export default function Index({
             <EngagementDetailModal
                 post={engagementDetailPost}
                 onClose={() => setEngagementDetailPost(null)}
+                onSync={syncPostEngagement}
+                syncingPlatform={syncingPlatform}
             />
         </AuthenticatedLayout>
     );

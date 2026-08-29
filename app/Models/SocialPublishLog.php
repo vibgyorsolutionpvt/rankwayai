@@ -17,6 +17,7 @@ class SocialPublishLog extends Model
         'external_post_id',
         'metrics',
         'metrics_synced_at',
+        'metrics_sync_error',
         'error',
         'attempt',
     ];

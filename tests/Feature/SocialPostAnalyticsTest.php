@@ -127,6 +127,55 @@ class SocialPostAnalyticsTest extends TestCase
             ->assertSessionHas('success');
     }
 
+    public function test_sync_single_post_analytics_route(): void
+    {
+        $user = User::factory()->create(['email_verified_at' => now()]);
+        $workspace = Workspace::factory()->create();
+        $workspace->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
+        app(BillingService::class)->changePlan($workspace, 'starter', 'active');
+
+        SocialAccount::query()->create([
+            'workspace_id' => $workspace->id,
+            'platform' => 'facebook',
+            'account_name' => 'Page',
+            'account_type' => 'page',
+            'connection_mode' => 'oauth',
+            'external_id' => 'page_1',
+            'access_token' => 'token_fb',
+            'status' => 'connected',
+            'connected_at' => now(),
+        ]);
+
+        $post = SocialPost::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'body' => 'Body',
+            'platforms' => ['facebook'],
+            'status' => 'published',
+        ]);
+
+        SocialPublishLog::query()->create([
+            'workspace_id' => $workspace->id,
+            'social_post_id' => $post->id,
+            'platform' => 'facebook',
+            'status' => 'published',
+            'external_post_id' => 'page_1_post_9',
+        ]);
+
+        Http::fake([
+            'graph.facebook.com/*' => Http::response([
+                'reactions' => ['summary' => ['total_count' => 4]],
+                'comments' => ['summary' => ['total_count' => 1]],
+            ]),
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('social.posts.analytics.sync', $post))
+            ->assertRedirect()
+            ->assertSessionHas('success');
+    }
+
     public function test_required_scopes_include_insights_permissions(): void
     {
         $scopes = SocialPostAnalyticsService::requiredScopes();
@@ -267,7 +316,7 @@ class SocialPostAnalyticsTest extends TestCase
             ]),
         ]);
 
-        $count = app(SocialPostAnalyticsService::class)->syncPost($post);
+        $count = app(SocialPostAnalyticsService::class)->syncPost($post)['synced'];
 
         $this->assertSame(1, $count);
     }
