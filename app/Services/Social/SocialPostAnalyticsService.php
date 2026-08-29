@@ -8,6 +8,7 @@ use App\Models\SocialPublishLog;
 use App\Models\Workspace;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 
 class SocialPostAnalyticsService
 {
@@ -31,15 +32,7 @@ class SocialPostAnalyticsService
 
     public function syncWorkspace(Workspace $workspace, int $limit = 50): int
     {
-        $logs = SocialPublishLog::query()
-            ->where('workspace_id', $workspace->id)
-            ->where('status', 'published')
-            ->whereNotNull('external_post_id')
-            ->whereIn('platform', ['facebook', 'instagram', 'threads'])
-            ->orderByRaw('metrics_synced_at IS NULL DESC')
-            ->orderBy('metrics_synced_at')
-            ->limit($limit)
-            ->get();
+        $logs = $this->publishedLogsQuery($workspace->id)->limit($limit)->get();
 
         $synced = 0;
         foreach ($logs as $log) {
@@ -51,29 +44,64 @@ class SocialPostAnalyticsService
         return $synced;
     }
 
-    public function syncPost(SocialPost $post): int
+    /**
+     * @return array{synced:int, failed:int, message:string}
+     */
+    public function syncPost(SocialPost $post, ?string $onlyPlatform = null): array
     {
         $logs = SocialPublishLog::query()
             ->where('social_post_id', $post->id)
             ->where('status', 'published')
             ->whereNotNull('external_post_id')
             ->whereIn('platform', ['facebook', 'instagram', 'threads'])
+            ->when($onlyPlatform, fn ($q) => $q->where('platform', $onlyPlatform))
             ->orderByRaw('metrics_synced_at IS NULL DESC')
             ->get();
 
+        if ($logs->isEmpty()) {
+            return [
+                'synced' => 0,
+                'failed' => 0,
+                'message' => 'No live publish record to sync for this post.',
+            ];
+        }
+
         $synced = 0;
+        $failed = 0;
+        $errors = [];
+
         foreach ($logs as $log) {
             if ($this->syncLog($log)) {
                 $synced++;
+            } else {
+                $failed++;
+                $fresh = $log->fresh();
+                if (filled($fresh?->metrics_sync_error)) {
+                    $errors[] = ucfirst($log->platform).': '.$fresh->metrics_sync_error;
+                }
             }
         }
 
-        return $synced;
+        if ($synced > 0 && $failed === 0) {
+            $message = $onlyPlatform
+                ? ucfirst($onlyPlatform).' engagement synced.'
+                : "Engagement synced for {$synced} platform(s).";
+        } elseif ($synced > 0) {
+            $message = "Synced {$synced}; {$failed} failed. ".implode(' ', $errors);
+        } else {
+            $message = $errors !== []
+                ? implode(' ', $errors)
+                : 'Could not fetch engagement — reconnect accounts with insights permissions.';
+        }
+
+        return compact('synced', 'failed', 'message');
     }
 
     public function syncLog(SocialPublishLog $log): bool
     {
         if ($log->status !== 'published' || blank($log->external_post_id)) {
+            $log->update(['metrics_sync_error' => 'Missing live post id from Meta.']);
+
             return false;
         }
 
@@ -86,23 +114,28 @@ class SocialPostAnalyticsService
             ->first();
 
         if (! $account || blank($account->access_token)) {
+            $log->update(['metrics_sync_error' => 'No OAuth account connected — reconnect in SMM → Accounts.']);
+
             return false;
         }
 
-        $metrics = match ($log->platform) {
+        $result = match ($log->platform) {
             'facebook' => $this->fetchFacebookMetrics((string) $log->external_post_id, (string) $account->access_token),
             'instagram' => $this->fetchInstagramMetrics((string) $log->external_post_id, (string) $account->access_token),
             'threads' => $this->fetchThreadsMetrics((string) $log->external_post_id, (string) $account->access_token),
-            default => null,
+            default => ['metrics' => null, 'error' => 'Unsupported platform.'],
         };
 
-        if ($metrics === null) {
+        if (($result['metrics'] ?? null) === null) {
+            $log->update(['metrics_sync_error' => $result['error'] ?? 'Meta API returned no metrics.']);
+
             return false;
         }
 
         $log->update([
-            'metrics' => $metrics,
+            'metrics' => $result['metrics'],
             'metrics_synced_at' => now(),
+            'metrics_sync_error' => null,
         ]);
 
         return true;
@@ -116,7 +149,6 @@ class SocialPostAnalyticsService
         $logs = SocialPublishLog::query()
             ->where('social_post_id', $socialPostId)
             ->where('status', 'published')
-            ->whereNotNull('metrics')
             ->get();
 
         return $this->aggregateLogs($logs);
@@ -129,7 +161,7 @@ class SocialPostAnalyticsService
      *   comments:int,
      *   views:int,
      *   synced_at:?string,
-     *   by_platform:array<string, array{likes:int,comments:int,views:int,reposts:int,shares:int}>
+     *   by_platform:array<string, array{likes:int,comments:int,views:int,reposts:int,shares:int,synced:bool,sync_error:?string}>
      * }
      */
     public function aggregateLogs(Collection $logs): array
@@ -152,6 +184,7 @@ class SocialPostAnalyticsService
                 'reposts' => (int) ($m['reposts'] ?? 0),
                 'shares' => (int) ($m['shares'] ?? 0),
                 'synced' => $synced,
+                'sync_error' => filled($log->metrics_sync_error) ? (string) $log->metrics_sync_error : null,
             ];
 
             if ($synced) {
@@ -174,37 +207,87 @@ class SocialPostAnalyticsService
         ];
     }
 
-    /**
-     * @return ?array{likes:int,comments:int,views:int,shares:int,reposts:int,impressions:?int,reach:?int}
-     */
-    private function fetchFacebookMetrics(string $postId, string $token): ?array
+    private function publishedLogsQuery(int $workspaceId)
     {
-        $response = Http::timeout(25)->get(self::GRAPH.'/'.rawurlencode($postId), [
-            'fields' => 'likes.summary(true),comments.summary(true),shares',
+        return SocialPublishLog::query()
+            ->where('workspace_id', $workspaceId)
+            ->where('status', 'published')
+            ->whereNotNull('external_post_id')
+            ->whereIn('platform', ['facebook', 'instagram', 'threads'])
+            ->orderByRaw('metrics_synced_at IS NULL DESC')
+            ->orderBy('metrics_synced_at');
+    }
+
+    /**
+     * @return array{metrics:?array,error:?string}
+     */
+    private function fetchFacebookMetrics(string $postId, string $token): array
+    {
+        $parsed = $this->parseFacebookEngagement(self::GRAPH.'/'.rawurlencode($postId), $token);
+        if ($parsed['metrics'] !== null) {
+            return $parsed;
+        }
+
+        if (! str_contains($postId, '_')) {
+            $look = Http::timeout(25)->get(self::GRAPH.'/'.rawurlencode($postId), [
+                'fields' => 'post_id',
+                'access_token' => $token,
+            ]);
+
+            if ($look->successful() && filled($look->json('post_id'))) {
+                $linked = (string) $look->json('post_id');
+                $parsed = $this->parseFacebookEngagement(self::GRAPH.'/'.rawurlencode($linked), $token);
+                if ($parsed['metrics'] !== null) {
+                    return $parsed;
+                }
+            }
+        }
+
+        return [
+            'metrics' => null,
+            'error' => $parsed['error'] ?? 'Facebook metrics unavailable — reconnect with pages_read_engagement.',
+        ];
+    }
+
+    /**
+     * @return array{metrics:?array,error:?string}
+     */
+    private function parseFacebookEngagement(string $url, string $token): array
+    {
+        $response = Http::timeout(25)->get($url, [
+            'fields' => 'reactions.summary(true),likes.summary(true),comments.summary(true),shares',
             'access_token' => $token,
         ]);
 
         if (! $response->successful()) {
-            return null;
+            return [
+                'metrics' => null,
+                'error' => $this->graphErrorMessage($response->json(), $response->body()),
+            ];
         }
 
         $json = $response->json() ?? [];
 
         return [
-            'likes' => (int) ($json['likes']['summary']['total_count'] ?? 0),
-            'comments' => (int) ($json['comments']['summary']['total_count'] ?? 0),
-            'views' => 0,
-            'shares' => (int) ($json['shares']['count'] ?? 0),
-            'reposts' => 0,
-            'impressions' => null,
-            'reach' => null,
+            'metrics' => [
+                'likes' => (int) ($json['reactions']['summary']['total_count']
+                    ?? $json['likes']['summary']['total_count']
+                    ?? 0),
+                'comments' => (int) ($json['comments']['summary']['total_count'] ?? 0),
+                'views' => 0,
+                'shares' => (int) ($json['shares']['count'] ?? 0),
+                'reposts' => 0,
+                'impressions' => null,
+                'reach' => null,
+            ],
+            'error' => null,
         ];
     }
 
     /**
-     * @return ?array{likes:int,comments:int,views:int,shares:int,reposts:int,impressions:?int,reach:?int}
+     * @return array{metrics:?array,error:?string}
      */
-    private function fetchInstagramMetrics(string $mediaId, string $token): ?array
+    private function fetchInstagramMetrics(string $mediaId, string $token): array
     {
         $media = Http::timeout(25)->get(self::GRAPH.'/'.rawurlencode($mediaId), [
             'fields' => 'like_count,comments_count',
@@ -212,7 +295,10 @@ class SocialPostAnalyticsService
         ]);
 
         if (! $media->successful()) {
-            return null;
+            return [
+                'metrics' => null,
+                'error' => $this->graphErrorMessage($media->json(), $media->body()),
+            ];
         }
 
         $json = $media->json() ?? [];
@@ -244,20 +330,23 @@ class SocialPostAnalyticsService
         }
 
         return [
-            'likes' => (int) ($json['like_count'] ?? 0),
-            'comments' => (int) ($json['comments_count'] ?? 0),
-            'views' => $views,
-            'shares' => 0,
-            'reposts' => 0,
-            'impressions' => $impressions,
-            'reach' => $reach,
+            'metrics' => [
+                'likes' => (int) ($json['like_count'] ?? 0),
+                'comments' => (int) ($json['comments_count'] ?? 0),
+                'views' => $views,
+                'shares' => 0,
+                'reposts' => 0,
+                'impressions' => $impressions,
+                'reach' => $reach,
+            ],
+            'error' => null,
         ];
     }
 
     /**
-     * @return ?array{likes:int,comments:int,views:int,shares:int,reposts:int,impressions:?int,reach:?int}
+     * @return array{metrics:?array,error:?string}
      */
-    private function fetchThreadsMetrics(string $mediaId, string $token): ?array
+    private function fetchThreadsMetrics(string $mediaId, string $token): array
     {
         $response = Http::timeout(25)->get(self::THREADS_GRAPH.'/'.rawurlencode($mediaId).'/insights', [
             'metric' => 'likes,replies,views,reposts,quotes,shares',
@@ -265,7 +354,11 @@ class SocialPostAnalyticsService
         ]);
 
         if (! $response->successful()) {
-            return null;
+            return [
+                'metrics' => null,
+                'error' => $this->graphErrorMessage($response->json(), $response->body())
+                    ?: 'Threads insights failed — reconnect with threads_manage_insights.',
+            ];
         }
 
         $map = [];
@@ -275,13 +368,23 @@ class SocialPostAnalyticsService
         }
 
         return [
-            'likes' => (int) ($map['likes'] ?? 0),
-            'comments' => (int) ($map['replies'] ?? 0),
-            'views' => (int) ($map['views'] ?? 0),
-            'shares' => (int) ($map['shares'] ?? 0),
-            'reposts' => (int) ($map['reposts'] ?? 0),
-            'impressions' => null,
-            'reach' => null,
+            'metrics' => [
+                'likes' => (int) ($map['likes'] ?? 0),
+                'comments' => (int) ($map['replies'] ?? 0),
+                'views' => (int) ($map['views'] ?? 0),
+                'shares' => (int) ($map['shares'] ?? 0),
+                'reposts' => (int) ($map['reposts'] ?? 0),
+                'impressions' => null,
+                'reach' => null,
+            ],
+            'error' => null,
         ];
+    }
+
+    private function graphErrorMessage(?array $json, string $body): string
+    {
+        $message = (string) ($json['error']['message'] ?? '');
+
+        return $message !== '' ? Str::limit($message, 240) : Str::limit($body, 240);
     }
 }

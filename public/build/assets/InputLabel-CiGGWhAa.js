@@ -1,0 +1,1 @@
+import{j as o}from"./app-CR1Sh3jG.js";function i({value:t,className:e="",children:s,...n}){return o.jsx("label",{...n,className:"block text-sm font-semibold text-ink "+e,children:t||s})}export{i as I};

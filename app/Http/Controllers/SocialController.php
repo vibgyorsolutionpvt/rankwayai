@@ -289,6 +289,28 @@ class SocialController extends Controller
         );
     }
 
+    public function syncPostAnalytics(
+        Request $request,
+        SocialPost $post,
+        SocialPostAnalyticsService $analytics
+    ): RedirectResponse {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+        abort_unless($post->workspace_id === $workspace->id, 404);
+
+        $platform = $request->query('platform');
+        if (! in_array($platform, ['facebook', 'instagram', 'threads'], true)) {
+            $platform = null;
+        }
+
+        $result = $analytics->syncPost($post, $platform);
+
+        return back()->with(
+            $result['synced'] > 0 ? 'success' : 'error',
+            $result['message']
+        );
+    }
+
     public function composeWithAi(Request $request, AiContentService $ai): RedirectResponse
     {
         $workspace = $this->workspace($request);
