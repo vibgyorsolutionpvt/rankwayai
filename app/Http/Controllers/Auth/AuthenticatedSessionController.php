@@ -7,6 +7,7 @@ use App\Http\Requests\Auth\LoginRequest;
 use App\Services\Admin\UserSimulator;
 use App\Services\Audit\UserLoginLogger;
 use App\Services\Workspaces\ProvisionClientWorkspace;
+use App\Services\Workspaces\VisibleWorkspaceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -45,8 +46,18 @@ class AuthenticatedSessionController extends Controller
         }
 
         if ($user && ! $user->is_superadmin) {
+            app(VisibleWorkspaceService::class)->pruneSoloPersonalWorkspaces($user);
+            $user = $user->fresh();
             $workspace = $provision->resolveActive($user);
-            $request->session()->put('active_workspace_id', $workspace->id);
+            if ($workspace) {
+                $request->session()->put('active_workspace_id', $workspace->id);
+            } else {
+                $request->session()->forget('active_workspace_id');
+            }
+
+            if (! $workspace) {
+                return redirect()->intended(route('workspaces.index', absolute: false));
+            }
         }
 
         return redirect()->intended(route('home', absolute: false));

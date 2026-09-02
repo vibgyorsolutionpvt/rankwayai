@@ -23,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'plan' => \App\Http\Middleware\EnsurePlanFeature::class,
             'module' => \App\Http\Middleware\EnsureModuleAccess::class,
+            'workspace.setup' => \App\Http\Middleware\EnsureHasWorkspace::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [

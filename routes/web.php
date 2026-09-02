@@ -87,7 +87,7 @@ Route::post('/webhooks/meta/whatsapp/{workspace}', [\App\Http\Controllers\MetaWh
     ->middleware('throttle:180,1')
     ->name('webhooks.meta.whatsapp');
 
-Route::middleware(['auth', 'verified', 'module'])->group(function () {
+Route::middleware(['auth', 'verified', 'workspace.setup', 'module'])->group(function () {
     Route::get('/home', [PlatformAdminController::class, 'home'])->name('home');
     Route::post('/admin/leave-simulation', [PlatformAdminController::class, 'leaveSimulation'])
         ->name('admin.leave-simulation');

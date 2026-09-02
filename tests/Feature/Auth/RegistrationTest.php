@@ -27,10 +27,27 @@ class RegistrationTest extends TestCase
         ]);
 
         $this->assertAuthenticated();
-        $response->assertRedirect(route('home', absolute: false));
+        $response->assertRedirect(route('workspaces.index', absolute: false));
 
         $user = User::query()->where('email', 'test@example.com')->first();
         $this->assertNotNull($user);
-        $this->assertTrue($user->workspaces()->exists());
+        $this->assertFalse($user->workspaces()->exists());
+    }
+
+    public function test_new_user_is_pushed_to_create_workspace_after_register(): void
+    {
+        $user = User::factory()->create(['is_superadmin' => false]);
+
+        $this->actingAs($user)
+            ->get(route('seo.index'))
+            ->assertRedirect(route('workspaces.index'));
+
+        $this->actingAs($user)
+            ->get(route('workspaces.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Workspaces/Index')
+                ->where('onboarding', true)
+                ->has('workspaces', 0));
     }
 }

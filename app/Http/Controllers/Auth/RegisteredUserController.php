@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Services\Workspaces\ProvisionClientWorkspace;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -30,7 +29,7 @@ class RegisteredUserController extends Controller
      *
      * @throws ValidationException
      */
-    public function store(Request $request, ProvisionClientWorkspace $provision): RedirectResponse
+    public function store(Request $request): RedirectResponse
     {
         $request->validate([
             'name' => 'required|string|max:255',
@@ -46,13 +45,10 @@ class RegisteredUserController extends Controller
             'is_active' => true,
         ]);
 
-        $workspace = $provision->for($user);
-        $request->session()->put('active_workspace_id', $workspace->id);
-
         event(new Registered($user));
 
         Auth::login($user);
 
-        return redirect(route('home', absolute: false));
+        return redirect(route('workspaces.index', absolute: false));
     }
 }

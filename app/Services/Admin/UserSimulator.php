@@ -6,17 +6,14 @@ use App\Models\ActivityLog;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Audit\UserLoginLogger;
-use App\Services\Workspaces\ProvisionClientWorkspace;
+use App\Services\Workspaces\VisibleWorkspaceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class UserSimulator
 {
-    public function __construct(
-        private UserLoginLogger $loginLogger,
-        private ProvisionClientWorkspace $provision
-    ) {}
+    public function __construct(private UserLoginLogger $loginLogger) {}
 
     public function isSimulating(Request $request): bool
     {
@@ -44,12 +41,11 @@ class UserSimulator
         Auth::login($target);
         $request->session()->regenerate();
 
-        $workspace = $target->workspaces()->orderBy('name')->first();
-        if (! $workspace && ! $target->is_superadmin) {
-            $workspace = $this->provision->for($target);
-        }
+        $workspace = app(VisibleWorkspaceService::class)->forUser($target->fresh())->first();
         if ($workspace) {
             $request->session()->put('active_workspace_id', $workspace->id);
+        } else {
+            $request->session()->forget('active_workspace_id');
         }
 
         $this->loginLogger->recordLogin(
@@ -66,7 +62,7 @@ class UserSimulator
         ]);
 
         return redirect()
-            ->route('today')
+            ->route($workspace ? 'today' : 'workspaces.index')
             ->with('success', 'Simulating '.$target->name.' — actions are logged.');
     }
 

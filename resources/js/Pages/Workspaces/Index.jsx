@@ -15,7 +15,7 @@ const roleTone = {
     viewer: 'bg-white text-ink-muted border border-line',
 };
 
-export default function Index({ workspaces, activeWorkspace, members, roles }) {
+export default function Index({ workspaces, activeWorkspace, members, roles, onboarding = false }) {
     const { auth } = usePage().props;
     const createForm = useForm({ name: '' });
     const inviteForm = useForm({ email: '', role: 'editor' });
@@ -30,18 +30,18 @@ export default function Index({ workspaces, activeWorkspace, members, roles }) {
             header={
                 <div>
                     <div className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-muted">
-                        Team space
+                        {onboarding ? 'Get started' : 'Team space'}
                     </div>
                     <div className="flex items-center gap-1.5">
                         <h2 className="font-display text-2xl font-bold tracking-tight text-ink">
-                            Workspaces
+                            {onboarding ? 'Create your first workspace' : 'Workspaces'}
                         </h2>
-                        <HelpGuide help={HELP.workspaces} />
+                        {!onboarding ? <HelpGuide help={HELP.workspaces} /> : null}
                     </div>
                 </div>
             }
         >
-            <Head title="Workspaces" />
+            <Head title={onboarding ? 'Create workspace' : 'Workspaces'} />
 
             <div className="atlas-shell space-y-6 stagger">
                     <section className="atlas-panel overflow-hidden">
@@ -61,10 +61,10 @@ export default function Index({ workspaces, activeWorkspace, members, roles }) {
                             {workspaces.length === 0 ? (
                                 <div className="rounded-md border border-dashed border-line bg-mist/50 px-5 py-8 text-center">
                                     <p className="font-display text-xl font-semibold text-ink">
-                                        Create your first workspace
+                                        Welcome — add your brand or company
                                     </p>
                                     <p className="mt-2 text-sm text-ink-muted">
-                                        A company or brand name. You become the owner.
+                                        Pick a workspace name below. You choose how many brands to add — nothing is created from your personal name.
                                     </p>
                                 </div>
                             ) : (
@@ -130,7 +130,10 @@ export default function Index({ workspaces, activeWorkspace, members, roles }) {
                                 }}
                             >
                                 <div>
-                                    <InputLabel htmlFor="name" value="New workspace" />
+                                    <InputLabel
+                                        htmlFor="name"
+                                        value={onboarding ? 'Workspace name' : 'New workspace'}
+                                    />
                                     <TextInput
                                         id="name"
                                         className="mt-1.5 block w-full"
@@ -147,7 +150,7 @@ export default function Index({ workspaces, activeWorkspace, members, roles }) {
                                     />
                                 </div>
                                 <PrimaryButton processing={createForm.processing}>
-                                    Create workspace
+                                    {onboarding ? 'Create workspace and continue' : 'Create workspace'}
                                 </PrimaryButton>
                             </form>
                         </div>

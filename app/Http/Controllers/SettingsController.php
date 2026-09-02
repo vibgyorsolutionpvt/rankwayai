@@ -10,6 +10,7 @@ use App\Services\Access\ModuleAccess;
 use App\Services\Audit\TeamActivityService;
 use App\Services\Billing\BillingService;
 use App\Services\Workspaces\AgencyTeamService;
+use App\Services\Workspaces\VisibleWorkspaceService;
 use App\Services\Integrations\IntegrationCatalog;
 use App\Services\Integrations\WorkspaceIntegrationService;
 use App\Support\NavModules;
@@ -43,10 +44,8 @@ class SettingsController extends Controller
 
         $workspace = $this->workspace($request);
 
-        $workspaces = $request->user()
-            ->workspaces()
-            ->orderBy('name')
-            ->get()
+        $workspaces = app(VisibleWorkspaceService::class)
+            ->forUser($request->user())
             ->map(fn (Workspace $item) => [
                 'id' => $item->id,
                 'name' => $item->name,

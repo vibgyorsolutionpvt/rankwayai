@@ -11,6 +11,8 @@ use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Access\ModuleAccess;
 use App\Services\Billing\PlanAccess;
+use App\Services\Workspaces\ProvisionClientWorkspace;
+use App\Services\Workspaces\VisibleWorkspaceService;
 use App\Support\NavModules;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -24,10 +26,8 @@ class WorkspacePageController extends Controller
 {
     public function index(Request $request): Response
     {
-        $workspaces = $request->user()
-            ->workspaces()
-            ->orderBy('name')
-            ->get()
+        $workspaces = app(VisibleWorkspaceService::class)
+            ->forUser($request->user())
             ->map(fn (Workspace $workspace) => [
                 'id' => $workspace->id,
                 'name' => $workspace->name,
@@ -58,11 +58,12 @@ class WorkspacePageController extends Controller
             'activeWorkspace' => $active,
             'members' => $members,
             'roles' => WorkspaceRole::values(),
+            'onboarding' => $workspaces->isEmpty(),
             'moduleCatalog' => $this->moduleCatalogPayload(app(ModuleAccess::class), $active ? Workspace::query()->find($active['id']) : null),
         ]);
     }
 
-    public function store(StoreWorkspaceRequest $request): RedirectResponse
+    public function store(StoreWorkspaceRequest $request, ProvisionClientWorkspace $provision): RedirectResponse
     {
         $this->authorize('create', Workspace::class);
 
@@ -73,22 +74,15 @@ class WorkspacePageController extends Controller
             ]);
         }
 
-        $workspace = Workspace::create([
-            'name' => $request->validated('name'),
-        ]);
-
-        $workspace->users()->attach($request->user()->id, [
-            'role' => WorkspaceRole::Owner->value,
-        ]);
-
-        ActivityLog::record($workspace, $request->user(), 'workspace.created', [
-            'name' => $workspace->name,
-        ]);
+        $workspace = $provision->createOwned(
+            $request->user(),
+            $request->validated('name')
+        );
 
         $request->session()->put('active_workspace_id', $workspace->id);
 
         return redirect()
-            ->route('settings.index', ['tab' => 'workspace'])
+            ->route('today')
             ->with('success', 'Workspace created');
     }
 

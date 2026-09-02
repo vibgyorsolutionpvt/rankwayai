@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\WorkspaceRole;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Billing\BillingService;
@@ -46,7 +47,9 @@ class PlatformAdminTest extends TestCase
     public function test_superadmin_can_manage_users_and_plans(): void
     {
         $admin = User::factory()->create(['is_superadmin' => true]);
+        $owner = User::factory()->create(['is_superadmin' => false]);
         $workspace = Workspace::factory()->create(['name' => 'Acme Co']);
+        $workspace->users()->attach($owner->id, ['role' => WorkspaceRole::Owner->value]);
 
         $this->actingAs($admin)
             ->get(route('admin.users'))
@@ -69,7 +72,20 @@ class PlatformAdminTest extends TestCase
 
         $created = User::query()->where('email', 'new@example.com')->first();
         $this->assertNotNull($created);
-        $this->assertTrue($created->workspaces()->exists());
+        $this->assertFalse($created->workspaces()->exists());
+
+        $this->actingAs($admin)
+            ->post(route('admin.users.store'), [
+                'name' => 'Client With Brand',
+                'email' => 'brand@example.com',
+                'password' => 'Password1!',
+                'workspace_name' => 'Brand Co',
+            ])
+            ->assertRedirect();
+
+        $withWorkspace = User::query()->where('email', 'brand@example.com')->first();
+        $this->assertNotNull($withWorkspace);
+        $this->assertTrue($withWorkspace->workspaces()->exists());
 
 
         $this->actingAs($admin)
