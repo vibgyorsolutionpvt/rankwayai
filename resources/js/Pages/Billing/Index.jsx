@@ -39,6 +39,8 @@ export default function Index({
     credit_history = [],
     payment_history = [],
     owned_workspaces = [],
+    shared_workspaces = [],
+    is_billing_owner = false,
     history_workspace_filter = null,
     markets = [],
     market = 'in',
@@ -55,14 +57,22 @@ export default function Index({
     usage = null,
     ai_history = null,
 }) {
-    const accountPlanId = account_plan?.plan || subscription.plan || 'free';
+    const accountPlanId = billing_account?.plan || account_plan?.plan || subscription.plan || 'free';
     const coversHere = account_plan?.covers_this_workspace !== false;
     const displayPlan =
-        subscription.plan !== 'free'
-            ? subscription.plan
-            : coversHere && accountPlanId !== 'free'
-              ? accountPlanId
-              : subscription.plan;
+        billing_account?.plan && billing_account.plan !== 'free'
+            ? billing_account.plan
+            : subscription.plan !== 'free'
+              ? subscription.plan
+              : accountPlanId !== 'free' && coversHere
+                ? accountPlanId
+                : 'free';
+    const sharedNames =
+        shared_workspaces.length > 0
+            ? shared_workspaces.map((w) => w.name)
+            : owned_workspaces.length > 0
+              ? owned_workspaces.map((w) => w.name)
+              : [workspace.name];
     const isFree = displayPlan === 'free';
     const freeHighlights =
         plans.find((p) => p.id === 'free')?.highlights ?? [
@@ -193,8 +203,11 @@ export default function Index({
                         <HelpGuide help={HELP.billing} />
                     </div>
                     <p className="mt-1 text-sm text-ink-muted">
-                        One plan and credit wallet for all your workspaces. Active workspace:{' '}
-                        {workspace.name}
+                        Account plan and credits are shared across{' '}
+                        <span className="font-semibold text-ink">{sharedNames.join(' · ')}</span>
+                        {is_billing_owner
+                            ? '. Your whole team on these workspaces uses the same access.'
+                            : '. Managed by the workspace owner’s account.'}
                     </p>
                 </div>
             }
@@ -229,9 +242,11 @@ export default function Index({
                                     {displayPlan}
                                 </div>
                                 <div className="mt-1 text-sm text-ink-muted">
-                                    {account_plan
-                                        ? `${account_plan.workspaces_used || 0}/${account_plan.workspace_limit || 1} workspaces`
-                                        : `${subscription.seats} seats`}{' '}
+                                    {shared_workspaces.length > 0
+                                        ? `${shared_workspaces.length} workspace${shared_workspaces.length === 1 ? '' : 's'} on this plan`
+                                        : account_plan
+                                          ? `${account_plan.workspaces_used || 0}/${account_plan.workspace_limit || 1} workspaces`
+                                          : `${subscription.seats} seats`}{' '}
                                     · {formatMoney(charged, currency)}/
                                     {subInterval === 'year' ? 'yr' : 'mo'}
                                     {market === 'in' ? ' · India' : ' · International'}
@@ -241,16 +256,6 @@ export default function Index({
                                           }`
                                         : ''}
                                 </div>
-                                {account_plan &&
-                                subscription.plan === 'free' &&
-                                accountPlanId !== 'free' &&
-                                coversHere ? (
-                                    <p className="mt-2 text-sm text-signal-strong">
-                                        Covered by your account {accountPlanId} plan
-                                        ({account_plan.workspaces_used}/
-                                        {account_plan.workspace_limit} workspaces).
-                                    </p>
-                                ) : null}
                                 {isFree ? (
                                     <div className="mt-4 grid gap-4 sm:grid-cols-2">
                                         <div>

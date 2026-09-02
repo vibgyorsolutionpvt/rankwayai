@@ -79,4 +79,59 @@ class AgencyTeamTest extends TestCase
                 ->has('agencyTeam.owned_workspaces', 2)
                 ->has('agencyTeam.members', 1));
     }
+
+    public function test_team_member_does_not_see_solo_personal_workspace(): void
+    {
+        $owner = User::factory()->create(['is_superadmin' => false]);
+        $member = User::factory()->create(['name' => 'Priya Gupta', 'is_superadmin' => false]);
+        $personal = Workspace::factory()->create(['name' => 'Vibgyor']);
+        $wsA = Workspace::factory()->create(['name' => 'City Connect']);
+        $wsB = Workspace::factory()->create(['name' => 'Vibgyor Holidays']);
+        $wsC = Workspace::factory()->create(['name' => 'Vibgyor Solution']);
+
+        $personal->users()->attach($member->id, ['role' => WorkspaceRole::Owner->value]);
+        $wsA->users()->attach($owner->id, ['role' => WorkspaceRole::Owner->value]);
+        $wsB->users()->attach($owner->id, ['role' => WorkspaceRole::Owner->value]);
+        $wsC->users()->attach($owner->id, ['role' => WorkspaceRole::Owner->value]);
+        $wsA->users()->attach($member->id, ['role' => WorkspaceRole::Editor->value]);
+        $wsB->users()->attach($member->id, ['role' => WorkspaceRole::Editor->value]);
+        $wsC->users()->attach($member->id, ['role' => WorkspaceRole::Editor->value]);
+
+        $this->actingAs($member)
+            ->withSession(['active_workspace_id' => $wsA->id])
+            ->get(route('settings.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('workspaces', 3)
+                ->where('workspaces.0.name', 'City Connect')
+                ->where('workspaces.1.name', 'Vibgyor Holidays')
+                ->where('workspaces.2.name', 'Vibgyor Solution'));
+    }
+
+    public function test_login_prunes_solo_personal_workspace_for_team_member(): void
+    {
+        $owner = User::factory()->create(['is_superadmin' => false]);
+        $member = User::factory()->create([
+            'email' => 'priya@agency.test',
+            'password' => bcrypt('password'),
+            'is_superadmin' => false,
+        ]);
+        $personal = Workspace::factory()->create(['name' => 'Vibgyor']);
+        $wsA = Workspace::factory()->create(['name' => 'City Connect']);
+        $wsB = Workspace::factory()->create(['name' => 'Vibgyor Holidays']);
+
+        $personal->users()->attach($member->id, ['role' => WorkspaceRole::Owner->value]);
+        $wsA->users()->attach($owner->id, ['role' => WorkspaceRole::Owner->value]);
+        $wsB->users()->attach($owner->id, ['role' => WorkspaceRole::Owner->value]);
+        $wsA->users()->attach($member->id, ['role' => WorkspaceRole::Editor->value]);
+        $wsB->users()->attach($member->id, ['role' => WorkspaceRole::Editor->value]);
+
+        $this->post(route('login'), [
+            'email' => 'priya@agency.test',
+            'password' => 'password',
+        ])->assertRedirect();
+
+        $this->assertFalse($personal->fresh()->hasMember($member));
+        $this->assertTrue($wsA->fresh()->hasMember($member));
+    }
 }

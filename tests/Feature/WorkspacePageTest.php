@@ -18,7 +18,7 @@ class WorkspacePageTest extends TestCase
 
         $this->actingAs($user)
             ->post(route('workspaces.store'), ['name' => 'Acme Co'])
-            ->assertRedirect(route('settings.index', ['tab' => 'workspace']));
+            ->assertRedirect(route('today'));
 
         $this->assertDatabaseHas('workspace_user', [
             'user_id' => $user->id,

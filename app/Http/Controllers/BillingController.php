@@ -87,8 +87,20 @@ class BillingController extends Controller
 
         $creditSnap = $wallet->snapshot($workspace, $subscription);
 
+        $billingUser = $ownerAccount?->user ?? $user;
+        $sharedWorkspaceIds = $accounts->ownedWorkspaceIds($billingUser);
+        $sharedWorkspaces = Workspace::query()
+            ->whereIn('id', $sharedWorkspaceIds)
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->map(fn (Workspace $w) => ['id' => $w->id, 'name' => $w->name])
+            ->values()
+            ->all();
+
         return Inertia::render('Billing/Index', [
             'workspace' => ['id' => $workspace->id, 'name' => $workspace->name],
+            'is_billing_owner' => $ownerAccount && (int) $ownerAccount->user_id === (int) $user->id,
+            'shared_workspaces' => $sharedWorkspaces,
             'billing_account' => [
                 'plan' => $billingAccount->plan,
                 'status' => $billingAccount->status,
@@ -105,7 +117,7 @@ class BillingController extends Controller
                 'status' => $account['status'],
                 'workspace_limit' => $account['limit'],
                 'workspaces_used' => $account['used'],
-                'covers_this_workspace' => in_array((int) $workspace->id, $account['covered_ids'], true),
+                'covers_this_workspace' => $plans->hasUnlockedAccess($workspace),
             ],
             'owned_workspaces' => $ownedWorkspaces,
             'history_workspace_filter' => $historyWorkspaceFilter,

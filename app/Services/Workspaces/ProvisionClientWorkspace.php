@@ -10,21 +10,25 @@ use App\Services\Billing\BillingService;
 use App\Services\Billing\PlanAccess;
 use App\Services\Billing\PlanCatalog;
 use Illuminate\Support\Collection;
+use InvalidArgumentException;
 
 class ProvisionClientWorkspace
 {
-    public function __construct(private BillingService $billing) {}
+    public function __construct(
+        private BillingService $billing,
+        private VisibleWorkspaceService $visibleWorkspaces,
+    ) {}
 
     /**
      * Pick the best workspace to open after login (paid/team workspaces first).
      */
-    public function resolveActive(User $user): Workspace
+    public function resolveActive(User $user): ?Workspace
     {
         /** @var Collection<int, Workspace> $workspaces */
-        $workspaces = $user->workspaces()->get();
+        $workspaces = $this->visibleWorkspaces->forUser($user);
 
         if ($workspaces->isEmpty()) {
-            return $this->for($user);
+            return null;
         }
 
         $plans = app(PlanAccess::class);
@@ -49,20 +53,13 @@ class ProvisionClientWorkspace
     }
 
     /**
-     * Ensure the client has at least one workspace (owner) on a free plan.
+     * Create an owned workspace with free billing (explicit name required).
      */
-    public function for(User $user, ?string $workspaceName = null): Workspace
+    public function createOwned(User $user, string $name): Workspace
     {
-        $existing = $user->workspaces()->orderBy('name')->first();
-        if ($existing) {
-            return $existing;
-        }
-
-        $name = trim((string) $workspaceName);
+        $name = trim($name);
         if ($name === '') {
-            $name = trim($user->name) !== ''
-                ? $user->name."'s workspace"
-                : 'My workspace';
+            throw new InvalidArgumentException('Workspace name is required.');
         }
 
         $workspace = Workspace::query()->create([
@@ -82,10 +79,28 @@ class ProvisionClientWorkspace
             PlanCatalog::INTERVAL_MONTH
         );
 
-        ActivityLog::record($workspace, $user, 'workspace.provisioned', [
+        ActivityLog::record($workspace, $user, 'workspace.created', [
             'name' => $workspace->name,
         ]);
 
         return $workspace;
+    }
+
+    /**
+     * Ensure the client has at least one workspace when an explicit name is provided.
+     */
+    public function for(User $user, ?string $workspaceName = null): Workspace
+    {
+        $existing = $user->workspaces()->orderBy('name')->first();
+        if ($existing) {
+            return $existing;
+        }
+
+        $name = trim((string) $workspaceName);
+        if ($name === '') {
+            throw new InvalidArgumentException('Workspace name is required.');
+        }
+
+        return $this->createOwned($user, $name);
     }
 }

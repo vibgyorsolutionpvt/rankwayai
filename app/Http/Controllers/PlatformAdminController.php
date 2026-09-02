@@ -94,9 +94,15 @@ class PlatformAdminController extends Controller
             'is_active' => true,
         ]);
 
-        $provision->for($user, $data['workspace_name'] ?? null);
+        $workspaceName = trim((string) ($data['workspace_name'] ?? ''));
+        if ($workspaceName !== '') {
+            $provision->createOwned($user, $workspaceName);
+        }
 
-        return back()->with('success', 'User created with a workspace');
+        return back()->with(
+            'success',
+            $workspaceName !== '' ? 'User created with a workspace' : 'User created'
+        );
     }
 
     public function updateUser(Request $request, User $user): RedirectResponse
@@ -480,7 +486,6 @@ class PlatformAdminController extends Controller
     public function home(
         Request $request,
         ModuleAccess $modules,
-        ProvisionClientWorkspace $provision,
         UserSimulator $simulator
     ): RedirectResponse {
         if ($simulator->isSimulating($request)) {
@@ -499,15 +504,18 @@ class PlatformAdminController extends Controller
         $activeId = (int) $request->session()->get('active_workspace_id');
         $workspace = null;
         if ($user) {
+            $visible = app(\App\Services\Workspaces\VisibleWorkspaceService::class)->forUser($user);
             if ($activeId) {
-                $workspace = $user->workspaces()->where('workspaces.id', $activeId)->first();
+                $workspace = $visible->firstWhere('id', $activeId);
             }
-            $workspace ??= $user->workspaces()->orderBy('name')->first();
+            $workspace ??= $visible->first();
 
-            // Legacy accounts created without a tenant — provision on first login home.
-            if (! $workspace) {
-                $workspace = $provision->for($user);
+            if ($workspace) {
                 $request->session()->put('active_workspace_id', $workspace->id);
+            } else {
+                $request->session()->forget('active_workspace_id');
+
+                return redirect()->route('workspaces.index');
             }
         }
 

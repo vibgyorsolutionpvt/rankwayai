@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Concerns;
 
 use App\Models\Workspace;
+use App\Services\Workspaces\VisibleWorkspaceService;
 use Illuminate\Http\Request;
 
 trait ResolvesWorkspace
@@ -23,14 +24,15 @@ trait ResolvesWorkspace
         }
 
         $activeId = (int) $request->session()->get('active_workspace_id');
+        $visible = app(VisibleWorkspaceService::class)->forUser($user);
 
         $workspace = null;
         if ($activeId) {
-            $workspace = $user->workspaces()->where('workspaces.id', $activeId)->first();
+            $workspace = $visible->firstWhere('id', $activeId);
         }
 
         if (! $workspace) {
-            $workspace = $user->workspaces()->orderBy('name')->first();
+            $workspace = $visible->first();
             if ($workspace) {
                 $request->session()->put('active_workspace_id', $workspace->id);
             }

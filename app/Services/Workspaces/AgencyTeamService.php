@@ -14,7 +14,10 @@ use Illuminate\Validation\ValidationException;
 
 class AgencyTeamService
 {
-    public function __construct(private BillingAccountService $billingAccounts) {}
+    public function __construct(
+        private BillingAccountService $billingAccounts,
+        private VisibleWorkspaceService $visibleWorkspaces,
+    ) {}
 
     /**
      * @return Collection<int, Workspace>
@@ -141,6 +144,8 @@ class AgencyTeamService
             }
         }
 
+        $this->visibleWorkspaces->pruneSoloPersonalWorkspaces($user->fresh());
+
         return $user;
     }
 
@@ -194,6 +199,8 @@ class AgencyTeamService
                 ]);
             }
         }
+
+        $this->visibleWorkspaces->pruneSoloPersonalWorkspaces($member->fresh());
     }
 
     /**

@@ -6,6 +6,7 @@ use App\Models\Workspace;
 use App\Services\Access\ModuleAccess;
 use App\Services\Admin\UserSimulator;
 use App\Services\Billing\PlanAccess;
+use App\Services\Workspaces\VisibleWorkspaceService;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -45,9 +46,8 @@ class HandleInertiaRequests extends Middleware
         $plans = app(PlanAccess::class);
 
         if ($user && (! $user->is_superadmin || $simulatingUser)) {
-            $workspaces = $user->workspaces()
-                ->orderBy('name')
-                ->get()
+            $workspaces = app(VisibleWorkspaceService::class)
+                ->forUser($user)
                 ->map(fn (Workspace $workspace) => [
                     'id' => $workspace->id,
                     'name' => $workspace->name,
