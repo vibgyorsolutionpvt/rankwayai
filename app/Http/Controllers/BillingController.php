@@ -37,7 +37,8 @@ class BillingController extends Controller
     ): Response {
         $workspace = $this->workspace($request);
         $user = $request->user();
-        $billingAccount = $billing->account($user);
+        $ownerAccount = $accounts->accountForWorkspace($workspace);
+        $billingAccount = $ownerAccount ?? $billing->account($user);
         $subscription = $billing->subscription($workspace);
         $account = $plans->accountEntitlementForWorkspace($workspace);
         $isAdmin = (bool) $user?->is_superadmin;

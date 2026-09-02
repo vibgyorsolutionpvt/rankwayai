@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
+use App\Services\Admin\UserSimulator;
+use App\Services\Audit\UserLoginLogger;
 use App\Services\Workspaces\ProvisionClientWorkspace;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -28,15 +30,22 @@ class AuthenticatedSessionController extends Controller
     /**
      * Handle an incoming authentication request.
      */
-    public function store(LoginRequest $request, ProvisionClientWorkspace $provision): RedirectResponse
-    {
+    public function store(
+        LoginRequest $request,
+        ProvisionClientWorkspace $provision,
+        UserLoginLogger $loginLogger
+    ): RedirectResponse {
         $request->authenticate();
 
         $request->session()->regenerate();
 
         $user = $request->user();
+        if ($user) {
+            $loginLogger->recordLogin($user, $request);
+        }
+
         if ($user && ! $user->is_superadmin) {
-            $workspace = $provision->for($user);
+            $workspace = $provision->resolveActive($user);
             $request->session()->put('active_workspace_id', $workspace->id);
         }
 
@@ -46,8 +55,17 @@ class AuthenticatedSessionController extends Controller
     /**
      * Destroy an authenticated session.
      */
-    public function destroy(Request $request): RedirectResponse
-    {
+    public function destroy(
+        Request $request,
+        UserSimulator $simulator,
+        UserLoginLogger $loginLogger
+    ): RedirectResponse {
+        if ($simulator->isSimulating($request)) {
+            return $simulator->stop($request);
+        }
+
+        $loginLogger->recordLogout($request);
+
         Auth::guard('web')->logout();
 
         $request->session()->invalidate();

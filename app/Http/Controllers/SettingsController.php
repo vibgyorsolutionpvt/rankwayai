@@ -7,7 +7,9 @@ use App\Http\Controllers\Concerns\ResolvesWorkspace;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Access\ModuleAccess;
+use App\Services\Audit\TeamActivityService;
 use App\Services\Billing\BillingService;
+use App\Services\Workspaces\AgencyTeamService;
 use App\Services\Integrations\IntegrationCatalog;
 use App\Services\Integrations\WorkspaceIntegrationService;
 use App\Support\NavModules;
@@ -25,11 +27,19 @@ class SettingsController extends Controller
         WorkspaceIntegrationService $integrations,
         BillingService $billing,
         ModuleAccess $modules,
+        TeamActivityService $teamActivity,
+        AgencyTeamService $agencyTeam,
     ): Response {
         $tab = $request->string('tab')->toString();
         if (! in_array($tab, ['providers', 'workspace', 'account', 'billing'], true)) {
             $tab = 'providers';
         }
+
+        $historyTab = (string) $request->query('history_tab', 'actions');
+        if (! in_array($historyTab, ['actions', 'logins'], true)) {
+            $historyTab = 'actions';
+        }
+        $historyUserId = (int) $request->query('history_user', 0);
 
         $workspace = $this->workspace($request);
 
@@ -55,9 +65,13 @@ class SettingsController extends Controller
         $members = [];
         $moduleCatalog = null;
         $socialPlatformCatalog = null;
+        $teamHistory = null;
+        $canViewTeamHistory = false;
+        $agencyTeamData = null;
         if ($active) {
             $request->session()->put('active_workspace_id', $active['id']);
             $activeModel = Workspace::query()->findOrFail($active['id']);
+            $canViewTeamHistory = $request->user()->can('manageMembers', $activeModel);
             $members = $activeModel->users()->orderBy('name')->get()->map(fn (User $user) => [
                 'id' => $user->id,
                 'name' => $user->name,
@@ -98,6 +112,24 @@ class SettingsController extends Controller
                     ->values()
                     ->all(),
             ];
+
+            if ($canViewTeamHistory && $tab === 'workspace') {
+                $teamHistory = $teamActivity->forWorkspace(
+                    $activeModel,
+                    $historyUserId > 0 ? $historyUserId : null
+                );
+            }
+
+            $ownedWorkspaces = $agencyTeam->ownedWorkspaces($request->user());
+            if ($ownedWorkspaces->isNotEmpty()) {
+                $agencyTeamData = [
+                    'owned_workspaces' => $ownedWorkspaces->map(fn (Workspace $w) => [
+                        'id' => $w->id,
+                        'name' => $w->name,
+                    ])->values()->all(),
+                    'members' => $agencyTeam->roster($request->user()),
+                ];
+            }
         }
 
         $subscription = $billing->subscription($workspace);
@@ -125,6 +157,13 @@ class SettingsController extends Controller
             'roles' => WorkspaceRole::values(),
             'moduleCatalog' => $moduleCatalog,
             'socialPlatformCatalog' => $socialPlatformCatalog,
+            'canViewTeamHistory' => $canViewTeamHistory,
+            'teamHistory' => $teamHistory,
+            'agencyTeam' => $agencyTeamData,
+            'historyFilters' => [
+                'tab' => $historyTab,
+                'user_id' => $historyUserId > 0 ? $historyUserId : null,
+            ],
             'billing' => [
                 'plan' => $subscription->plan,
                 'seats' => (int) $subscription->seats,

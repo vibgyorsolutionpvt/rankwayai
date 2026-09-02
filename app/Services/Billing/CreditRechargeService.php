@@ -27,7 +27,8 @@ class CreditRechargeService
             return ['ok' => false, 'message' => 'Invalid credit pack.'];
         }
 
-        $account = $this->accounts->account($user);
+        $account = $this->accounts->accountForWorkspace($workspace)
+            ?? $this->accounts->account($user);
 
         $recharge = CreditRecharge::query()->create([
             'workspace_id' => $workspace->id,

@@ -222,6 +222,8 @@ export default function AuthenticatedLayout({ header, children }) {
 
     const homeHref = navItems[0] ? route(navItems[0].routeName) : route('profile.edit');
     const impersonating = Boolean(page.impersonating);
+    const simulatingUser = Boolean(page.simulatingUser);
+    const impersonator = page.impersonator;
 
     return (
         <div className="min-h-screen lg:grid lg:grid-cols-[220px_1fr]">
@@ -246,11 +248,25 @@ export default function AuthenticatedLayout({ header, children }) {
 
                     <div className="mt-auto rounded-md border border-line bg-white/80 p-2.5">
                         <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
-                            {user?.is_superadmin ? (impersonating ? 'Viewing as' : 'Admin') : 'Signed in'}
+                            {simulatingUser
+                                ? 'Simulating'
+                                : user?.is_superadmin
+                                  ? impersonating
+                                      ? 'Viewing as'
+                                      : 'Admin'
+                                  : 'Signed in'}
                         </div>
                         <div className="mt-1 truncate text-sm font-semibold text-ink">{user.name}</div>
                         <div className="truncate text-xs text-ink-muted">{user.email}</div>
-                        {impersonating ? (
+                        {simulatingUser ? (
+                            <button
+                                type="button"
+                                onClick={() => router.post(route('admin.leave-simulation'))}
+                                className="mt-2 w-full rounded-md bg-amber-600 px-2 py-1.5 text-xs font-semibold text-white"
+                            >
+                                Exit simulation
+                            </button>
+                        ) : impersonating ? (
                             <button
                                 type="button"
                                 onClick={() => router.post(route('admin.leave-workspace'))}
@@ -264,7 +280,21 @@ export default function AuthenticatedLayout({ header, children }) {
             </aside>
 
             <div className="flex min-h-screen flex-col">
-                {impersonating ? (
+                {simulatingUser ? (
+                    <div className="flex items-center justify-between gap-3 bg-amber-600 px-4 py-2 text-xs font-semibold text-white sm:px-6">
+                        <span>
+                            User simulator · {user?.name} ({user?.email})
+                            {impersonator ? ` · started by ${impersonator.name}` : ''}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => router.post(route('admin.leave-simulation'))}
+                            className="rounded-md bg-white/15 px-2.5 py-1 transition hover:bg-white/25"
+                        >
+                            Back to admin
+                        </button>
+                    </div>
+                ) : impersonating ? (
                     <div className="flex items-center justify-between gap-3 bg-ink px-4 py-2 text-xs font-semibold text-white sm:px-6">
                         <span>
                             Super admin view · {activeWorkspace?.name || 'Workspace'}

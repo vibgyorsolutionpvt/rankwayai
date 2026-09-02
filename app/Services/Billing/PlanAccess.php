@@ -243,11 +243,11 @@ class PlanAccess
             ->get();
 
         foreach ($owners as $owner) {
-            $ent = $this->accountEntitlementForUser($owner);
-            if (! $this->isPaidAccount($ent['account'] ?? null)) {
-                continue;
+            $account = $this->accounts->account($owner);
+            if ($this->isPaidAccount($account)) {
+                return true;
             }
-            if (in_array((int) $workspace->id, $ent['covered_ids'], true)) {
+            if ((int) $account->topup_credits > 0) {
                 return true;
             }
         }

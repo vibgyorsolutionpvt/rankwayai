@@ -213,7 +213,7 @@ class ModuleAccess
                 ],
                 [
                     'key' => 'admin-activity',
-                    'label' => 'Activity',
+                    'label' => 'Team activity',
                     'route' => 'admin.activity',
                     'match' => 'admin.activity',
                     'icon' => 'today',
