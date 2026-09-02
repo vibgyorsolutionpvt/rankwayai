@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\Workspace;
 use App\Services\Access\ModuleAccess;
+use App\Services\Admin\UserSimulator;
 use App\Services\Billing\PlanAccess;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -37,10 +38,13 @@ class HandleInertiaRequests extends Middleware
         $activeWorkspace = null;
         $navigation = [];
         $plan = null;
+        $simulator = app(UserSimulator::class);
+        $simulatingUser = $simulator->isSimulating($request);
+        $impersonator = $simulatingUser ? $simulator->impersonator($request) : null;
         $modules = app(ModuleAccess::class);
         $plans = app(PlanAccess::class);
 
-        if ($user && ! $user->is_superadmin) {
+        if ($user && (! $user->is_superadmin || $simulatingUser)) {
             $workspaces = $user->workspaces()
                 ->orderBy('name')
                 ->get()
@@ -71,7 +75,7 @@ class HandleInertiaRequests extends Middleware
             if ($activeModel) {
                 $plan = $plans->summary($activeModel);
             }
-        } elseif ($user?->is_superadmin) {
+        } elseif ($user?->is_superadmin && ! $simulatingUser) {
             $impersonateId = (int) $request->session()->get('impersonate_workspace_id');
             if ($impersonateId) {
                 $impersonated = Workspace::query()->find($impersonateId);
@@ -109,6 +113,14 @@ class HandleInertiaRequests extends Middleware
             'workspaces' => $workspaces,
             'activeWorkspace' => $activeWorkspace,
             'impersonating' => (bool) $request->session()->get('impersonate_workspace_id'),
+            'simulatingUser' => $simulatingUser,
+            'impersonator' => $impersonator
+                ? [
+                    'id' => $impersonator->id,
+                    'name' => $impersonator->name,
+                    'email' => $impersonator->email,
+                ]
+                : null,
             'navigation' => $navigation,
             'plan' => $plan,
             'flash' => [

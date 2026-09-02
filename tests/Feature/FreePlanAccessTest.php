@@ -141,8 +141,33 @@ class FreePlanAccessTest extends TestCase
         $third = Workspace::factory()->create(['name' => 'Third Brand']);
         $third->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
 
-        $this->assertFalse($plans->hasUnlockedAccess($third));
-        $this->assertFalse($plans->allows($third, 'seo_apis'));
+        $this->assertTrue($plans->hasUnlockedAccess($third));
+        $this->assertTrue($plans->allows($third, 'seo_apis'));
         $this->assertFalse($plans->canCreateWorkspace($user));
+    }
+
+    public function test_team_member_inherits_owner_central_plan(): void
+    {
+        $owner = User::factory()->create(['is_superadmin' => false]);
+        $member = User::factory()->create(['is_superadmin' => false]);
+
+        $workspace = Workspace::factory()->create(['name' => 'Vibgyor Holidays']);
+        $workspace->users()->attach($owner->id, ['role' => WorkspaceRole::Owner->value]);
+        $workspace->users()->attach($member->id, ['role' => WorkspaceRole::Editor->value]);
+        app(BillingService::class)->changePlan($workspace, 'starter', 'active');
+
+        $plans = app(PlanAccess::class);
+        $this->assertTrue($plans->hasUnlockedAccess($workspace));
+        $this->assertTrue($plans->allows($workspace, 'social_publish'));
+
+        $access = app(\App\Services\Access\ModuleAccess::class);
+        $this->assertTrue($access->canAccess($member, $workspace, 'social'));
+        $this->assertTrue($access->canAccess($member, $workspace, 'today'));
+
+        $this->actingAs($member)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('today'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->component('Today/Index'));
     }
 }

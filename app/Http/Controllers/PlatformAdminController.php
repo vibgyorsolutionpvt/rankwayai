@@ -6,12 +6,15 @@ use App\Models\ActivityLog;
 use App\Models\CreditRecharge;
 use App\Models\PlatformSetting;
 use App\Models\User;
+use App\Models\UserLoginLog;
 use App\Models\Workspace;
 use App\Models\WorkspaceSubscription;
 use App\Services\Access\ModuleAccess;
+use App\Services\Admin\UserSimulator;
 use App\Services\Billing\BillingService;
 use App\Services\Billing\PlanCatalog;
 use App\Services\Workspaces\ProvisionClientWorkspace;
+use App\Support\ActivityLabels;
 use App\Support\NavModules;
 use App\Support\SocialPlatforms;
 use Illuminate\Http\RedirectResponse;
@@ -129,6 +132,16 @@ class PlatformAdminController extends Controller
         $user->save();
 
         return back()->with('success', 'User updated');
+    }
+
+    public function simulateUser(Request $request, User $user, UserSimulator $simulator): RedirectResponse
+    {
+        return $simulator->start($request, $user);
+    }
+
+    public function leaveSimulation(Request $request, UserSimulator $simulator): RedirectResponse
+    {
+        return $simulator->stop($request);
     }
 
     public function workspaces(Request $request): Response
@@ -277,9 +290,15 @@ class PlatformAdminController extends Controller
     public function activity(Request $request): Response
     {
         $q = trim((string) $request->query('q', ''));
+        $tab = (string) $request->query('tab', 'actions');
+        if (! in_array($tab, ['actions', 'logins'], true)) {
+            $tab = 'actions';
+        }
+        $userId = (int) $request->query('user_id', 0);
 
         $logs = ActivityLog::query()
             ->with(['user:id,name,email', 'workspace:id,name,slug'])
+            ->when($userId > 0, fn ($query) => $query->where('user_id', $userId))
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($builder) use ($q) {
                     $builder
@@ -289,11 +308,12 @@ class PlatformAdminController extends Controller
                 });
             })
             ->orderByDesc('id')
-            ->paginate(40)
+            ->paginate(40, ['*'], 'actions_page')
             ->withQueryString()
             ->through(fn (ActivityLog $log) => [
                 'id' => $log->id,
                 'action' => $log->action,
+                'label' => ActivityLabels::forAction($log->action),
                 'user' => $log->user?->name,
                 'email' => $log->user?->email,
                 'workspace' => $log->workspace?->name,
@@ -301,10 +321,40 @@ class PlatformAdminController extends Controller
                 'created_at' => $log->created_at?->toDateTimeString(),
             ]);
 
+        $loginLogs = UserLoginLog::query()
+            ->with(['user:id,name,email', 'simulator:id,name,email'])
+            ->when($userId > 0, fn ($query) => $query->where('user_id', $userId))
+            ->when($q !== '', function ($query) use ($q) {
+                $query->where(function ($builder) use ($q) {
+                    $builder
+                        ->where('ip_address', 'like', '%'.$q.'%')
+                        ->orWhereHas('user', fn ($u) => $u->where('email', 'like', '%'.$q.'%')->orWhere('name', 'like', '%'.$q.'%'));
+                });
+            })
+            ->orderByDesc('logged_in_at')
+            ->paginate(40, ['*'], 'logins_page')
+            ->withQueryString()
+            ->through(fn (UserLoginLog $log) => [
+                'id' => $log->id,
+                'user' => $log->user?->name,
+                'email' => $log->user?->email,
+                'ip_address' => $log->ip_address,
+                'channel' => $log->channel,
+                'simulated' => (bool) $log->simulated,
+                'simulated_by' => $log->simulator?->name,
+                'logged_in_at' => $log->logged_in_at?->toDateTimeString(),
+                'logged_out_at' => $log->logged_out_at?->toDateTimeString(),
+            ]);
+
         return Inertia::render('Admin/Activity', [
             'stats' => $this->stats(),
             'logs' => $logs,
-            'filters' => ['q' => $q],
+            'loginLogs' => $loginLogs,
+            'filters' => [
+                'q' => $q,
+                'tab' => $tab,
+                'user_id' => $userId > 0 ? $userId : null,
+            ],
         ]);
     }
 
@@ -427,8 +477,16 @@ class PlatformAdminController extends Controller
         );
     }
 
-    public function home(Request $request, ModuleAccess $modules, ProvisionClientWorkspace $provision): RedirectResponse
-    {
+    public function home(
+        Request $request,
+        ModuleAccess $modules,
+        ProvisionClientWorkspace $provision,
+        UserSimulator $simulator
+    ): RedirectResponse {
+        if ($simulator->isSimulating($request)) {
+            return redirect()->route('today');
+        }
+
         if ($request->user()?->is_superadmin) {
             if ($request->session()->get('impersonate_workspace_id')) {
                 return redirect()->route('today');

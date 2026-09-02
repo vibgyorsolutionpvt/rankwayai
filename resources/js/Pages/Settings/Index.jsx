@@ -2,6 +2,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import HelpGuide, { HELP } from '@/Components/HelpGuide';
 import PrimaryButton from '@/Components/PrimaryButton';
 import ProvidersPanel from '@/Pages/Settings/ProvidersPanel';
+import AgencyTeamPanel from '@/Pages/Settings/AgencyTeamPanel';
 import WorkspacePanel from '@/Pages/Settings/WorkspacePanel';
 import { Head, router } from '@inertiajs/react';
 
@@ -36,6 +37,10 @@ export default function Index({
     roles = [],
     moduleCatalog = null,
     socialPlatformCatalog = null,
+    canViewTeamHistory = false,
+    teamHistory = null,
+    agencyTeam = null,
+    historyFilters = {},
     billing = {},
     account = {},
 }) {
@@ -108,14 +113,22 @@ export default function Index({
                 ) : null}
 
                 {tab === 'workspace' ? (
-                    <WorkspacePanel
+                    <div className="space-y-4">
+                        {agencyTeam ? (
+                            <AgencyTeamPanel agencyTeam={agencyTeam} roles={roles} />
+                        ) : null}
+                        <WorkspacePanel
                         workspaces={workspaces}
                         activeWorkspace={activeWorkspace}
                         members={members}
                         roles={roles}
                         moduleCatalog={moduleCatalog}
                         socialPlatformCatalog={socialPlatformCatalog}
+                        canViewTeamHistory={canViewTeamHistory}
+                        teamHistory={teamHistory}
+                        historyFilters={historyFilters}
                     />
+                    </div>
                 ) : null}
 
                 {tab === 'account' ? (

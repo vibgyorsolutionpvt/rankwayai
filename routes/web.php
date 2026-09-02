@@ -17,6 +17,7 @@ use App\Http\Controllers\PlatformAdminController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SeoController;
 use App\Http\Controllers\SeoV2Controller;
+use App\Http\Controllers\AccountTeamController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\SocialController;
 use App\Http\Controllers\TodayController;
@@ -88,12 +89,15 @@ Route::post('/webhooks/meta/whatsapp/{workspace}', [\App\Http\Controllers\MetaWh
 
 Route::middleware(['auth', 'verified', 'module'])->group(function () {
     Route::get('/home', [PlatformAdminController::class, 'home'])->name('home');
+    Route::post('/admin/leave-simulation', [PlatformAdminController::class, 'leaveSimulation'])
+        ->name('admin.leave-simulation');
 
     Route::middleware(EnsureSuperAdmin::class)->prefix('admin')->name('admin.')->group(function () {
         Route::get('/', [PlatformAdminController::class, 'dashboard'])->name('dashboard');
         Route::get('/users', [PlatformAdminController::class, 'users'])->name('users');
         Route::post('/users', [PlatformAdminController::class, 'storeUser'])->name('users.store');
         Route::patch('/users/{user}', [PlatformAdminController::class, 'updateUser'])->name('users.update');
+        Route::post('/users/{user}/simulate', [PlatformAdminController::class, 'simulateUser'])->name('users.simulate');
         Route::get('/workspaces', [PlatformAdminController::class, 'workspaces'])->name('workspaces');
         Route::patch('/workspaces/{workspace}', [PlatformAdminController::class, 'updateWorkspace'])->name('workspaces.update');
         Route::post('/workspaces/{workspace}/enter', [PlatformAdminController::class, 'enterWorkspace'])->name('workspaces.enter');
@@ -281,6 +285,8 @@ Route::middleware(['auth', 'verified', 'module'])->group(function () {
         ->name('whatsapp.templates.destroy');
 
     Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
+    Route::post('/account/team/invite', [AccountTeamController::class, 'invite'])->name('account.team.invite');
+    Route::put('/account/team/{user}/workspaces', [AccountTeamController::class, 'syncWorkspaces'])->name('account.team.workspaces');
     Route::redirect('/integrations', '/settings?tab=providers')->name('integrations.index');
     Route::put('/integrations/{provider}', [IntegrationsController::class, 'update'])->name('integrations.update');
     Route::post('/integrations/{provider}/disconnect', [IntegrationsController::class, 'disconnect'])->name('integrations.disconnect');

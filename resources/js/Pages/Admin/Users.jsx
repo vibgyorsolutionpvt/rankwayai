@@ -157,6 +157,7 @@ export default function Users({ stats, users, filters = {} }) {
                                     <th className="px-6 py-3 font-semibold">Joined</th>
                                     <th className="px-6 py-3 font-semibold">Role</th>
                                     <th className="px-6 py-3 font-semibold">Active</th>
+                                    <th className="px-6 py-3 font-semibold">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -202,6 +203,35 @@ export default function Users({ stats, users, filters = {} }) {
                                                     }
                                                 />
                                             )}
+                                        </td>
+                                        <td className="px-6 py-3">
+                                            <div className="flex flex-wrap gap-2">
+                                                {!user.is_superadmin && user.id !== auth.user?.id ? (
+                                                    <SecondaryButton
+                                                        type="button"
+                                                        onClick={() =>
+                                                            router.post(
+                                                                route('admin.users.simulate', user.id),
+                                                            )
+                                                        }
+                                                    >
+                                                        Simulate
+                                                    </SecondaryButton>
+                                                ) : null}
+                                                {!user.is_superadmin ? (
+                                                    <SecondaryButton
+                                                        type="button"
+                                                        onClick={() =>
+                                                            router.get(route('admin.activity'), {
+                                                                user_id: user.id,
+                                                                tab: 'logins',
+                                                            })
+                                                        }
+                                                    >
+                                                        History
+                                                    </SecondaryButton>
+                                                ) : null}
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}

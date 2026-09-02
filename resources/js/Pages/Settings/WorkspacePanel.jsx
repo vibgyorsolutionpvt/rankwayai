@@ -23,6 +23,9 @@ export default function WorkspacePanel({
     roles = [],
     moduleCatalog = null,
     socialPlatformCatalog = null,
+    canViewTeamHistory = false,
+    teamHistory = null,
+    historyFilters = {},
 }) {
     const { auth } = usePage().props;
     const createForm = useForm({ name: '' });
@@ -35,6 +38,20 @@ export default function WorkspacePanel({
     });
     const inviteForm = useForm({ email: '', name: '', role: 'editor' });
     const [editingMemberId, setEditingMemberId] = useState(null);
+    const historyTab = historyFilters.tab || 'actions';
+    const historyUserId = historyFilters.user_id || '';
+
+    const visitHistory = (next = {}) => {
+        router.get(
+            route('settings.index'),
+            {
+                tab: 'workspace',
+                history_tab: next.tab ?? historyTab,
+                history_user: (next.user_id ?? historyUserId) || undefined,
+            },
+            { preserveState: true, replace: true, preserveScroll: true },
+        );
+    };
 
     const canManage =
         activeWorkspace?.role === 'owner' || activeWorkspace?.role === 'admin';
@@ -756,6 +773,163 @@ export default function WorkspacePanel({
                                 );
                             })}
                         </ul>
+                    </div>
+                </section>
+            ) : null}
+
+            {activeWorkspace && canViewTeamHistory && teamHistory ? (
+                <section className="atlas-panel overflow-hidden">
+                    <div className="border-b border-line px-4 py-3.5">
+                        <h3 className="font-display text-base font-bold text-ink">Team activity</h3>
+                        <p className="mt-0.5 text-sm text-ink-muted">
+                            Logins and actions for this workspace’s team members only.
+                        </p>
+                    </div>
+                    <div className="space-y-4 p-4">
+                        <div className="flex flex-wrap items-end gap-3">
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => visitHistory({ tab: 'actions' })}
+                                    className={
+                                        'rounded-md px-3 py-1.5 text-sm font-semibold ' +
+                                        (historyTab === 'actions'
+                                            ? 'bg-ink text-white'
+                                            : 'border border-line text-ink-muted')
+                                    }
+                                >
+                                    Activity
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => visitHistory({ tab: 'logins' })}
+                                    className={
+                                        'rounded-md px-3 py-1.5 text-sm font-semibold ' +
+                                        (historyTab === 'logins'
+                                            ? 'bg-ink text-white'
+                                            : 'border border-line text-ink-muted')
+                                    }
+                                >
+                                    Login history
+                                </button>
+                            </div>
+                            <div className="min-w-[12rem]">
+                                <InputLabel value="Member filter" />
+                                <SelectMenu
+                                    className="mt-1.5"
+                                    value={historyUserId ? String(historyUserId) : ''}
+                                    onChange={(value) =>
+                                        visitHistory({
+                                            user_id: value ? Number(value) : undefined,
+                                        })
+                                    }
+                                    options={[
+                                        { value: '', label: 'All members' },
+                                        ...members.map((member) => ({
+                                            value: String(member.id),
+                                            label: member.name || member.email,
+                                        })),
+                                    ]}
+                                />
+                            </div>
+                        </div>
+
+                        {historyTab === 'logins' ? (
+                            <div className="overflow-x-auto rounded-md border border-line">
+                                <table className="min-w-full text-left text-sm">
+                                    <thead className="bg-mist/80 text-ink-muted">
+                                        <tr>
+                                            <th className="px-3 py-2.5 font-semibold">Signed in</th>
+                                            <th className="px-3 py-2.5 font-semibold">Member</th>
+                                            <th className="px-3 py-2.5 font-semibold">IP</th>
+                                            <th className="px-3 py-2.5 font-semibold">Signed out</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {teamHistory.login_logs.length === 0 ? (
+                                            <tr>
+                                                <td
+                                                    colSpan={4}
+                                                    className="px-3 py-8 text-center text-ink-muted"
+                                                >
+                                                    No login records yet.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            teamHistory.login_logs.map((log) => (
+                                                <tr key={log.id} className="border-t border-line/70">
+                                                    <td className="px-3 py-2.5 whitespace-nowrap text-ink-muted">
+                                                        {log.logged_in_at}
+                                                    </td>
+                                                    <td className="px-3 py-2.5">
+                                                        <div className="font-semibold text-ink">
+                                                            {log.user}
+                                                        </div>
+                                                        <div className="text-xs text-ink-muted">
+                                                            {log.email}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-3 py-2.5 font-mono text-xs text-ink-muted">
+                                                        {log.ip_address || '—'}
+                                                    </td>
+                                                    <td className="px-3 py-2.5 whitespace-nowrap text-ink-muted">
+                                                        {log.logged_out_at || 'Active'}
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : (
+                            <div className="overflow-x-auto rounded-md border border-line">
+                                <table className="min-w-full text-left text-sm">
+                                    <thead className="bg-mist/80 text-ink-muted">
+                                        <tr>
+                                            <th className="px-3 py-2.5 font-semibold">When</th>
+                                            <th className="px-3 py-2.5 font-semibold">Action</th>
+                                            <th className="px-3 py-2.5 font-semibold">Member</th>
+                                            <th className="px-3 py-2.5 font-semibold">Details</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {teamHistory.action_logs.length === 0 ? (
+                                            <tr>
+                                                <td
+                                                    colSpan={4}
+                                                    className="px-3 py-8 text-center text-ink-muted"
+                                                >
+                                                    No activity recorded yet.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            teamHistory.action_logs.map((log) => (
+                                                <tr key={log.id} className="border-t border-line/70 align-top">
+                                                    <td className="px-3 py-2.5 whitespace-nowrap text-ink-muted">
+                                                        {log.created_at}
+                                                    </td>
+                                                    <td className="px-3 py-2.5">
+                                                        <div className="font-semibold text-ink">
+                                                            {log.label}
+                                                        </div>
+                                                        <div className="font-mono text-[10px] text-ink-muted">
+                                                            {log.action}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-3 py-2.5 text-ink-muted">
+                                                        <div>{log.user}</div>
+                                                        <div className="text-xs">{log.email}</div>
+                                                    </td>
+                                                    <td className="px-3 py-2.5 font-mono text-[10px] text-ink-muted">
+                                                        {log.meta ? JSON.stringify(log.meta) : '—'}
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
                     </div>
                 </section>
             ) : null}

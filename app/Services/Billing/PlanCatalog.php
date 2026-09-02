@@ -101,7 +101,7 @@ class PlanCatalog
     }
 
     /**
-     * How many workspaces an account plan may cover.
+     * Max workspaces an account may create (all owned workspaces share the plan).
      */
     public static function workspaceLimit(string $plan): int
     {

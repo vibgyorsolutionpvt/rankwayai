@@ -384,7 +384,7 @@ export default function Index({
                                     </div>
                                     <p className="mt-0.5 text-sm text-ink-muted">
                                         {credits_shared
-                                            ? 'Top-ups go to your account wallet — shared across all covered workspaces.'
+                                            ? 'Top-ups go to your account wallet — shared across all your workspaces.'
                                             : 'Top-ups stay in your wallet, don’t expire with the billing month, and unlock paid modules while balance remains.'}
                                     </p>
                                 </div>
@@ -794,7 +794,7 @@ export default function Index({
                                 </div>
                                 <p className="mt-0.5 text-sm text-ink-muted">
                                     {credits_shared
-                                        ? 'Credit pack purchases for your account (all covered workspaces).'
+                                        ? 'Credit pack purchases for your account (all workspaces).'
                                         : 'Credit pack purchases for this workspace.'}
                                 </p>
                             </div>

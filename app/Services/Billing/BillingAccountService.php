@@ -66,19 +66,26 @@ class BillingAccountService
     }
 
     /**
+     * All owned workspaces share the account plan (central billing).
+     *
      * @return list<int>
      */
     public function coveredWorkspaceIds(BillingAccount $account): array
     {
-        $owned = $this->ownedWorkspaceIds($account->user);
-        $limit = PlanCatalog::workspaceLimit($account->plan);
-
-        return array_slice($owned, 0, max(1, $limit));
+        return $this->ownedWorkspaceIds($account->user);
     }
 
     public function workspaceIsCovered(Workspace $workspace, BillingAccount $account): bool
     {
-        return in_array((int) $workspace->id, $this->coveredWorkspaceIds($account), true);
+        if (! in_array((int) $workspace->id, $this->ownedWorkspaceIds($account->user), true)) {
+            return false;
+        }
+
+        if ($account->plan !== 'free' && ! in_array($account->status, ['cancelled', 'canceled', 'expired'], true)) {
+            return true;
+        }
+
+        return (int) $account->topup_credits > 0;
     }
 
     public function syncWorkspaceSubscriptions(BillingAccount $account): void
