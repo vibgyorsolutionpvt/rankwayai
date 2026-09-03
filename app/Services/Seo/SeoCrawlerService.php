@@ -8,6 +8,7 @@ use App\Models\SeoPage;
 use App\Models\SeoSite;
 use App\Services\Seo\Contracts\JsRenderProvider;
 use App\Services\Seo\Providers\BrowserlessJsRenderProvider;
+use App\Services\Seo\Providers\LocalChromeJsRenderProvider;
 use App\Services\Seo\Providers\NullJsRenderProvider;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
@@ -28,7 +29,7 @@ class SeoCrawlerService
      */
     public function crawl(SeoSite $site, ?int $maxPages = null): array
     {
-        $this->maxPages = $maxPages ?? (($site->crawl_mode ?? 'static') === 'js' ? 30 : 12);
+        $this->maxPages = $maxPages ?? (($site->crawl_mode ?? 'static') === 'js' ? 8 : 12);
 
         $site->update([
             'crawl_status' => 'crawling',
@@ -416,6 +417,11 @@ class SeoCrawlerService
 
     private function jsRenderer(): JsRenderProvider
     {
+        // Prefer free local Chrome; Browserless only if explicitly configured.
+        if (app(LocalChromeJsRenderProvider::class)->configured()) {
+            return app(LocalChromeJsRenderProvider::class);
+        }
+
         if (app(BrowserlessJsRenderProvider::class)->configured()) {
             return app(BrowserlessJsRenderProvider::class);
         }

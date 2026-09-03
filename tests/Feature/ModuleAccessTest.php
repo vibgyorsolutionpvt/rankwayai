@@ -43,6 +43,21 @@ class ModuleAccessTest extends TestCase
 
         $nav = app(ModuleAccess::class)->navItemsFor($client, $workspace);
         $this->assertFalse(collect($nav)->contains(fn ($item) => $item['key'] === 'funnels'));
+
+        foreach (['channels', 'whatsapp', 'crm', 'billing'] as $key) {
+            $this->actingAs($admin)
+                ->patch(route('admin.menus.update', $key), ['enabled' => false])
+                ->assertRedirect();
+        }
+
+        $this->actingAs($client)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('settings.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('navigation', fn ($items) => collect($items)->pluck('key')->intersect([
+                    'channels', 'whatsapp', 'crm', 'funnels', 'billing',
+                ])->isEmpty()));
     }
 
     public function test_workspace_admin_can_limit_modules_and_members(): void

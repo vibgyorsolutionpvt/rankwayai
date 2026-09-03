@@ -13,6 +13,10 @@ class CrawlAndAuditSeoSiteJob implements ShouldQueue
 {
     use Queueable;
 
+    public int $timeout = 600;
+
+    public int $tries = 1;
+
     public function __construct(public int $seoSiteId) {}
 
     public function handle(
@@ -20,6 +24,8 @@ class CrawlAndAuditSeoSiteJob implements ShouldQueue
         SeoAuditEngine $audit,
         SeoTaskGenerator $tasks
     ): void {
+        set_time_limit(0);
+
         $site = SeoSite::query()->with('workspace')->find($this->seoSiteId);
         if (! $site) {
             return;

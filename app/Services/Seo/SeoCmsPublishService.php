@@ -26,12 +26,13 @@ class SeoCmsPublishService
         string $keyword,
         ?int $keywordId = null,
         ?int $userId = null,
+        array $options = [],
     ): SeoContentDraft {
         if (! $this->plans->allows($workspace, 'seo_cms')) {
             throw new RuntimeException($this->plans->denyMessage('seo_cms'));
         }
 
-        $result = $this->ai->writeBlogArticle($workspace, $keyword, $userId);
+        $result = $this->ai->writeBlogArticle($workspace, $keyword, $userId, $options);
         if (! ($result['ok'] ?? false)) {
             throw new RuntimeException($result['message'] ?? 'Could not generate blog article');
         }

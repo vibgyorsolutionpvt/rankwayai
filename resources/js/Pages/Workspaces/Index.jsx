@@ -17,7 +17,6 @@ const roleTone = {
 
 export default function Index({ workspaces, activeWorkspace, members, roles, onboarding = false }) {
     const { auth } = usePage().props;
-    const createForm = useForm({ name: '' });
     const inviteForm = useForm({ email: '', role: 'editor' });
 
     const canManage =
@@ -61,10 +60,11 @@ export default function Index({ workspaces, activeWorkspace, members, roles, onb
                             {workspaces.length === 0 ? (
                                 <div className="rounded-md border border-dashed border-line bg-mist/50 px-5 py-8 text-center">
                                     <p className="font-display text-xl font-semibold text-ink">
-                                        Welcome — add your brand or company
+                                        Welcome — add your website
                                     </p>
                                     <p className="mt-2 text-sm text-ink-muted">
-                                        Pick a workspace name below. You choose how many brands to add — nothing is created from your personal name.
+                                        Use <span className="font-semibold text-ink">Create workspace</span> in the top bar,
+                                        enter your domain, and we will run the first SEO audit.
                                     </p>
                                 </div>
                             ) : (
@@ -119,40 +119,6 @@ export default function Index({ workspaces, activeWorkspace, members, roles, onb
                                     })}
                                 </div>
                             )}
-
-                            <form
-                                className="grid gap-3 rounded-md border border-line bg-mist/40 p-4 sm:grid-cols-[1fr_auto] sm:items-end"
-                                onSubmit={(e) => {
-                                    e.preventDefault();
-                                    createForm.post(route('workspaces.store'), {
-                                        onSuccess: () => createForm.reset(),
-                                    });
-                                }}
-                            >
-                                <div>
-                                    <InputLabel
-                                        htmlFor="name"
-                                        value={onboarding ? 'Workspace name' : 'New workspace'}
-                                    />
-                                    <TextInput
-                                        id="name"
-                                        className="mt-1.5 block w-full"
-                                        value={createForm.data.name}
-                                        onChange={(e) =>
-                                            createForm.setData('name', e.target.value)
-                                        }
-                                        placeholder="Company or brand name"
-                                        required
-                                    />
-                                    <InputError
-                                        className="mt-2"
-                                        message={createForm.errors.name}
-                                    />
-                                </div>
-                                <PrimaryButton processing={createForm.processing}>
-                                    {onboarding ? 'Create workspace and continue' : 'Create workspace'}
-                                </PrimaryButton>
-                            </form>
                         </div>
                     </section>
 

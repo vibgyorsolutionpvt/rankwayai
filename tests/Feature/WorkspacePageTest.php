@@ -17,12 +17,21 @@ class WorkspacePageTest extends TestCase
         $user = User::factory()->create();
 
         $this->actingAs($user)
-            ->post(route('workspaces.store'), ['name' => 'Acme Co'])
-            ->assertRedirect(route('today'));
+            ->post(route('workspaces.store'), ['domain' => 'https://www.acme-co.test'])
+            ->assertRedirect();
 
         $this->assertDatabaseHas('workspace_user', [
             'user_id' => $user->id,
             'role' => WorkspaceRole::Owner->value,
+        ]);
+
+        $this->assertDatabaseHas('workspaces', [
+            'name' => 'acme-co.test',
+            'website' => 'https://acme-co.test',
+        ]);
+
+        $this->assertDatabaseHas('seo_sites', [
+            'domain' => 'acme-co.test',
         ]);
 
         $this->actingAs($user)
@@ -31,7 +40,7 @@ class WorkspacePageTest extends TestCase
             ->assertInertia(fn ($page) => $page
                 ->component('Settings/Index')
                 ->has('workspaces', 1)
-                ->where('workspaces.0.name', 'Acme Co')
+                ->where('workspaces.0.name', 'acme-co.test')
                 ->where('workspaces.0.role', 'owner'));
     }
 

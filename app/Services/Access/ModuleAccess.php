@@ -34,16 +34,16 @@ class ModuleAccess
     /** @return list<string> */
     public function globallyEnabledKeys(): array
     {
-        return Cache::remember('platform_menus.enabled', 30, function () {
-            $this->ensurePlatformRows();
+        // No short-lived cache: admin toggles must hide menus on the next client request.
+        $this->ensurePlatformRows();
 
-            return PlatformMenu::query()
-                ->where('enabled', true)
-                ->pluck('key')
-                ->filter(fn ($key) => in_array($key, NavModules::keys(), true))
-                ->values()
-                ->all();
-        });
+        return PlatformMenu::query()
+            ->where('enabled', true)
+            ->whereIn('key', NavModules::keys())
+            ->orderBy('id')
+            ->pluck('key')
+            ->values()
+            ->all();
     }
 
     public function setPlatformMenu(string $key, bool $enabled): void
@@ -55,6 +55,7 @@ class ModuleAccess
             ['enabled' => $enabled]
         );
 
+        // Drop any legacy cached copies from older deploys.
         Cache::forget('platform_menus.enabled');
     }
 

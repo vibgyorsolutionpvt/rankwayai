@@ -46,7 +46,7 @@ class GeminiProvider implements AiProvider
         ];
 
         try {
-            $response = Http::timeout(25)
+            $response = Http::timeout(60)
                 ->withQueryParameters(['key' => $cfg['key']])
                 ->post($apiUrl, $payload);
 

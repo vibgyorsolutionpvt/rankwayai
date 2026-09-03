@@ -342,16 +342,20 @@ class SocialController extends Controller
             return $redirect->with('error', $result['message'] ?? 'Could not generate caption.');
         }
 
-        SocialComposePromptHistory::remember(
-            $workspace,
-            $request->user()?->id,
-            $prompt,
-            $offer,
-            is_array($result['api'] ?? null) ? $result['api'] : [
-                'provider' => $result['provider'] ?? 'template',
-                'draft' => $result['draft'] ?? null,
-            ],
-        );
+        try {
+            SocialComposePromptHistory::remember(
+                $workspace,
+                $request->user()?->id,
+                $prompt,
+                $offer,
+                is_array($result['api'] ?? null) ? $result['api'] : [
+                    'provider' => $result['provider'] ?? 'template',
+                    'draft' => $result['draft'] ?? null,
+                ],
+            );
+        } catch (\Throwable $e) {
+            report($e);
+        }
 
         return $redirect
             ->with('success', $result['message'])

@@ -1,0 +1,1 @@
+import{r as t,j as a}from"./app-Bja_vRG5.js";const p=t.forwardRef(function({type:s="text",className:u="",isFocused:r=!1,...f},n){const e=t.useRef(null);return t.useImperativeHandle(n,()=>({focus:()=>e.current?.focus()})),t.useEffect(()=>{r&&e.current?.focus()},[r]),a.jsx("input",{...f,type:s,className:"atlas-input "+u,ref:e})});export{p as T};

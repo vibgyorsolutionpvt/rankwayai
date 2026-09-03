@@ -1604,27 +1604,51 @@ STD;
     /**
      * Full SEO blog article (HTML) for CMS drafts.
      *
+     * @param  array{
+     *   audience?:string,
+     *   intent?:string,
+     *   length?:string,
+     *   notes?:string,
+     *   tone?:string
+     * }  $options
      * @return array{ok:bool,message:string,article?:array{title:string,body_html:string,meta_title:string,meta_description:string},cost:float,provider?:string}
      */
-    public function writeBlogArticle(Workspace $workspace, string $topic, ?int $userId = null): array
+    public function writeBlogArticle(Workspace $workspace, string $topic, ?int $userId = null, array $options = []): array
     {
         $settings = $this->settings($workspace);
-        $useLive = $this->shouldUseLive($settings);
-        $topic = trim($topic);
+        $brief = trim($topic);
+        $options = $this->normalizeBlogOptions($options);
 
-        if ($topic === '') {
+        if ($brief === '') {
             return ['ok' => false, 'message' => 'Enter a blog topic or keyword.', 'cost' => 0];
         }
 
-        $providerName = 'template';
-        $article = $this->templateBlogArticle($workspace, $settings, $topic);
+        $subject = $this->extractBlogSubject($brief);
+        if ($this->blogBriefLooksLikeTravel($brief.' '.$subject) && ($options['intent'] ?? 'guide') === 'guide') {
+            $options['intent'] = 'howto';
+        }
+        if ($options['audience'] === '' && $this->blogBriefLooksLikeTravel($brief.' '.$subject)) {
+            $options['audience'] = 'Delhi NCR travellers planning a same-day pilgrimage / leisure trip';
+        }
 
-        if ($useLive) {
-            $live = $this->liveBlogArticle($workspace, $settings, $topic);
+        $liveError = null;
+        $article = null;
+        $providerName = 'template';
+
+        // Interactive write — prefer a real LLM whenever keys exist (ignore template_first).
+        if ($this->router->anyConfigured()) {
+            $live = $this->liveBlogArticle($workspace, $settings, $brief, $subject, $options);
             if ($live) {
                 $article = $live['article'];
                 $providerName = $live['provider'];
+            } else {
+                $liveError = 'LLM returned unusable blog JSON';
             }
+        }
+
+        if ($article === null) {
+            $article = $this->templateBlogArticle($workspace, $settings, $subject, $options);
+            $providerName = 'template';
         }
 
         $cost = $this->router->costFor($providerName);
@@ -1639,19 +1663,109 @@ STD;
             'title' => $article['title'],
             'payload' => array_merge($article, [
                 'provider' => $providerName,
-                'topic' => $topic,
+                'topic' => $brief,
+                'subject' => $subject,
+                'options' => $options,
+                'live_error' => $liveError,
             ]),
             'status' => 'ready',
         ]);
 
-        $this->logUsage($workspace, $userId, 'blog_article', $cost, $providerName, ['topic' => $topic]);
+        $this->logUsage($workspace, $userId, 'blog_article', $cost, $providerName, [
+            'topic' => Str::limit($subject, 120, ''),
+            'intent' => $options['intent'],
+            'length' => $options['length'],
+        ]);
+
+        $message = $providerName === 'template'
+            ? 'Draft ready (template fallback'.($liveError ? ' — AI keys/response failed' : '').'). Review carefully.'
+            : 'Blog article ready via '.$providerName.' — review before publish.';
 
         return [
             'ok' => true,
-            'message' => 'Blog article ready ('.$providerName.')',
+            'message' => $message,
             'article' => $article,
             'cost' => $cost,
             'provider' => $providerName,
+        ];
+    }
+
+    /**
+     * Strip "write a blog about…" / "ek blog likho jisme…" so the model gets the real subject.
+     */
+    public function extractBlogSubject(string $brief): string
+    {
+        $t = trim($brief);
+        if ($t === '') {
+            return '';
+        }
+
+        $patterns = [
+            '/^(please\s+|pls\s+|kindly\s+)?(write|create|generate|draft|make)\s+(me\s+|us\s+)?(a\s+|an\s+|one\s+|ek\s+)?(seo\s+)?(blog|article|post)\s+(post\s+)?(on|about|for|regarding|around|covering)\s+/iu',
+            '/^(ek\s+)?(blog|article|post)\s+(likho|likhna|likh|banao|banaye|write|create)\s*(jisme|jismen|jis\s*me|jiss\s*me|about|on|par|pe)?\s*/iu',
+            '/\b(blog|article)\s+(likho|likhna|write)\s+(jisme|jismen|jis\s*me|about|on)\s+/iu',
+            '/^(i\s+want\s+|mujhe\s+|hum\s+)?(a\s+|an\s+|ek\s+)?(blog|article)\s+(on|about|for|par|pe)\s+/iu',
+        ];
+
+        foreach ($patterns as $pattern) {
+            $next = preg_replace($pattern, '', $t);
+            if (is_string($next) && trim($next) !== '' && mb_strlen(trim($next)) >= 8) {
+                $t = trim($next);
+            }
+        }
+
+        // Drop leftover instruction crumbs without destroying the subject.
+        $t = preg_replace('/\b(jisme|jismen|jis\s*me)\b/iu', ' ', $t) ?? $t;
+        $t = preg_replace('/\b(likho|likhna|banaye|banao)\b/iu', ' ', $t) ?? $t;
+        $t = preg_replace('/\s+/u', ' ', trim($t)) ?? '';
+
+        // Trailing / mid-clause Hindi "ho" from "tour ho by bus"
+        $t = preg_replace('/\b(tour|trip|yatra)\s+ho\b/iu', '$1', $t) ?? $t;
+        $t = preg_replace('/\s+ho\.?$/iu', '', $t) ?? $t;
+        $t = trim($t, " \t\n\r\0\x0B-–—:");
+
+        if ($t === '' || mb_strlen($t) < 8) {
+            return trim($brief);
+        }
+
+        return $t;
+    }
+
+    private function blogBriefLooksLikeTravel(string $text): bool
+    {
+        return (bool) preg_match(
+            '/\b(tour|trip|travel|traveller|traveler|yatra|pilgrim|mathura|vrindavan|goa|manali|shimla|jaipur|agra|rishikesh|haridwar|bus|cab|car|itinerary|same[\s-]?day|1[\s-]?day|one[\s-]?day)\b/iu',
+            $text,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $options
+     * @return array{audience:string,intent:string,length:string,notes:string,tone:string}
+     */
+    private function normalizeBlogOptions(array $options): array
+    {
+        $intent = strtolower(trim((string) ($options['intent'] ?? 'guide')));
+        if (! in_array($intent, ['guide', 'howto', 'listicle', 'comparison', 'local'], true)) {
+            $intent = 'guide';
+        }
+
+        $length = strtolower(trim((string) ($options['length'] ?? 'standard')));
+        if (! in_array($length, ['short', 'standard', 'long'], true)) {
+            $length = 'standard';
+        }
+
+        $tone = strtolower(trim((string) ($options['tone'] ?? '')));
+        if (! in_array($tone, ['', 'hindi', 'english', 'hinglish'], true)) {
+            $tone = '';
+        }
+
+        return [
+            'audience' => Str::limit(trim((string) ($options['audience'] ?? '')), 160, ''),
+            'intent' => $intent,
+            'length' => $length,
+            'notes' => Str::limit(trim((string) ($options['notes'] ?? '')), 1000, ''),
+            'tone' => $tone,
         ];
     }
 
@@ -2342,51 +2456,154 @@ PROMPT;
         return implode(' ', array_slice($tags, 0, 8));
     }
 
-    private function liveBlogArticle(Workspace $workspace, WorkspaceAiSetting $settings, string $topic): ?array
-    {
+    /**
+     * @param  array{audience:string,intent:string,length:string,notes:string,tone:string}  $options
+     */
+    private function liveBlogArticle(
+        Workspace $workspace,
+        WorkspaceAiSetting $settings,
+        string $brief,
+        string $subject,
+        array $options = [],
+    ): ?array {
+        $options = $this->normalizeBlogOptions($options);
         $cta = $workspace->resolveBrandKit()?->default_cta_label ?: 'Get started';
         $contact = collect([
-            $workspace->phone,
-            $workspace->email,
-            $workspace->website,
+            $workspace->resolvedPhone(),
+            $workspace->resolvedEmail(),
+            $workspace->resolvedWebsite(),
         ])->filter()->implode(' · ');
 
-        $toneGuide = match ($settings->tone) {
-            'hindi' => 'Write mainly in Hindi (Devanagari), clear and practical.',
-            'english' => 'Write in English only — professional, friendly, SEO-aware.',
-            default => 'Write in natural Hinglish / English mix suited for Indian readers.',
+        $toneKey = $options['tone'] !== '' ? $options['tone'] : (string) ($settings->tone ?? 'hinglish');
+        $toneGuide = match ($toneKey) {
+            'hindi' => 'Write mainly in clear Hindi (Devanagari). Practical, warm, not slangy.',
+            'english' => 'Write in polished English only — professional, conversational, SEO-aware.',
+            default => 'Write in natural English with light Hinglish only where it helps Indian readers. Prefer clear English for SEO body copy.',
         };
 
-        $system = 'You are an SEO content writer for Indian local businesses. Return ONLY valid JSON with a ready-to-publish blog article.';
-        $user = <<<PROMPT
-Topic / keyword: {$topic}
-Brand: {$workspace->name}
-Industry: {$settings->industry}
-Location: {$settings->location}
-Language: {$toneGuide}
-CTA: {$cta}
-Contact (optional mention near end): {$contact}
+        $wordTarget = match ($options['length']) {
+            'short' => '700–900 words',
+            'long' => '1,600–2,000 words',
+            default => '1,100–1,400 words',
+        };
+        $sectionCount = match ($options['length']) {
+            'short' => '4–5',
+            'long' => '7–9',
+            default => '5–7',
+        };
 
-Return JSON:
+        $isTravel = $this->blogBriefLooksLikeTravel($brief.' '.$subject);
+        $intentGuide = match ($options['intent']) {
+            'howto' => $isTravel
+                ? 'Same-day trip how-to: departure options (bus / traveller / car), timings, route, stops, costs mindset, and return plan.'
+                : 'Format as a step-by-step how-to. Numbered steps where useful. Outcome-first headings.',
+            'listicle' => 'Format as a scannable listicle. Each H2 is one list item with depth.',
+            'comparison' => 'Compare options fairly (e.g. bus vs traveller vs car). Criteria, pros/cons, who should choose what.',
+            'local' => 'Local SEO angle with city/area usefulness and location-specific advice.',
+            default => $isTravel
+                ? 'Practical travel guide with itinerary, transport choices, and decision help.'
+                : 'Authoritative practical guide: teach, clarify, then help the reader take the next step.',
+        };
+
+        $audience = $options['audience'] !== ''
+            ? $options['audience']
+            : ($isTravel
+                ? 'Delhi NCR travellers who want a clear same-day plan'
+                : 'business owners and decision-makers in '.($settings->location ?: 'India'));
+
+        $offerings = $this->resolveBrandOfferings($workspace);
+        $industrySpoken = $this->industrySpokenLabel((string) ($settings->industry ?? ''));
+        $isTravelBrand = (bool) preg_match('/travel|tour|holiday|trip|yatra/i', $industrySpoken.' '.$workspace->name);
+
+        if ($isTravel && ! $isTravelBrand) {
+            $offeringsBlock = 'This brief is a TRAVEL / TRIP article. Do NOT write about IT, software, SLAs, sprints, vendors, or "'.$industrySpoken.'". Write a real trip guide. Brand "'.$workspace->name.'" may appear once at the end as publisher / trip helper only — never as an IT vendor.';
+            $servicesList = 'day trip planning, local travel tips, Delhi NCR departures';
+        } else {
+            $offeringsBlock = $offerings['summary'] !== ''
+                ? $offerings['summary']
+                : 'Use industry “'.($settings->industry ?: 'business').'” and location “'.($settings->location ?: 'India').'”. Do not invent products, prices, SLAs, or awards.';
+            $servicesList = $offerings['services'] !== []
+                ? implode(', ', array_slice($offerings['services'], 0, 12))
+                : ($settings->industry ?: 'core services');
+        }
+
+        $extraNotes = $options['notes'] !== ''
+            ? "Writer notes from the user (follow these):\n{$options['notes']}"
+            : 'No extra writer notes.';
+
+        $website = $workspace->resolvedWebsite() ?: 'not set';
+        $brandCtaRule = ($isTravel && ! $isTravelBrand)
+            ? "Optional soft ending: one short line that {$workspace->name} can help plan the day — no IT/services pitch."
+            : "Mention {$workspace->name} once near the end with soft CTA \"{$cta}\".";
+
+        $system = <<<'SYS'
+You are an elite SEO blog editor — same bar as a strong ChatGPT long-form answer.
+Write ready-to-publish articles. Return ONLY valid JSON. No markdown fences. No preamble.
+Voice: specific, useful, human. Never generic AI fluff.
+CRITICAL: If the user brief is an instruction ("write a blog…", "ek blog likho…"), treat it as instructions ONLY. The article must be ABOUT the subject, never paste those instruction words into title, headings, or body.
+Never invent statistics, awards, prices, or fake reviews.
+SYS;
+
+        $user = <<<PROMPT
+Write one complete blog article.
+
+USER BRIEF (instructions only — NEVER quote/paste this wording into the article):
+{$brief}
+
+ARTICLE SUBJECT (what the post is ABOUT — use this):
+{$subject}
+
+BRAND CONTEXT
+- Brand: {$workspace->name}
+- Website: {$website}
+- Industry label on file: {$industrySpoken}
+- Workspace cities on file: {$settings->location}
+- Audience: {$audience}
+- Article type: {$intentGuide}
+- Length target: {$wordTarget} ({$sectionCount} H2 sections)
+- Language: {$toneGuide}
+- Soft CTA label: {$cta}
+- Contact (optional, only near end if natural): {$contact}
+
+GROUNDING
+{$offeringsBlock}
+Useful names/themes: {$servicesList}
+
+{$extraNotes}
+
+QUALITY BAR
+1) Hook in first 2 sentences about the SUBJECT trip/topic — concrete plan, not a dictionary definition.
+2) Cover real decision questions (for travel: bus vs traveller vs car, start time, route, temples/stops, food, return).
+3) Short paragraphs + bullets for timings/checklist.
+4) FAQ: 3–5 real traveller questions.
+5) {$brandCtaRule}
+6) Forbidden in body/title: "ek blog likho", "write a blog", "scope", "sprint", "vendor", "vanity metrics", "IT Company" (unless the subject is truly about IT).
+
+Return JSON only:
 {
-  "title": "SEO title under 70 chars",
+  "title": "compelling SEO title under 70 chars about the SUBJECT",
   "meta_title": "meta title under 60 chars",
-  "meta_description": "meta description under 155 chars",
+  "meta_description": "benefit-led meta under 155 chars",
   "sections": [
-    {"heading": "H2 heading", "paragraphs": ["paragraph 1", "paragraph 2"]},
-    {"heading": "...", "paragraphs": ["..."]}
+    {
+      "heading": "H2 heading",
+      "paragraphs": ["plain text paragraph", "plain text paragraph"],
+      "bullets": ["optional bullet", "optional bullet"]
+    }
+  ],
+  "faq": [
+    {"q": "question readers actually ask", "a": "clear answer"}
   ]
 }
-
-Rules:
-- 4–6 sections, intro first (can use heading "Introduction" or a stronger hook)
-- Each section: 2–3 short paragraphs, practical and specific to {$settings->location} / {$settings->industry}
-- Mention the brand naturally once near the end with a soft CTA
-- No markdown, no HTML tags inside strings — plain text only
-- Do not invent fake statistics or awards
 PROMPT;
 
-        $completion = $this->router->complete($system, $user, 2200);
+        $maxTokens = match ($options['length']) {
+            'short' => 2500,
+            'long' => 4500,
+            default => 3500,
+        };
+
+        $completion = $this->router->complete($system, $user, $maxTokens);
         if (! $completion->ok) {
             return null;
         }
@@ -2396,7 +2613,13 @@ PROMPT;
             return null;
         }
 
-        $article = $this->normalizeBlogArticlePayload($json, $workspace, $settings, $topic);
+        // Reject outputs that still echo the instruction phrase.
+        $blob = mb_strtolower(($json['title'] ?? '').' '.json_encode($json['sections']));
+        if (str_contains($blob, 'ek blog likho') || str_contains($blob, 'write a blog')) {
+            return null;
+        }
+
+        $article = $this->normalizeBlogArticlePayload($json, $workspace, $settings, $subject);
         if ($article === null) {
             return null;
         }
@@ -2405,62 +2628,155 @@ PROMPT;
     }
 
     /**
+     * @param  array{audience:string,intent:string,length:string,notes:string,tone:string}  $options
      * @return array{title:string,body_html:string,meta_title:string,meta_description:string}
      */
-    private function templateBlogArticle(Workspace $workspace, WorkspaceAiSetting $settings, string $topic): array
-    {
+    private function templateBlogArticle(
+        Workspace $workspace,
+        WorkspaceAiSetting $settings,
+        string $subject,
+        array $options = [],
+    ): array {
+        $options = $this->normalizeBlogOptions($options);
         $brand = $workspace->name;
-        $loc = $settings->location ?: 'India';
-        $industry = $settings->industry ?: 'business';
+        $subject = trim($subject) !== '' ? trim($subject) : 'your topic';
+        $isTravel = $this->blogBriefLooksLikeTravel($subject);
         $cta = $workspace->resolveBrandKit()?->default_cta_label ?: 'Get started';
-        $title = Str::limit($topic.' — practical guide for '.$loc, 70, '');
+        $title = Str::limit(
+            $isTravel
+                ? Str::title(Str::limit($subject, 58, ''))
+                : $subject.' — practical guide',
+            70,
+            '',
+        );
 
-        $sections = [
-            [
-                'heading' => 'Why '.$topic.' matters',
-                'paragraphs' => [
-                    $topic.' is a common search for people looking for reliable '.$industry.' help in '.$loc.'. Clear answers build trust before someone calls you.',
-                    'This guide covers what customers ask most, mistakes to avoid, and how '.$brand.' approaches the work.',
+        if ($isTravel) {
+            $sections = [
+                [
+                    'heading' => 'Who this 1-day plan is for',
+                    'paragraphs' => [
+                        'If you are starting from Delhi NCR and want a same-day Mathura visit without overnight stay, you need timings and transport choice more than generic “travel tips”.',
+                        'This plan covers bus, traveller (tempo), and car options so you can pick based on group size, budget, and how much walking you want at the temples.',
+                    ],
                 ],
-            ],
-            [
-                'heading' => 'What customers usually want',
-                'paragraphs' => [
-                    'People searching for '.$topic.' want practical steps, honest pricing cues, and a local team they can reach quickly.',
-                    'Focus on outcomes: timelines, what is included, and how you support them after the first conversation.',
+                [
+                    'heading' => 'Bus vs traveller vs car',
+                    'paragraphs' => [
+                        'Bus is usually cheapest for solo or pair travellers comfortable with fixed schedules. A traveller suits families/groups who want door-to-door comfort. A car gives the most flexible temple-hopping pace.',
+                    ],
+                    'bullets' => [
+                        'Bus: lowest cost, less flexibility on stops',
+                        'Traveller: shared group comfort, better for 6–12 people',
+                        'Car/cab: fastest decisions on route and return time',
+                    ],
                 ],
-            ],
-            [
-                'heading' => '3 practical tips',
-                'paragraphs' => [
-                    'Start with a clear offer tied to '.$topic.' — one page, one promise, one next step.',
-                    'Use local language and city cues so readers in '.$loc.' know you serve them.',
-                    'End every article with a simple CTA so interested readers can contact '.$brand.' without hunting for details.',
+                [
+                    'heading' => 'Suggested same-day flow',
+                    'paragraphs' => [
+                        'Leave early from Noida / Ghaziabad / Delhi so you reach Mathura with enough time for the main temples and a calm return before late night.',
+                        'Keep the middle of the day for darshan and a simple meal; save buffer time for traffic on the Yamuna Expressway corridor.',
+                    ],
+                    'bullets' => [
+                        'Early start from Delhi NCR',
+                        'Core darshan window late morning to afternoon',
+                        'Return buffer for evening traffic',
+                    ],
                 ],
-            ],
-            [
-                'heading' => 'How '.$brand.' helps',
-                'paragraphs' => [
-                    $brand.' works with '.$industry.' clients who need dependable support around '.$topic.'.',
-                    'Ready to talk? '.$cta.'. Reach out and we will map the next steps for your goals in '.$loc.'.',
+                [
+                    'heading' => 'Packing and common mistakes',
+                    'paragraphs' => [
+                        'Carry water, comfortable footwear, and a light scarf/cover for temple etiquette. Avoid overpacking the day with too many side stops or you will rush darshan.',
+                        'The biggest mistake is starting late and then blaming transport — for a 1-day Mathura trip, departure time decides the whole experience.',
+                    ],
                 ],
-            ],
-        ];
+                [
+                    'heading' => 'Plan the day with '.$brand,
+                    'paragraphs' => [
+                        'Want a clearer pickup point and return window from Noida, Ghaziabad, or Delhi? '.$cta.' and share your group size plus preferred transport — bus, traveller, or car.',
+                    ],
+                ],
+            ];
+            $faq = [
+                [
+                    'q' => 'Can I do Mathura as a 1-day trip from Delhi NCR?',
+                    'a' => 'Yes — if you start early and keep the plan to core temples plus one meal stop, a same-day return is realistic by bus, traveller, or car.',
+                ],
+                [
+                    'q' => 'Which is better: bus, traveller, or car?',
+                    'a' => 'Bus for budget, traveller for groups, car for maximum flexibility on temple timing and return.',
+                ],
+                [
+                    'q' => 'What time should I leave?',
+                    'a' => 'Aim for an early morning departure from Noida / Ghaziabad / Delhi so you are not rushing darshan or driving back too late.',
+                ],
+            ];
+        } else {
+            $loc = $this->primaryLocation($settings->location);
+            $sections = [
+                [
+                    'heading' => 'Why '.$subject.' matters',
+                    'paragraphs' => [
+                        'People searching for '.$subject.' usually want a clear plan, costs/effort expectations, and what to do next — not vague advice.',
+                        'This guide covers the practical checks, common mistakes, and a simple next step with '.$brand.'.',
+                    ],
+                ],
+                [
+                    'heading' => 'What a strong plan includes',
+                    'paragraphs' => [
+                        'Get specific on outcome, timeline, and who does what. Local context for '.$loc.' readers should show up in examples and next steps.',
+                    ],
+                    'bullets' => [
+                        'Clear offer and inclusions',
+                        'Realistic timeline',
+                        'Local support people can reach',
+                    ],
+                ],
+                [
+                    'heading' => 'Practical next steps',
+                    'paragraphs' => [
+                        'Write down the goal, constraints, and deadline first. Then choose the smallest useful version of '.$subject.' you can execute this week.',
+                    ],
+                ],
+                [
+                    'heading' => 'How '.$brand.' helps',
+                    'paragraphs' => [
+                        $brand.' can help you turn '.$subject.' into an actionable plan. '.$cta.'.',
+                    ],
+                ],
+            ];
+            $faq = [
+                [
+                    'q' => 'Where should I start with '.$subject.'?',
+                    'a' => 'Start with the outcome you want, your constraints, and one next action you can finish this week.',
+                ],
+                [
+                    'q' => 'Do I need local help in '.$loc.'?',
+                    'a' => 'Local coordination often speeds decisions and reduces back-and-forth when the work needs on-ground clarity.',
+                ],
+                [
+                    'q' => 'What should I prepare before reaching out?',
+                    'a' => 'Goal, budget range, timeline, and any must-have constraints — that alone removes most early confusion.',
+                ],
+            ];
+        }
 
         return $this->normalizeBlogArticlePayload([
             'title' => $title,
             'meta_title' => Str::limit($title, 60, ''),
             'meta_description' => Str::limit(
-                $topic.' — practical guide for '.$industry.' in '.$loc.' from '.$brand.'.',
+                $isTravel
+                    ? 'Plan a same-day Mathura trip from Delhi NCR by bus, traveller, or car — timings, tips, and a clear return plan.'
+                    : $subject.' — practical guide from '.$brand.'.',
                 155,
                 ''
             ),
             'sections' => $sections,
-        ], $workspace, $settings, $topic) ?? [
+            'faq' => $faq,
+        ], $workspace, $settings, $subject) ?? [
             'title' => $title,
-            'body_html' => '<p>'.e($topic).'</p>',
+            'body_html' => '<p>'.e($subject).'</p>',
             'meta_title' => Str::limit($title, 60, ''),
-            'meta_description' => Str::limit($topic, 155, ''),
+            'meta_description' => Str::limit($subject, 155, ''),
         ];
     }
 
@@ -2521,6 +2837,23 @@ PROMPT;
                     $html .= '<li>'.e((string) $bullet).'</li>';
                 }
                 $html .= '</ul>';
+            }
+        }
+
+        $faq = $payload['faq'] ?? [];
+        if (is_array($faq) && $faq !== []) {
+            $html .= '<h2>Frequently asked questions</h2>';
+            foreach ($faq as $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $q = trim((string) ($item['q'] ?? $item['question'] ?? ''));
+                $a = trim((string) ($item['a'] ?? $item['answer'] ?? ''));
+                if ($q === '' || $a === '') {
+                    continue;
+                }
+                $html .= '<h3>'.e($q).'</h3>';
+                $html .= '<p>'.e($a).'</p>';
             }
         }
 

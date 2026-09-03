@@ -14,7 +14,7 @@ class StoreWorkspaceRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'max:255'],
+            'domain' => ['required', 'string', 'max:255'],
         ];
     }
 }

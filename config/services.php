@@ -84,6 +84,12 @@ return [
         'url' => env('BROWSERLESS_URL'),
     ],
 
+    // Free local headless Chrome for JS crawl (preferred over Browserless).
+    'chrome' => [
+        'binary' => env('CHROME_BINARY'),
+        'virtual_time_budget_ms' => (int) env('CHROME_VIRTUAL_TIME_BUDGET_MS', 8000),
+    ],
+
     // Askefy HTTP API (pages + posts) — Sanctum Bearer tokens
     'askefy' => [
         'base_url' => env('ASKEFY_BASE_URL', ''),

@@ -301,10 +301,32 @@ class PlatformAdminController extends Controller
             $tab = 'actions';
         }
         $userId = (int) $request->query('user_id', 0);
+        $workspaceId = (int) $request->query('workspace_id', 0);
+        $group = (string) $request->query('group', 'all');
+        if (! in_array($group, ['all', 'seo', 'social', 'blog', 'media', 'brand', 'billing', 'workspace', 'settings', 'admin', 'other'], true)) {
+            $group = 'all';
+        }
+        $period = (string) $request->query('period', 'all');
+        if (! in_array($period, ['all', 'today', '7d', '30d'], true)) {
+            $period = 'all';
+        }
+        $kind = (string) $request->query('kind', 'all');
+        if (! in_array($kind, ['all', 'live', 'simulated'], true)) {
+            $kind = 'all';
+        }
+        $since = match ($period) {
+            'today' => now()->startOfDay(),
+            '7d' => now()->subDays(7),
+            '30d' => now()->subDays(30),
+            default => null,
+        };
 
         $logs = ActivityLog::query()
             ->with(['user:id,name,email', 'workspace:id,name,slug'])
             ->when($userId > 0, fn ($query) => $query->where('user_id', $userId))
+            ->when($workspaceId > 0, fn ($query) => $query->where('workspace_id', $workspaceId))
+            ->when($group !== 'all', fn ($query) => ActivityLabels::applyGroupFilter($query, $group))
+            ->when($since, fn ($query) => $query->where('created_at', '>=', $since))
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($builder) use ($q) {
                     $builder
@@ -320,9 +342,12 @@ class PlatformAdminController extends Controller
                 'id' => $log->id,
                 'action' => $log->action,
                 'label' => ActivityLabels::forAction($log->action),
+                'group' => ActivityLabels::group($log->action),
                 'user' => $log->user?->name,
                 'email' => $log->user?->email,
+                'user_id' => $log->user_id,
                 'workspace' => $log->workspace?->name,
+                'workspace_id' => $log->workspace_id,
                 'meta' => $log->meta,
                 'created_at' => $log->created_at?->toDateTimeString(),
             ]);
@@ -330,6 +355,9 @@ class PlatformAdminController extends Controller
         $loginLogs = UserLoginLog::query()
             ->with(['user:id,name,email', 'simulator:id,name,email'])
             ->when($userId > 0, fn ($query) => $query->where('user_id', $userId))
+            ->when($kind === 'simulated', fn ($query) => $query->where('simulated', true))
+            ->when($kind === 'live', fn ($query) => $query->where('simulated', false))
+            ->when($since, fn ($query) => $query->where('logged_in_at', '>=', $since))
             ->when($q !== '', function ($query) use ($q) {
                 $query->where(function ($builder) use ($q) {
                     $builder
@@ -344,6 +372,7 @@ class PlatformAdminController extends Controller
                 'id' => $log->id,
                 'user' => $log->user?->name,
                 'email' => $log->user?->email,
+                'user_id' => $log->user_id,
                 'ip_address' => $log->ip_address,
                 'channel' => $log->channel,
                 'simulated' => (bool) $log->simulated,
@@ -352,14 +381,54 @@ class PlatformAdminController extends Controller
                 'logged_out_at' => $log->logged_out_at?->toDateTimeString(),
             ]);
 
+        $actorIds = ActivityLog::query()
+            ->whereNotNull('user_id')
+            ->orderByDesc('id')
+            ->limit(400)
+            ->pluck('user_id')
+            ->merge(
+                UserLoginLog::query()
+                    ->whereNotNull('user_id')
+                    ->orderByDesc('id')
+                    ->limit(200)
+                    ->pluck('user_id')
+            )
+            ->when($userId > 0, fn ($ids) => $ids->push($userId))
+            ->unique()
+            ->filter()
+            ->values();
+
         return Inertia::render('Admin/Activity', [
             'stats' => $this->stats(),
             'logs' => $logs,
             'loginLogs' => $loginLogs,
+            'filterOptions' => [
+                'users' => User::query()
+                    ->whereIn('id', $actorIds)
+                    ->orderBy('name')
+                    ->get(['id', 'name', 'email'])
+                    ->map(fn (User $user) => [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                    ]),
+                'workspaces' => Workspace::query()
+                    ->orderBy('name')
+                    ->limit(200)
+                    ->get(['id', 'name'])
+                    ->map(fn (Workspace $workspace) => [
+                        'id' => $workspace->id,
+                        'name' => $workspace->name,
+                    ]),
+            ],
             'filters' => [
                 'q' => $q,
                 'tab' => $tab,
                 'user_id' => $userId > 0 ? $userId : null,
+                'workspace_id' => $workspaceId > 0 ? $workspaceId : null,
+                'group' => $group,
+                'period' => $period,
+                'kind' => $kind,
             ],
         ]);
     }

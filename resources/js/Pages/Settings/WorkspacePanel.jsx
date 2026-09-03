@@ -1,5 +1,6 @@
 import InputError from '@/Components/InputError';
 import InputLabel from '@/Components/InputLabel';
+import JsonDetailsModal, { DetailTrigger } from '@/Components/JsonDetailsModal';
 import PrimaryButton from '@/Components/PrimaryButton';
 import SelectMenu from '@/Components/SelectMenu';
 import TextInput from '@/Components/TextInput';
@@ -28,7 +29,6 @@ export default function WorkspacePanel({
     historyFilters = {},
 }) {
     const { auth } = usePage().props;
-    const createForm = useForm({ name: '' });
     const profileForm = useForm({
         industry: activeWorkspace?.industry || '',
         city: activeWorkspace?.city || '',
@@ -38,6 +38,7 @@ export default function WorkspacePanel({
     });
     const inviteForm = useForm({ email: '', name: '', role: 'editor' });
     const [editingMemberId, setEditingMemberId] = useState(null);
+    const [detail, setDetail] = useState(null);
     const historyTab = historyFilters.tab || 'actions';
     const historyUserId = historyFilters.user_id || '';
 
@@ -71,10 +72,13 @@ export default function WorkspacePanel({
 
     const workspaceSelected = useMemo(() => {
         if (!moduleCatalog) return [];
+        const enabledKeys = new Set(
+            moduleCatalog.items.filter((i) => i.globally_enabled).map((i) => i.key),
+        );
         if (moduleCatalog.workspace_modules === null || moduleCatalog.workspace_modules === undefined) {
-            return moduleCatalog.items.filter((i) => i.globally_enabled).map((i) => i.key);
+            return [...enabledKeys];
         }
-        return moduleCatalog.workspace_modules;
+        return moduleCatalog.workspace_modules.filter((key) => enabledKeys.has(key));
     }, [moduleCatalog]);
 
     const socialSelected = useMemo(() => {
@@ -287,37 +291,6 @@ export default function WorkspacePanel({
                             </PrimaryButton>
                         </form>
                     ) : null}
-
-                    <form
-                        className="rounded-md border border-line bg-mist/40 p-3"
-                        onSubmit={(e) => {
-                            e.preventDefault();
-                            createForm.post(route('workspaces.store'), {
-                                onSuccess: () => createForm.reset(),
-                            });
-                        }}
-                    >
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                            <div className="min-w-0 flex-1">
-                                <InputLabel htmlFor="settings-ws-name" value="New workspace" />
-                                <TextInput
-                                    id="settings-ws-name"
-                                    className="mt-1.5 block w-full"
-                                    value={createForm.data.name}
-                                    onChange={(e) => createForm.setData('name', e.target.value)}
-                                    placeholder="Company or brand name"
-                                    required
-                                />
-                            </div>
-                            <PrimaryButton
-                                processing={createForm.processing}
-                                className="w-full shrink-0 sm:w-auto"
-                            >
-                                Create workspace
-                            </PrimaryButton>
-                        </div>
-                        <InputError className="mt-2" message={createForm.errors.name} />
-                    </form>
                 </div>
             </section>
 
@@ -883,12 +856,12 @@ export default function WorkspacePanel({
                             </div>
                         ) : (
                             <div className="overflow-x-auto rounded-md border border-line">
-                                <table className="min-w-full text-left text-sm">
+                                <table className="w-full table-fixed text-left text-sm">
                                     <thead className="bg-mist/80 text-ink-muted">
                                         <tr>
-                                            <th className="px-3 py-2.5 font-semibold">When</th>
-                                            <th className="px-3 py-2.5 font-semibold">Action</th>
-                                            <th className="px-3 py-2.5 font-semibold">Member</th>
+                                            <th className="w-[9rem] px-3 py-2.5 font-semibold">When</th>
+                                            <th className="w-[28%] px-3 py-2.5 font-semibold">Action</th>
+                                            <th className="w-[22%] px-3 py-2.5 font-semibold">Member</th>
                                             <th className="px-3 py-2.5 font-semibold">Details</th>
                                         </tr>
                                     </thead>
@@ -908,20 +881,28 @@ export default function WorkspacePanel({
                                                     <td className="px-3 py-2.5 whitespace-nowrap text-ink-muted">
                                                         {log.created_at}
                                                     </td>
-                                                    <td className="px-3 py-2.5">
-                                                        <div className="font-semibold text-ink">
+                                                    <td className="min-w-0 px-3 py-2.5">
+                                                        <div className="truncate font-semibold text-ink">
                                                             {log.label}
                                                         </div>
-                                                        <div className="font-mono text-[10px] text-ink-muted">
+                                                        <div className="truncate font-mono text-[10px] text-ink-muted">
                                                             {log.action}
                                                         </div>
                                                     </td>
-                                                    <td className="px-3 py-2.5 text-ink-muted">
-                                                        <div>{log.user}</div>
-                                                        <div className="text-xs">{log.email}</div>
+                                                    <td className="min-w-0 px-3 py-2.5 text-ink-muted">
+                                                        <div className="truncate">{log.user}</div>
+                                                        <div className="truncate text-xs">{log.email}</div>
                                                     </td>
-                                                    <td className="px-3 py-2.5 font-mono text-[10px] text-ink-muted">
-                                                        {log.meta ? JSON.stringify(log.meta) : '—'}
+                                                    <td className="min-w-0 px-3 py-2.5">
+                                                        <DetailTrigger
+                                                            value={log.meta}
+                                                            onOpen={() =>
+                                                                setDetail({
+                                                                    title: log.label || log.action,
+                                                                    value: log.meta,
+                                                                })
+                                                            }
+                                                        />
                                                     </td>
                                                 </tr>
                                             ))
@@ -933,6 +914,13 @@ export default function WorkspacePanel({
                     </div>
                 </section>
             ) : null}
+
+            <JsonDetailsModal
+                show={Boolean(detail)}
+                title={detail?.title}
+                value={detail?.value}
+                onClose={() => setDetail(null)}
+            />
         </div>
     );
 }

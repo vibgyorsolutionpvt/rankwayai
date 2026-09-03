@@ -391,6 +391,9 @@ class AiLayerTest extends TestCase
         $this->assertNotEmpty($result['article']['title']);
         $this->assertStringContainsString('<h2>', $result['article']['body_html']);
         $this->assertStringContainsString('<p>', $result['article']['body_html']);
+        $this->assertStringContainsString('Frequently asked questions', $result['article']['body_html']);
+        $this->assertStringNotContainsString('ek blog likho', mb_strtolower($result['article']['body_html']));
+        $this->assertStringNotContainsString('vanity metrics', mb_strtolower($result['article']['body_html']));
         $this->assertGreaterThan(40, str_word_count(strip_tags($result['article']['body_html'])));
         $this->assertDatabaseHas('ai_generations', [
             'workspace_id' => $workspace->id,
@@ -400,6 +403,18 @@ class AiLayerTest extends TestCase
             'workspace_id' => $workspace->id,
             'action' => 'blog_article',
         ]);
+    }
+
+    public function test_blog_subject_strips_hindi_write_instructions(): void
+    {
+        $ai = app(AiContentService::class);
+        $subject = $ai->extractBlogSubject(
+            'ek blog likho jisme delhi ncr se mathura ke lie 1 day tour ho by bus/ traveler or car',
+        );
+
+        $this->assertStringNotContainsString('likho', mb_strtolower($subject));
+        $this->assertStringContainsString('mathura', mb_strtolower($subject));
+        $this->assertStringContainsString('delhi', mb_strtolower($subject));
     }
 
     public function test_blog_outline_and_seo_metas(): void

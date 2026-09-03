@@ -430,8 +430,13 @@ class BlogController extends Controller
         $this->authorize('update', $workspace);
 
         $data = $request->validate([
-            'keyword' => ['required', 'string', 'max:160'],
+            'keyword' => ['required', 'string', 'min:8', 'max:2000'],
             'seo_keyword_id' => ['nullable', 'integer'],
+            'audience' => ['nullable', 'string', 'max:160'],
+            'intent' => ['nullable', 'string', 'in:guide,howto,listicle,comparison,local'],
+            'length' => ['nullable', 'string', 'in:short,standard,long'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+            'tone' => ['nullable', 'string', 'in:hinglish,english,hindi'],
         ]);
 
         try {
@@ -440,6 +445,13 @@ class BlogController extends Controller
                 $data['keyword'],
                 $data['seo_keyword_id'] ?? null,
                 $request->user()->id,
+                [
+                    'audience' => $data['audience'] ?? '',
+                    'intent' => $data['intent'] ?? 'guide',
+                    'length' => $data['length'] ?? 'standard',
+                    'notes' => $data['notes'] ?? '',
+                    'tone' => $data['tone'] ?? '',
+                ],
             );
         } catch (\Throwable $e) {
             return back()->with('error', $e->getMessage());

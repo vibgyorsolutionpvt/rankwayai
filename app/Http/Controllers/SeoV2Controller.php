@@ -90,7 +90,29 @@ class SeoV2Controller extends Controller
             return back()->with('error', app(\App\Services\Billing\PlanAccess::class)->denyMessage('seo_js_crawl'));
         }
 
-        $site->update(['crawl_mode' => $data['crawl_mode']]);
+        $site->update([
+            'crawl_mode' => $data['crawl_mode'],
+            'crawl_status' => 'crawling',
+            'last_crawl_error' => null,
+        ]);
+
+        if ($data['crawl_mode'] === 'js') {
+            set_time_limit(0);
+
+            if (config('queue.default') === 'sync') {
+                CrawlAndAuditSeoSiteJob::dispatchSync($site->id);
+
+                return back()->with('success', 'JS crawl finished.');
+            }
+
+            CrawlAndAuditSeoSiteJob::dispatch($site->id);
+
+            return back()->with(
+                'success',
+                'JS crawl started in the background. Refresh in a minute — React pages take longer to render.'
+            );
+        }
+
         CrawlAndAuditSeoSiteJob::dispatchSync($site->id);
 
         return back()->with('success', 'Crawl mode set to '.$data['crawl_mode'].' and re-ran');
