@@ -282,6 +282,13 @@ class SeoEngineTest extends TestCase
                             'ctr' => 0.033,
                             'position' => 14.1,
                         ],
+                        [
+                            'keys' => ['bibgyor', 'https://vibgyorsolution.com/'],
+                            'clicks' => 0,
+                            'impressions' => 2,
+                            'ctr' => 0,
+                            'position' => 6.5,
+                        ],
                     ],
                 ]);
             }
@@ -302,6 +309,8 @@ class SeoEngineTest extends TestCase
         $this->assertSame('https://vibgyorsolution.com/', $site->gsc_queries[0]['page']);
         $this->assertSame(1, $site->gsc_queries[0]['google_page']);
         $this->assertSame(2, $site->gsc_queries[1]['google_page']);
+        $this->assertSame(1, $site->gsc_queries[2]['google_page']);
+        $this->assertSame(2, $site->gsc_queries[2]['impressions']);
         $this->assertSame(1, $site->gsc_summary['page1_keywords']);
         $this->assertCount(1, $site->gsc_summary['landing_pages']);
         $this->assertSame(1, $site->gsc_summary['landing_pages'][0]['google_page']);

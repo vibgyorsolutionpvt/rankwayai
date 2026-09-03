@@ -78,7 +78,7 @@ class ModuleAccess
     }
 
     /**
-     * Modules listed in the sidebar for a user (may include plan-locked items).
+     * Modules listed in the sidebar for a user in this workspace.
      *
      * @return list<string>
      */

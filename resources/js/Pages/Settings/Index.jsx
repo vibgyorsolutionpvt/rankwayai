@@ -59,7 +59,9 @@ export default function Index({
             header={
                 <div>
                     <div className="text-xs font-semibold uppercase tracking-[0.16em] text-ink-muted">
-                        {workspace?.name || 'Workspace'}
+                        {tab === 'account' || tab === 'billing'
+                            ? 'Your account'
+                            : workspace?.name || 'Workspace'}
                     </div>
                     <div className="flex items-center gap-1.5">
                         <h2 className="font-display text-2xl font-bold text-ink">Settings</h2>
@@ -98,9 +100,10 @@ export default function Index({
                                 <HelpGuide help={HELP.integrations} />
                             </div>
                             <p className="mt-1 text-sm text-ink-muted">
-                                API keys for Social, WhatsApp/Email, RCS, and Google SEO. Tap ⓘ on
-                                each card for where to get Client ID / secret / API key. Secrets
-                                stay encrypted.
+                                API keys for this workspace only — Social, WhatsApp/Email, RCS, and
+                                Google SEO. Each workspace keeps its own keys. Tap ⓘ on each card
+                                for where to get Client ID / secret / API key. Secrets stay
+                                encrypted.
                             </p>
                         </div>
                         <ProvidersPanel

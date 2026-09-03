@@ -90,6 +90,29 @@ class WorkspaceIntegrationsTest extends TestCase
         $this->assertNull($service->get($workspace, 'zavu'));
     }
 
+    public function test_provider_keys_stay_on_that_workspace_only(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $other = Workspace::factory()->create(['name' => 'Second Brand']);
+        $other->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
+        app(BillingService::class)->changePlan($other, 'starter', 'active');
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->put(route('integrations.update', 'zavu'), [
+                'enabled' => true,
+                'credentials' => [
+                    'api_key' => 'workspace_one_key',
+                    'base_url' => 'https://api.zavu.dev',
+                ],
+            ])
+            ->assertRedirect();
+
+        $service = app(WorkspaceIntegrationService::class);
+        $this->assertSame('workspace_one_key', $service->zavuKey($workspace));
+        $this->assertNull($service->zavuKey($other));
+    }
+
     public function test_workspace_jio_credentials_mark_rcs_ready(): void
     {
         [$user, $workspace] = $this->memberWithWorkspace();
