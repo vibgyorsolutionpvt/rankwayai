@@ -29,6 +29,35 @@ function serpPageLabel(position) {
     return `Page ${Math.max(1, Math.ceil(p / 10))}`;
 }
 
+/** GSC avg position with 1–9 impressions is not a live Google rank you can search and see. */
+const GSC_MIN_IMPRESSIONS_FOR_PAGE = 10;
+
+function gscHasEnoughImpressions(row) {
+    return Number(row?.impressions || 0) >= GSC_MIN_IMPRESSIONS_FOR_PAGE;
+}
+
+function gscAvgPageBadge(row) {
+    if (!gscHasEnoughImpressions(row)) {
+        return {
+            label: 'Rare — not live rank',
+            className: 'bg-mist text-ink-muted',
+        };
+    }
+
+    const page = row.google_page || (row.position ? Math.max(1, Math.ceil(Number(row.position) / 10)) : null);
+    const isPage1 = page === 1 || (row.position && row.position <= 10);
+    const isPage2 = page === 2 || (row.position && row.position <= 20);
+
+    return {
+        label: page ? `Avg page ${page}` : serpPageLabel(row.position),
+        className: isPage1
+            ? 'bg-emerald-50 text-emerald-800'
+            : isPage2
+              ? 'bg-amber-50 text-amber-900'
+              : 'bg-mist text-ink-muted',
+    };
+}
+
 function shortPagePath(url) {
     if (!url) {
         return '—';
@@ -389,6 +418,15 @@ export default function Index({
     const [gscPage, setGscPage] = useState(1);
 
     const gscQueries = Array.isArray(site?.gsc_queries) ? site.gsc_queries : [];
+    const gscPage1Reliable = useMemo(
+        () =>
+            gscQueries.filter(
+                (row) =>
+                    gscHasEnoughImpressions(row) &&
+                    (row.google_page === 1 || (row.position && row.position <= 10)),
+            ).length,
+        [gscQueries],
+    );
     const gscTotalPages = Math.max(1, Math.ceil(gscQueries.length / GSC_QUERIES_PER_PAGE));
     const gscPageSafe = Math.min(gscPage, gscTotalPages);
     const gscPageRows = useMemo(() => {
@@ -1085,11 +1123,12 @@ export default function Index({
                                             <div className="flex flex-wrap items-center justify-between gap-2">
                                                 <div>
                                                     <p className="text-sm font-bold text-ink">
-                                                        Google search keywords & page
+                                                        Search Console queries
                                                     </p>
                                                     <p className="mt-0.5 text-xs text-ink-muted">
-                                                        Kis keyword pe site aati hai, aur Google ke
-                                                        kis page pe (1–10 = Page 1).
+                                                        Last 28 days of GSC averages — not a live
+                                                        Google search. Low impressions = you will
+                                                        not see the site if you search now.
                                                     </p>
                                                 </div>
                                                 <SecondaryButton
@@ -1102,14 +1141,13 @@ export default function Index({
                                             {!site?.gsc_connected ? (
                                                 <p className="mt-3 text-sm text-ink-muted">
                                                     Connect Google Search Console on the Keywords
-                                                    tab, then Sync — real queries + positions
-                                                    load here.
+                                                    tab, then Sync — GSC query averages load here.
                                                 </p>
                                             ) : !Array.isArray(site?.gsc_queries) ||
                                               site.gsc_queries.length === 0 ? (
                                                 <p className="mt-3 text-sm text-ink-muted">
-                                                    GSC connected — Sync GSC data to see keywords
-                                                    and Google page numbers.
+                                                    GSC connected — Sync GSC data to see query
+                                                    averages (not live Google rank).
                                                 </p>
                                             ) : (
                                                 <>
@@ -1125,11 +1163,10 @@ export default function Index({
                                                         </div>
                                                         <div className="rounded-lg border border-line px-3 py-2 text-sm">
                                                             <span className="text-ink-muted">
-                                                                Page 1
+                                                                Avg page 1
                                                             </span>
                                                             <span className="float-right font-semibold tabular-nums text-emerald-700">
-                                                                {site.gsc_summary?.page1_keywords ??
-                                                                    '—'}
+                                                                {gscPage1Reliable}
                                                             </span>
                                                         </div>
                                                         <div className="rounded-lg border border-line px-3 py-2 text-sm">
@@ -1173,14 +1210,10 @@ export default function Index({
                                                                     </div>
                                                                     <div className="shrink-0 text-right text-xs">
                                                                         <div className="font-semibold tabular-nums text-ink">
-                                                                            Pos. {row.position}
+                                                                            Avg pos. {row.position}
                                                                         </div>
                                                                         <div className="text-ink-muted">
-                                                                            {row.google_page
-                                                                                ? `Google page ${row.google_page}`
-                                                                                : serpPageLabel(
-                                                                                      row.position,
-                                                                                  )}
+                                                                            {gscAvgPageBadge(row).label}
                                                                         </div>
                                                                     </div>
                                                                 </li>
@@ -1563,9 +1596,9 @@ export default function Index({
                                         subtitle={
                                             site?.gsc_connected
                                                 ? site.gsc_synced_at
-                                                    ? `Last sync ${site.gsc_synced_at} — keywords, your landing page & Google page #`
-                                                    : 'Connected — sync to pull keywords + ranking pages'
-                                                : 'Connect GSC to see which keywords you rank for and on which Google page'
+                                                    ? `Last sync ${site.gsc_synced_at} — Search Console averages, not live Google results`
+                                                    : 'Connected — sync to pull Search Console query averages'
+                                                : 'Connect GSC for Search Console query data (averages over ~28 days, not a live search)'
                                         }
                                         action={
                                             site ? (
@@ -1666,6 +1699,19 @@ export default function Index({
                                             {site.gsc_last_error}
                                         </p>
                                     ) : null}
+                                    {site?.gsc_connected && gscQueries.length > 0 ? (
+                                        <div className="border-b border-line bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-950">
+                                            <span className="font-semibold">
+                                                This is not a live Google search.
+                                            </span>{' '}
+                                            Search Console reports an <em>average</em> position over
+                                            the last ~28 days. If Impr. is 1–9, the site appeared
+                                            for one or two people (location, device, personalization)
+                                            — searching the same keyword now often will not show
+                                            your site. Green “page 1” only counts queries with at
+                                            least {GSC_MIN_IMPRESSIONS_FOR_PAGE} impressions.
+                                        </div>
+                                    ) : null}
                                     {site?.gsc_summary ? (
                                         <div className="grid grid-cols-2 gap-3 border-b border-line px-4 py-3 sm:grid-cols-3 lg:grid-cols-6">
                                             {[
@@ -1685,7 +1731,7 @@ export default function Index({
                                                             : '—',
                                                 },
                                                 {
-                                                    label: 'Avg position',
+                                                    label: 'Avg position (GSC)',
                                                     value: site.gsc_summary.avg_position ?? '—',
                                                 },
                                                 {
@@ -1695,8 +1741,8 @@ export default function Index({
                                                         gscQueries.length,
                                                 },
                                                 {
-                                                    label: 'Page 1 keywords',
-                                                    value: site.gsc_summary.page1_keywords ?? '—',
+                                                    label: `Avg page 1 (${GSC_MIN_IMPRESSIONS_FOR_PAGE}+ impr.)`,
+                                                    value: gscPage1Reliable,
                                                 },
                                             ].map((m) => (
                                                 <div key={m.label}>
@@ -1716,8 +1762,8 @@ export default function Index({
                                                 <tr>
                                                     <th className="px-4 py-2.5">Keyword</th>
                                                     <th className="px-4 py-2.5">Your page</th>
-                                                    <th className="px-4 py-2.5">Pos.</th>
-                                                    <th className="px-4 py-2.5">Google page</th>
+                                                    <th className="px-4 py-2.5">Avg pos.</th>
+                                                    <th className="px-4 py-2.5">GSC avg page</th>
                                                     <th className="px-4 py-2.5">Clicks</th>
                                                     <th className="px-4 py-2.5">Impr.</th>
                                                     <th className="px-4 py-2.5">CTR</th>
@@ -1768,24 +1814,11 @@ export default function Index({
                                                                 <span
                                                                     className={
                                                                         'inline-flex rounded-md px-2 py-0.5 text-xs font-semibold ' +
-                                                                        (row.google_page === 1 ||
-                                                                        (row.position &&
-                                                                            row.position <= 10)
-                                                                            ? 'bg-emerald-50 text-emerald-800'
-                                                                            : row.google_page ===
-                                                                                    2 ||
-                                                                                (row.position &&
-                                                                                    row.position <=
-                                                                                        20)
-                                                                              ? 'bg-amber-50 text-amber-900'
-                                                                              : 'bg-mist text-ink-muted')
+                                                                        gscAvgPageBadge(row)
+                                                                            .className
                                                                     }
                                                                 >
-                                                                    {row.google_page
-                                                                        ? `Page ${row.google_page}`
-                                                                        : serpPageLabel(
-                                                                              row.position,
-                                                                          )}
+                                                                    {gscAvgPageBadge(row).label}
                                                                 </span>
                                                             </td>
                                                             <td className="px-4 py-2.5 tabular-nums">
@@ -1834,8 +1867,8 @@ export default function Index({
                                                 ? ` · ${site.gsc_summary.property}`
                                                 : ''}
                                             {' · '}
-                                            Position → Google page: 1–10 = Page 1, 11–20 = Page 2,
-                                            …
+                                            Avg position over this window. Live Google results
+                                            differ by city, device, and login.
                                         </p>
                                     ) : null}
                                 </section>
@@ -1845,7 +1878,7 @@ export default function Index({
                                     <section className="atlas-panel overflow-hidden">
                                         <PanelTitle
                                             title="Pages that appear in Google Search"
-                                            subtitle={`${site.gsc_summary.pages_in_search || site.gsc_summary.landing_pages.length} URLs with impressions (last 28 days)`}
+                                            subtitle={`${site.gsc_summary.pages_in_search || site.gsc_summary.landing_pages.length} URLs with GSC impressions (last 28 days — not live SERP)`}
                                         />
                                         <div className="overflow-x-auto">
                                             <table className="min-w-full text-left text-sm">
@@ -1853,7 +1886,7 @@ export default function Index({
                                                     <tr>
                                                         <th className="px-4 py-2.5">Page</th>
                                                         <th className="px-4 py-2.5">Avg pos.</th>
-                                                        <th className="px-4 py-2.5">Google page</th>
+                                                        <th className="px-4 py-2.5">GSC avg page</th>
                                                         <th className="px-4 py-2.5">Clicks</th>
                                                         <th className="px-4 py-2.5">Impr.</th>
                                                         <th className="px-4 py-2.5">CTR</th>
@@ -1875,10 +1908,16 @@ export default function Index({
                                                             <td className="px-4 py-2.5 tabular-nums">
                                                                 {lp.position}
                                                             </td>
-                                                            <td className="px-4 py-2.5 text-xs font-semibold text-ink">
-                                                                {lp.google_page
-                                                                    ? `Page ${lp.google_page}`
-                                                                    : serpPageLabel(lp.position)}
+                                                            <td className="px-4 py-2.5">
+                                                                <span
+                                                                    className={
+                                                                        'inline-flex rounded-md px-2 py-0.5 text-xs font-semibold ' +
+                                                                        gscAvgPageBadge(lp)
+                                                                            .className
+                                                                    }
+                                                                >
+                                                                    {gscAvgPageBadge(lp).label}
+                                                                </span>
                                                             </td>
                                                             <td className="px-4 py-2.5 tabular-nums">
                                                                 {lp.clicks}
@@ -2113,7 +2152,7 @@ export default function Index({
                                                 <th className="px-4 py-2.5">Vol</th>
                                                 <th className="px-4 py-2.5">KD</th>
                                                 <th className="px-4 py-2.5">Rank</th>
-                                                <th className="px-4 py-2.5">Google page</th>
+                                                <th className="px-4 py-2.5">Live SERP page</th>
                                                 <th className="px-4 py-2.5">Change</th>
                                                 <th className="px-4 py-2.5">Checked</th>
                                             </tr>

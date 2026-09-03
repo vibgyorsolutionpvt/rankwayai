@@ -10,6 +10,9 @@ use Illuminate\Support\Str;
 
 class GoogleSeoService
 {
+    /** Below this, GSC “page 1” is noise — one or two impressions, not a live SERP rank. */
+    public const GSC_MIN_IMPRESSIONS_FOR_PAGE = 10;
+
     public function __construct(private WorkspaceIntegrationService $integrations) {}
 
     public function gscConfigured(SeoSite $site): bool
@@ -228,7 +231,10 @@ class GoogleSeoService
                 : null,
             'keywords_count' => count($rows),
             'pages_in_search' => count($landingPages) ?: collect($rows)->pluck('page')->filter()->unique()->count(),
-            'page1_keywords' => collect($rows)->where('google_page', 1)->count(),
+            'page1_keywords' => collect($rows)
+                ->where('google_page', 1)
+                ->filter(fn (array $row) => (int) ($row['impressions'] ?? 0) >= self::GSC_MIN_IMPRESSIONS_FOR_PAGE)
+                ->count(),
             'landing_pages' => $landingPages,
             'start' => $start,
             'end' => $end,

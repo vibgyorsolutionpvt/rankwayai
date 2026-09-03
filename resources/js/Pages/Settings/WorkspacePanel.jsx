@@ -301,8 +301,8 @@ export default function WorkspacePanel({
                             Workspace modules
                         </h3>
                         <p className="mt-0.5 text-sm text-ink-muted">
-                            Choose which menus this workspace can use. Items turned off by platform
-                            admin stay locked.
+                            Choose which menus this workspace shows. Other workspaces keep their
+                            own menus and API keys. Items turned off by platform admin stay locked.
                         </p>
                     </div>
                     <div className="grid gap-2 p-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
