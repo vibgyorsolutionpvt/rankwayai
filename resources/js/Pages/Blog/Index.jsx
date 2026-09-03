@@ -203,7 +203,15 @@ export default function Index({
         app_password: '',
         label: 'WordPress',
     });
-    const draftForm = useForm({ keyword: '', seo_keyword_id: '' });
+    const draftForm = useForm({
+        keyword: '',
+        seo_keyword_id: '',
+        audience: '',
+        intent: 'guide',
+        length: 'standard',
+        notes: '',
+        tone: '',
+    });
     const reviewForm = useForm({
         title: '',
         body_html: '',
@@ -339,86 +347,100 @@ export default function Index({
         <AuthenticatedLayout
             header={
                 <div>
-                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-muted">
-                        {workspace?.name}
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-muted">
+                        Content
                     </div>
-                    <h1 className="font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
-                        Blog
-                    </h1>
+                    <div className="mt-1 flex items-center gap-1.5">
+                        <h1 className="font-display text-2xl font-bold leading-none tracking-tight text-ink sm:text-3xl">
+                            Blog
+                        </h1>
+                    </div>
+                    {workspace?.name ? (
+                        <p className="mt-1.5 text-sm text-ink-muted">{workspace.name}</p>
+                    ) : null}
                 </div>
             }
         >
             <Head title="Blog" />
 
-            <div className="space-y-4">
-                <div className="flex flex-wrap items-end justify-between gap-3">
-                    {sites.length > 0 ? (
-                        <div className="w-full max-w-sm">
-                            <SelectMenu
-                                value={site?.id || ''}
-                                onChange={(id) =>
-                                    router.get(
-                                        route('blog.index'),
-                                        { site: id, tab },
-                                        { preserveState: true },
-                                    )
-                                }
-                                placeholder="Choose a site"
-                                options={sites.map((item) => ({
-                                    value: item.id,
-                                    label: item.domain,
-                                }))}
-                            />
+            <div className="atlas-shell space-y-5">
+                <section className="atlas-panel overflow-hidden">
+                    <div className="flex flex-col gap-4 border-b border-line/70 bg-gradient-to-r from-signal-soft/35 via-white to-mist/50 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-5">
+                        <div className="min-w-0 flex-1">
+                            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-signal-strong">
+                                Website
+                            </div>
+                            <div className="mt-2 w-full max-w-sm">
+                                {sites.length > 0 ? (
+                                    <SelectMenu
+                                        value={site?.id || ''}
+                                        onChange={(id) =>
+                                            router.get(
+                                                route('blog.index'),
+                                                { site: id, tab },
+                                                { preserveState: true },
+                                            )
+                                        }
+                                        placeholder="Choose a site"
+                                        options={sites.map((item) => ({
+                                            value: item.id,
+                                            label: item.domain,
+                                        }))}
+                                    />
+                                ) : (
+                                    <p className="text-sm text-ink-muted">
+                                        Add a website in SEO first.
+                                    </p>
+                                )}
+                            </div>
                         </div>
-                    ) : (
-                        <p className="text-sm text-ink-muted">Add a website in SEO first.</p>
-                    )}
 
-                    <div className="inline-flex flex-wrap gap-0.5 rounded-lg border border-line bg-mist/80 p-1">
-                        {TABS.map((t) => (
-                            <button
-                                key={t.id}
-                                type="button"
-                                onClick={() => switchTab(t.id)}
-                                className={`rounded-md px-3.5 py-1.5 text-sm font-semibold transition ${
-                                    tab === t.id
-                                        ? 'bg-white text-ink shadow-sm'
-                                        : 'text-ink-muted hover:text-ink'
-                                }`}
-                            >
-                                {t.label}
-                                {t.id === 'write' && draftTotal > 0 ? (
-                                    <span className="ml-1.5 text-[10px] font-bold tabular-nums text-ink-muted">
-                                        {draftTotal}
-                                    </span>
-                                ) : null}
-                                {t.id === 'posts' && postTotal > 0 ? (
-                                    <span className="ml-1.5 text-[10px] font-bold tabular-nums text-ink-muted">
-                                        {postTotal}
-                                    </span>
-                                ) : null}
-                                {t.id === 'askefy' && askefy?.connected ? (
-                                    <span className="ml-1.5 text-[10px] font-bold text-emerald-600">
-                                        on
-                                    </span>
-                                ) : null}
-                            </button>
-                        ))}
+                        <div className="inline-flex flex-wrap gap-1 rounded-xl border border-line bg-white/90 p-1.5 shadow-sm">
+                            {TABS.map((t) => (
+                                <button
+                                    key={t.id}
+                                    type="button"
+                                    onClick={() => switchTab(t.id)}
+                                    className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                                        tab === t.id
+                                            ? 'bg-ink text-white shadow-sm'
+                                            : 'text-ink-muted hover:bg-mist hover:text-ink'
+                                    }`}
+                                >
+                                    {t.label}
+                                    {t.id === 'write' && draftTotal > 0 ? (
+                                        <span className="ml-1.5 text-[10px] font-bold tabular-nums opacity-80">
+                                            {draftTotal}
+                                        </span>
+                                    ) : null}
+                                    {t.id === 'posts' && postTotal > 0 ? (
+                                        <span className="ml-1.5 text-[10px] font-bold tabular-nums opacity-80">
+                                            {postTotal}
+                                        </span>
+                                    ) : null}
+                                    {t.id === 'askefy' && askefy?.connected ? (
+                                        <span className="ml-1.5 text-[10px] font-bold text-emerald-300">
+                                            on
+                                        </span>
+                                    ) : null}
+                                </button>
+                            ))}
+                        </div>
                     </div>
-                </div>
+                </section>
 
                 {tab === 'write' ? (
                     <section className="atlas-panel overflow-hidden">
                         {reviewingDraft && !seoCmsLocked ? (
                             <div className="flex max-h-[calc(100svh-8rem)] flex-col">
-                                <div className="sticky top-0 z-10 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line bg-white px-4 py-3">
+                                <div className="sticky top-0 z-10 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-line bg-white px-5 py-4">
                                     <div>
                                         <div className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
                                             {editorMode === 'edit'
                                                 ? 'Edit after approve'
                                                 : 'Review before approve'}
                                         </div>
-                                        <div className="font-display text-lg font-bold text-ink">
+                                        <div className="mt-0.5 font-display text-lg font-bold text-ink">
                                             {editorMode === 'edit'
                                                 ? 'Edit article'
                                                 : 'Review article'}
@@ -520,9 +542,12 @@ export default function Index({
                             </div>
                         ) : (
                             <>
-                                <PanelTitle title="Write with AI" />
+                                <PanelTitle
+                                    title="Write with AI"
+                                    subtitle="ChatGPT-style brief do — topic + audience + angle. Better brief = stronger draft."
+                                />
                                 {seoCmsLocked ? (
-                                    <div className="border-t border-line px-4 py-6 text-sm text-ink-muted">
+                                    <div className="border-t border-line px-5 py-8 text-sm text-ink-muted">
                                         Blog writing needs a paid plan or credit top-up.{' '}
                                         <a
                                             href={route('billing.index')}
@@ -533,43 +558,210 @@ export default function Index({
                                     </div>
                                 ) : (
                                     <>
-                                <div className="border-t border-line p-4 sm:p-5">
+                                <div className="border-t border-line px-5 py-6 sm:px-6">
                                     <form
-                                        className="mx-auto max-w-xl space-y-3"
+                                        className="mx-auto max-w-3xl space-y-4"
                                         onSubmit={(e) => {
                                             e.preventDefault();
                                             draftForm.post(route('blog.content.store'), {
-                                                onSuccess: () => draftForm.reset('keyword'),
+                                                onSuccess: () =>
+                                                    draftForm.reset(
+                                                        'keyword',
+                                                        'notes',
+                                                        'audience',
+                                                    ),
                                             });
                                         }}
                                     >
-                                        <p className="text-sm text-ink-muted">
-                                            <strong>1 Review</strong> → <strong>2 Approve</strong>{' '}
-                                            → <strong>3 Publish</strong> (Askefy preferred; WordPress
-                                            optional — pehle connect karo).
-                                        </p>
-                                        <TextInput
-                                            className="w-full"
-                                            placeholder="Topic / keyword (e.g. Goa family trip packages from Noida)"
-                                            value={draftForm.data.keyword}
-                                            onChange={(e) =>
-                                                draftForm.setData('keyword', e.target.value)
-                                            }
-                                            required
-                                        />
-                                        <div className="flex flex-wrap items-center gap-3">
+                                        <div className="rounded-lg border border-signal/25 bg-gradient-to-br from-signal-soft/40 via-white to-mist/40 px-4 py-3.5">
+                                            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-signal-strong">
+                                                Publish flow
+                                            </div>
+                                            <p className="mt-1.5 text-sm leading-relaxed text-ink">
+                                                <strong>1 Review</strong>
+                                                <span className="text-ink-muted"> → </span>
+                                                <strong>2 Approve</strong>
+                                                <span className="text-ink-muted"> → </span>
+                                                <strong>3 Publish</strong>
+                                                <span className="text-ink-muted">
+                                                    {' '}
+                                                    (Askefy preferred; WordPress optional).
+                                                </span>
+                                            </p>
+                                        </div>
+
+                                        <div>
+                                            <label className="text-xs font-semibold text-ink-muted">
+                                                Topic / brief
+                                            </label>
+                                            <textarea
+                                                className="atlas-input mt-1.5 min-h-[7.5rem] w-full resize-y text-sm leading-relaxed"
+                                                placeholder="ChatGPT jaisa detail do. Example: Write a practical guide on Goa family trip packages from Noida — cover budget ranges, best months, itinerary tips, and a soft CTA for Vibgyor Holidays."
+                                                value={draftForm.data.keyword}
+                                                onChange={(e) =>
+                                                    draftForm.setData('keyword', e.target.value)
+                                                }
+                                                required
+                                                minLength={8}
+                                            />
+                                            <p className="mt-1.5 text-[11px] text-ink-muted">
+                                                Outcome + audience + angle likho. Sirf ek keyword se
+                                                generic draft aata hai.
+                                            </p>
+                                            <InputError
+                                                message={draftForm.errors.keyword}
+                                                className="mt-1"
+                                            />
+                                        </div>
+
+                                        <div className="grid gap-3 sm:grid-cols-2">
+                                            <div>
+                                                <label className="text-xs font-semibold text-ink-muted">
+                                                    Article type
+                                                </label>
+                                                <SelectMenu
+                                                    className="mt-1.5"
+                                                    value={draftForm.data.intent}
+                                                    onChange={(value) =>
+                                                        draftForm.setData('intent', value)
+                                                    }
+                                                    searchPlaceholder="Search type…"
+                                                    options={[
+                                                        {
+                                                            value: 'guide',
+                                                            label: 'Practical guide',
+                                                            meta: 'Teach + clarify + next step',
+                                                        },
+                                                        {
+                                                            value: 'howto',
+                                                            label: 'How-to / steps',
+                                                            meta: 'Numbered actionable steps',
+                                                        },
+                                                        {
+                                                            value: 'listicle',
+                                                            label: 'Listicle',
+                                                            meta: '7 tips, 5 mistakes…',
+                                                        },
+                                                        {
+                                                            value: 'comparison',
+                                                            label: 'Comparison',
+                                                            meta: 'Options, pros/cons',
+                                                        },
+                                                        {
+                                                            value: 'local',
+                                                            label: 'Local SEO',
+                                                            meta: 'City / near-me angle',
+                                                        },
+                                                    ]}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-semibold text-ink-muted">
+                                                    Length
+                                                </label>
+                                                <SelectMenu
+                                                    className="mt-1.5"
+                                                    value={draftForm.data.length}
+                                                    onChange={(value) =>
+                                                        draftForm.setData('length', value)
+                                                    }
+                                                    searchPlaceholder="Search length…"
+                                                    options={[
+                                                        {
+                                                            value: 'short',
+                                                            label: 'Short',
+                                                            meta: '~800 words',
+                                                        },
+                                                        {
+                                                            value: 'standard',
+                                                            label: 'Standard',
+                                                            meta: '~1,200 words',
+                                                        },
+                                                        {
+                                                            value: 'long',
+                                                            label: 'Long',
+                                                            meta: '~1,800 words',
+                                                        },
+                                                    ]}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-semibold text-ink-muted">
+                                                    Audience
+                                                </label>
+                                                <TextInput
+                                                    className="mt-1.5 w-full"
+                                                    placeholder="e.g. Noida families planning Goa"
+                                                    value={draftForm.data.audience}
+                                                    onChange={(e) =>
+                                                        draftForm.setData(
+                                                            'audience',
+                                                            e.target.value,
+                                                        )
+                                                    }
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-semibold text-ink-muted">
+                                                    Language
+                                                </label>
+                                                <SelectMenu
+                                                    className="mt-1.5"
+                                                    value={draftForm.data.tone || ''}
+                                                    onChange={(value) =>
+                                                        draftForm.setData('tone', value)
+                                                    }
+                                                    searchPlaceholder="Search language…"
+                                                    options={[
+                                                        {
+                                                            value: '',
+                                                            label: 'Workspace default',
+                                                        },
+                                                        {
+                                                            value: 'english',
+                                                            label: 'English',
+                                                        },
+                                                        {
+                                                            value: 'hinglish',
+                                                            label: 'English + light Hinglish',
+                                                        },
+                                                        {
+                                                            value: 'hindi',
+                                                            label: 'Hindi',
+                                                        },
+                                                    ]}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <label className="text-xs font-semibold text-ink-muted">
+                                                Extra notes{' '}
+                                                <span className="font-normal">(optional)</span>
+                                            </label>
+                                            <textarea
+                                                className="atlas-input mt-1.5 min-h-[4.5rem] w-full resize-y text-sm"
+                                                placeholder="Must include: budget tips, monsoon months to avoid, soft CTA for package enquiry…"
+                                                value={draftForm.data.notes}
+                                                onChange={(e) =>
+                                                    draftForm.setData('notes', e.target.value)
+                                                }
+                                            />
+                                        </div>
+
+                                        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
                                             <PrimaryButton processing={draftForm.processing}>
                                                 {draftForm.processing
                                                     ? 'Writing…'
                                                     : 'Generate AI draft'}
                                             </PrimaryButton>
                                             {!askefyConnectionId && !wordpressConnectionId ? (
-                                                <span className="text-xs text-amber-700">
+                                                <span className="text-xs leading-relaxed text-amber-700 sm:max-w-sm">
                                                     Publish ke liye pehle Askefy connect karo
                                                     (WordPress optional).
                                                 </span>
                                             ) : !askefyConnectionId && wordpressConnectionId ? (
-                                                <span className="text-xs text-ink-muted">
+                                                <span className="text-xs leading-relaxed text-ink-muted sm:max-w-sm">
                                                     Askefy connect karo for preferred publish —
                                                     WordPress bhi available hai.
                                                 </span>
@@ -578,7 +770,7 @@ export default function Index({
                                     </form>
                                 </div>
 
-                                <div className="flex flex-wrap gap-1 border-t border-line px-4 py-2">
+                                <div className="flex flex-wrap gap-1.5 border-t border-line bg-mist/30 px-5 py-3.5">
                                     {[
                                         { id: 'all', label: 'All' },
                                         { id: 'needs_review', label: 'Needs review' },
@@ -596,7 +788,7 @@ export default function Index({
                                                 type="button"
                                                 onClick={() => applyDraftFilter(f.id)}
                                                 className={
-                                                    'rounded-md border px-2.5 py-1 text-xs font-semibold ' +
+                                                    'rounded-lg border px-3 py-1.5 text-xs font-semibold transition ' +
                                                     (active
                                                         ? 'border-signal bg-signal-soft/70 text-ink'
                                                         : 'border-line bg-white text-ink-muted hover:border-signal/40')
@@ -611,9 +803,9 @@ export default function Index({
                                     })}
                                 </div>
 
-                                <ul className="divide-y divide-line border-t border-line">
+                                <ul className="divide-y divide-line">
                                     {draftRows.length === 0 ? (
-                                        <li className="px-4 py-10 text-center text-sm text-ink-muted">
+                                        <li className="px-5 py-14 text-center text-sm text-ink-muted">
                                             Is filter mein koi draft nahi — upar topic se generate
                                             karo.
                                         </li>
@@ -621,7 +813,7 @@ export default function Index({
                                         draftRows.map((d) => (
                                             <li
                                                 key={d.id}
-                                                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+                                                className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"
                                             >
                                                 <div className="min-w-0 flex-1">
                                                     <div className="font-semibold text-ink">
@@ -811,7 +1003,7 @@ export default function Index({
                             }
                         />
                         {(blog_feed_url || blog_synced_at) && (
-                            <div className="border-b border-line px-4 py-2 text-xs text-ink-muted">
+                            <div className="border-b border-line px-5 py-3 text-xs text-ink-muted">
                                 {blog_feed_url ? `Feed: ${blog_feed_url}` : null}
                                 {blog_synced_at ? ` · Synced ${blog_synced_at}` : ''}
                                 {postTotal ? ` · ${postTotal} post(s)` : ''}

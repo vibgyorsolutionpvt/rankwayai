@@ -184,6 +184,8 @@ class SeoController extends Controller
                     : filled($integrations->pagespeedApiKey($workspace)),
                 'dataforseo' => \App\Services\Seo\Providers\DataForSeoClient::configured(),
                 'browserless' => \App\Services\Integrations\ProviderStatus::snapshot()['browserless'] ?? false,
+                'js_render' => \App\Services\Integrations\ProviderStatus::snapshot()['js_render'] ?? false,
+                'js_render_driver' => \App\Services\Integrations\ProviderStatus::snapshot()['js_render_driver'] ?? null,
             ],
             'pagespeed_quota' => (function () use ($integrations, $workspace) {
                 $key = $integrations->pagespeedApiKey($workspace);

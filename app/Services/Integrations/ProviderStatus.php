@@ -14,6 +14,15 @@ class ProviderStatus
             'pagespeed' => filled(config('services.google.pagespeed_key')),
             'dataforseo' => filled(config('services.dataforseo.login')) && filled(config('services.dataforseo.password')),
             'browserless' => filled(config('services.browserless.token')) || filled(config('services.browserless.url')),
+            // JS crawl works with free local Chrome/Chromium OR paid Browserless.
+            'js_render' => app(\App\Services\Seo\Providers\LocalChromeJsRenderProvider::class)->configured()
+                || filled(config('services.browserless.token'))
+                || filled(config('services.browserless.url')),
+            'js_render_driver' => app(\App\Services\Seo\Providers\LocalChromeJsRenderProvider::class)->configured()
+                ? 'local_chrome'
+                : ((filled(config('services.browserless.token')) || filled(config('services.browserless.url')))
+                    ? 'browserless'
+                    : null),
             'stripe' => filled(config('services.stripe.secret')),
             'razorpay' => filled(config('services.razorpay.key_id')) && filled(config('services.razorpay.key_secret')),
             'zavu' => filled(config('services.zavu.key')),

@@ -52,6 +52,81 @@ class ActivityLabels
         return self::humanizeAction($action);
     }
 
+    public static function group(string $action): string
+    {
+        $raw = strtolower($action);
+
+        foreach ([
+            'seo' => 'seo',
+            'social' => 'social',
+            'blog' => 'blog',
+            'askefy' => 'blog',
+            'media' => 'media',
+            'brand' => 'brand',
+            'billing' => 'billing',
+            'admin' => 'admin',
+            'integrat' => 'settings',
+            'setting' => 'settings',
+            'profile' => 'settings',
+        ] as $needle => $group) {
+            if (str_contains($raw, $needle)) {
+                return $group;
+            }
+        }
+
+        if (
+            str_contains($raw, 'workspace')
+            || str_starts_with($raw, 'member.')
+        ) {
+            return 'workspace';
+        }
+
+        return 'other';
+    }
+
+    public static function applyGroupFilter($query, string $group): void
+    {
+        match ($group) {
+            'seo', 'social', 'media', 'brand', 'billing', 'admin' => $query->where(
+                'action',
+                'like',
+                '%'.$group.'%'
+            ),
+            'blog' => $query->where(function ($builder) {
+                $builder
+                    ->where('action', 'like', '%blog%')
+                    ->orWhere('action', 'like', '%askefy%');
+            }),
+            'settings' => $query->where(function ($builder) {
+                $builder
+                    ->where('action', 'like', '%setting%')
+                    ->orWhere('action', 'like', '%integrat%')
+                    ->orWhere('action', 'like', '%profile%');
+            }),
+            'workspace' => $query->where(function ($builder) {
+                $builder
+                    ->where('action', 'like', '%workspace%')
+                    ->orWhere('action', 'like', 'member.%');
+            }),
+            'other' => $query->where(function ($builder) {
+                $builder
+                    ->where('action', 'not like', '%seo%')
+                    ->where('action', 'not like', '%social%')
+                    ->where('action', 'not like', '%blog%')
+                    ->where('action', 'not like', '%askefy%')
+                    ->where('action', 'not like', '%media%')
+                    ->where('action', 'not like', '%brand%')
+                    ->where('action', 'not like', '%billing%')
+                    ->where('action', 'not like', 'admin.%')
+                    ->where('action', 'not like', '%setting%')
+                    ->where('action', 'not like', '%integrat%')
+                    ->where('action', 'not like', '%workspace%')
+                    ->where('action', 'not like', 'member.%');
+            }),
+            default => null,
+        };
+    }
+
     private static function humanizeRoute(string $route): string
     {
         $parts = explode('.', $route);

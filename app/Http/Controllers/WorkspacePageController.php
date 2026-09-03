@@ -6,13 +6,16 @@ use App\Enums\WorkspaceRole;
 use App\Http\Requests\Workspace\StoreWorkspaceMemberRequest;
 use App\Http\Requests\Workspace\StoreWorkspaceRequest;
 use App\Http\Requests\Workspace\UpdateWorkspaceMemberRequest;
+use App\Jobs\CrawlAndAuditSeoSiteJob;
 use App\Models\ActivityLog;
+use App\Models\SeoSite;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Access\ModuleAccess;
 use App\Services\Billing\PlanAccess;
 use App\Services\Workspaces\ProvisionClientWorkspace;
 use App\Services\Workspaces\VisibleWorkspaceService;
+use App\Support\DomainNormalizer;
 use App\Support\NavModules;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -70,20 +73,56 @@ class WorkspacePageController extends Controller
         $plans = app(PlanAccess::class);
         if (! $plans->canCreateWorkspace($request->user())) {
             throw ValidationException::withMessages([
-                'name' => $plans->denyCreateWorkspaceMessage($request->user()),
+                'domain' => $plans->denyCreateWorkspaceMessage($request->user()),
             ]);
         }
 
-        $workspace = $provision->createOwned(
-            $request->user(),
-            $request->validated('name')
-        );
+        $domain = DomainNormalizer::normalize($request->validated('domain'));
+        if ($domain === '' || ! str_contains($domain, '.')) {
+            throw ValidationException::withMessages([
+                'domain' => 'Enter a valid domain (e.g. example.com).',
+            ]);
+        }
+
+        $workspace = $provision->createOwned($request->user(), $domain);
+        $workspace->forceFill([
+            'website' => 'https://'.$domain,
+        ])->save();
+
+        $site = SeoSite::query()->create([
+            'workspace_id' => $workspace->id,
+            'domain' => $domain,
+            'status' => 'connected',
+            'crawl_frequency' => 'daily',
+            'crawl_status' => 'crawling',
+            'next_crawl_at' => now(),
+            'gsc_connected' => false,
+        ]);
+
+        try {
+            CrawlAndAuditSeoSiteJob::dispatchSync($site->id);
+        } catch (\Throwable) {
+            // Workspace stays; audit failure is surfaced below.
+        }
+        $site->refresh();
 
         $request->session()->put('active_workspace_id', $workspace->id);
 
+        $pages = $site->pages()->count();
+        $issues = $site->issues()->where('status', 'open')->count();
+
+        if ($site->crawl_status === 'failed' || $pages === 0) {
+            return redirect()
+                ->route('seo.index', ['site' => $site->id])
+                ->with(
+                    'error',
+                    'Workspace created for '.$domain.', but SEO audit failed'.($site->last_crawl_error ? ' — '.$site->last_crawl_error : '.')
+                );
+        }
+
         return redirect()
-            ->route('today')
-            ->with('success', 'Workspace created');
+            ->route('seo.index', ['site' => $site->id])
+            ->with('success', 'Workspace ready · '.$domain.' audited: '.$pages.' page(s), '.$issues.' open issue(s)');
     }
 
     public function switch(Request $request, Workspace $workspace): RedirectResponse

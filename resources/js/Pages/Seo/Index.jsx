@@ -717,7 +717,7 @@ export default function Index({
                                 </PrimaryButton>
                                 <SecondaryButton
                                     type="button"
-                                    disabled={seoJsLocked || !providers.browserless}
+                                    disabled={seoJsLocked || !providers.js_render}
                                     processing={scanning}
                                     onClick={() => {
                                         setScanning(true);
@@ -731,11 +731,13 @@ export default function Index({
                                         );
                                     }}
                                     title={
-                                        !providers.browserless
-                                            ? 'Set BROWSERLESS_TOKEN (or BROWSERLESS_URL) on the server'
+                                        !providers.js_render
+                                            ? 'Install Chrome/Chromium on the server (or set CHROME_BINARY)'
                                             : seoJsLocked
                                               ? 'Needs paid plan or credit top-up'
-                                              : 'Render React/SPA pages in a real browser'
+                                              : providers.js_render_driver === 'local_chrome'
+                                                ? 'Render React/SPA pages with local Chrome (free)'
+                                                : 'Render React/SPA pages in a real browser'
                                     }
                                 >
                                     JS crawl (React)

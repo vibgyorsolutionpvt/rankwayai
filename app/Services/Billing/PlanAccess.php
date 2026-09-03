@@ -71,11 +71,14 @@ class PlanAccess
      */
     public function modulesFor(Workspace $workspace): array
     {
-        if ($this->hasUnlockedAccess($workspace)) {
-            return NavModules::keys();
-        }
+        $keys = $this->hasUnlockedAccess($workspace)
+            ? NavModules::keys()
+            : self::FREE_MODULES;
 
-        return self::FREE_MODULES;
+        // Respect platform-admin menu kills (same source as the client sidebar).
+        $global = app(\App\Services\Access\ModuleAccess::class)->globallyEnabledKeys();
+
+        return array_values(array_intersect($keys, $global));
     }
 
     public function allows(Workspace $workspace, string $feature): bool

@@ -1,5 +1,6 @@
 import ApplicationLogo from '@/Components/ApplicationLogo';
 import BrandName from '@/Components/BrandName';
+import CreateWorkspaceModal from '@/Components/CreateWorkspaceModal';
 import Dropdown from '@/Components/Dropdown';
 import { AppFeedback } from '@/Components/ToastProvider';
 import { Link, router, usePage } from '@inertiajs/react';
@@ -279,7 +280,7 @@ export default function AuthenticatedLayout({ header, children }) {
                 </div>
             </aside>
 
-            <div className="flex min-h-screen flex-col">
+            <div className="flex min-h-screen min-w-0 flex-col">
                 {simulatingUser ? (
                     <div className="flex items-center justify-between gap-3 bg-amber-600 px-4 py-2 text-xs font-semibold text-white sm:px-6">
                         <span>
@@ -309,7 +310,7 @@ export default function AuthenticatedLayout({ header, children }) {
                     </div>
                 ) : null}
                 <header className="sticky top-0 z-20 border-b border-line/70 bg-white/85 backdrop-blur-md">
-                    <div className="flex h-14 items-center justify-between gap-3 px-4 sm:px-6">
+                    <div className="flex min-h-[4.75rem] items-center justify-between gap-3 px-4 py-3.5 sm:gap-4 sm:px-6 lg:min-h-[5.5rem] lg:py-4">
                         <div className="flex min-w-0 items-center gap-2 lg:hidden">
                             <button
                                 type="button"
@@ -324,9 +325,16 @@ export default function AuthenticatedLayout({ header, children }) {
                             </Link>
                         </div>
 
-                        <div className="hidden min-w-0 flex-1 overflow-hidden lg:block">{header}</div>
+                        <div className="hidden min-w-0 flex-1 lg:block">{header}</div>
 
-                        <div className="ml-auto flex shrink-0 items-center gap-2">
+                        <div className="ml-auto flex shrink-0 items-center gap-2 self-center">
+                            {!user?.is_superadmin ? (
+                                <CreateWorkspaceModal
+                                    buttonLabel="Create workspace"
+                                    triggerClassName="!px-2.5 !py-1.5 text-xs sm:text-sm"
+                                />
+                            ) : null}
+
                             {!user?.is_superadmin && workspaces.length > 0 ? (
                                 <Dropdown>
                                     <Dropdown.Trigger>

@@ -132,6 +132,18 @@ class TeamMonitoringTest extends TestCase
             ->assertInertia(fn ($page) => $page
                 ->component('Admin/Activity')
                 ->where('filters.user_id', $client->id));
+
+        $this->actingAs($admin)
+            ->get(route('admin.activity', ['group' => 'social', 'period' => '7d']))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Admin/Activity')
+                ->where('filters.group', 'social')
+                ->where('filters.period', '7d')
+                ->has('logs.data', 1)
+                ->where('logs.data.0.group', 'social')
+                ->has('filterOptions.users')
+                ->has('filterOptions.workspaces'));
     }
 
     public function test_workspace_admin_sees_team_history_in_settings(): void

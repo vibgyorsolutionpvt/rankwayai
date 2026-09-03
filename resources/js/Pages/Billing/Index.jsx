@@ -1,6 +1,7 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import HelpGuide, { HELP } from '@/Components/HelpGuide';
 import PrimaryButton from '@/Components/PrimaryButton';
+import SelectMenu from '@/Components/SelectMenu';
 import { Head, router } from '@inertiajs/react';
 
 const MAIN_TABS = [
@@ -195,25 +196,37 @@ export default function Index({
         <AuthenticatedLayout
             header={
                 <div>
-                    <div className="text-xs font-semibold uppercase tracking-[0.16em] text-ink-muted">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink-muted">
                         Account billing
                     </div>
-                    <div className="flex items-center gap-1.5">
-                        <h2 className="font-display text-2xl font-bold text-ink">Billing</h2>
+                    <div className="mt-1 flex items-center gap-1.5">
+                        <h2 className="font-display text-2xl font-bold leading-none tracking-tight text-ink">
+                            Billing
+                        </h2>
                         <HelpGuide help={HELP.billing} />
                     </div>
-                    <p className="mt-1 text-sm text-ink-muted">
-                        Account plan and credits are shared across{' '}
-                        <span className="font-semibold text-ink">{sharedNames.join(' · ')}</span>
-                        {is_billing_owner
-                            ? '. Your whole team on these workspaces uses the same access.'
-                            : '. Managed by the workspace owner’s account.'}
-                    </p>
                 </div>
             }
         >
             <Head title="Billing" />
             <div className="atlas-shell space-y-4">
+                {sharedNames.length > 0 ? (
+                    <section className="rounded-lg border border-line bg-gradient-to-r from-signal-soft/40 via-white to-mist/60 px-4 py-3.5">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-signal-strong">
+                            Shared across workspaces
+                        </div>
+                        <p className="mt-1.5 text-sm leading-relaxed text-ink">
+                            Account plan and credits apply to{' '}
+                            <span className="font-semibold">{sharedNames.join(' · ')}</span>.
+                        </p>
+                        <p className="mt-1 text-sm text-ink-muted">
+                            {is_billing_owner
+                                ? 'Your whole team on these workspaces uses the same access.'
+                                : 'Managed by the workspace owner’s account.'}
+                        </p>
+                    </section>
+                ) : null}
+
                 <section className="inline-flex flex-wrap gap-0.5 rounded-lg border border-line bg-mist/80 p-1">
                     {MAIN_TABS.map((t) => (
                         <button
@@ -569,24 +582,22 @@ export default function Index({
                                 </div>
                                 <div className="flex flex-wrap items-center gap-2">
                                     {owned_workspaces.length > 1 ? (
-                                        <select
+                                        <SelectMenu
+                                            className="w-48"
+                                            buttonClassName="!py-1.5 !text-sm"
                                             value={history_workspace_filter || ''}
-                                            onChange={(e) =>
-                                                switchHistoryWorkspace(
-                                                    e.target.value
-                                                        ? Number(e.target.value)
-                                                        : null,
-                                                )
+                                            onChange={(id) =>
+                                                switchHistoryWorkspace(id ? Number(id) : null)
                                             }
-                                            className="rounded-md border border-line bg-white px-2.5 py-1.5 text-sm font-medium text-ink"
-                                        >
-                                            <option value="">All workspaces</option>
-                                            {owned_workspaces.map((w) => (
-                                                <option key={w.id} value={w.id}>
-                                                    {w.name}
-                                                </option>
-                                            ))}
-                                        </select>
+                                            placeholder="All workspaces"
+                                            options={[
+                                                { value: '', label: 'All workspaces' },
+                                                ...owned_workspaces.map((w) => ({
+                                                    value: w.id,
+                                                    label: w.name,
+                                                })),
+                                            ]}
+                                        />
                                     ) : null}
                                     <div className="inline-flex rounded-md border border-line bg-mist/80 p-0.5">
                                     {HISTORY_TABS.map((t) => {

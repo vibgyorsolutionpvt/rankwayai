@@ -878,16 +878,18 @@ export default function Index({
                                         ) : null}
                                     </nav>
 
-                                    <select
-                                        className="atlas-select !w-auto !py-1.5 text-sm"
+                                    <SelectMenu
+                                        className="w-40"
+                                        buttonClassName="!py-1.5 !text-sm"
                                         value={typeFilter}
-                                        onChange={(e) => setTypeFilter(e.target.value)}
-                                    >
-                                        <option value="all">All types</option>
-                                        <option value="image">Images</option>
-                                        <option value="video">Videos</option>
-                                        <option value="other">Documents</option>
-                                    </select>
+                                        onChange={setTypeFilter}
+                                        options={[
+                                            { value: 'all', label: 'All types' },
+                                            { value: 'image', label: 'Images' },
+                                            { value: 'video', label: 'Videos' },
+                                            { value: 'other', label: 'Documents' },
+                                        ]}
+                                    />
 
                                     <form
                                         className="flex min-w-[11rem] items-center gap-2 sm:max-w-xs sm:flex-1"

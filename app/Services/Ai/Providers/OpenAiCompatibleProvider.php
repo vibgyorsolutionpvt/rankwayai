@@ -60,7 +60,7 @@ class OpenAiCompatibleProvider implements AiProvider
         ];
 
         try {
-            $request = Http::timeout(30)->acceptJson();
+            $request = Http::timeout(60)->acceptJson();
             if (filled($key)) {
                 $request = $request->withToken($key);
             }
