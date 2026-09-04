@@ -1,0 +1,1 @@
+import{j as a}from"./app-CSYe7mTg.js";function r({className:s="",accentClassName:n="text-signal"}){return a.jsxs("span",{className:`font-display font-bold tracking-tight ${s}`,children:["Rankway",a.jsx("span",{className:n,children:"AI"})]})}export{r as B};

@@ -32,14 +32,14 @@ class WorkspaceController extends Controller
 
     public function store(StoreWorkspaceRequest $request): JsonResponse
     {
-        $this->authorize('create', Workspace::class);
-
         $plans = app(PlanAccess::class);
         if (! $plans->canCreateWorkspace($request->user())) {
             throw ValidationException::withMessages([
                 'name' => $plans->denyCreateWorkspaceMessage($request->user()),
             ]);
         }
+
+        $this->authorize('create', Workspace::class);
 
         $workspace = Workspace::create([
             'name' => $request->validated('name'),

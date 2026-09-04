@@ -501,7 +501,11 @@ export default function Index({
 
     const psiIssues = psiSnapshot?.issues || [];
 
-    const siteForm = useForm({ domain: '', sitemap_url: '', crawl_frequency: 'daily' });
+    const siteForm = useForm({
+        domain: workspace?.suggested_domain || '',
+        sitemap_url: '',
+        crawl_frequency: 'daily',
+    });
     const keywordForm = useForm({
         keyword: '',
         group_name: 'General',
@@ -622,6 +626,14 @@ export default function Index({
                     </section>
                 ) : null}
 
+                {workspace?.role && workspace.role !== 'owner' && sites.length > 0 ? (
+                    <div className="rounded-lg border border-signal/30 bg-signal/5 px-4 py-3 text-sm text-ink">
+                        <span className="font-semibold">Shared workspace.</span> You are working on
+                        the owner&apos;s brand — same site, GSC, posts, and CRM. Use any module your
+                        role allows; no separate setup needed.
+                    </div>
+                ) : null}
+
                 {sites.length === 0 ? (
                     <form
                         className="atlas-panel space-y-3 p-4"
@@ -636,6 +648,22 @@ export default function Index({
                         }}
                     >
                         <h3 className="font-display text-lg font-bold text-ink">Add a website</h3>
+                        <p className="text-sm text-ink-muted">
+                            {workspace?.role && workspace.role !== 'owner' ? (
+                                <>
+                                    This workspace has no SEO site yet. Prefer asking the owner to
+                                    connect the domain once — then the whole team sees the same
+                                    crawl / GSC data. Or add it below if you have permission.
+                                </>
+                            ) : (
+                                <>
+                                    SEO data (crawl, GSC, keywords) loads only after you connect a
+                                    domain to this workspace. Typing the domain is not enough —
+                                    click{' '}
+                                    <span className="font-semibold text-ink">Add + scan</span>.
+                                </>
+                            )}
+                        </p>
                         <div className="grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
                             <div>
                                 <InputLabel value="Domain" />
@@ -672,8 +700,13 @@ export default function Index({
                 ) : null}
 
                 {!site ? (
-                    <div className="atlas-panel px-4 py-16 text-center text-sm text-ink-muted">
-                        Connect a website to start.
+                    <div className="atlas-panel space-y-2 px-4 py-12 text-center text-sm text-ink-muted">
+                        <p className="font-semibold text-ink">No website connected yet</p>
+                        <p>
+                            {workspace?.suggested_domain
+                                ? `Use Add + scan above to connect ${workspace.suggested_domain} and load SEO data for this workspace.`
+                                : 'Add a domain above to start crawl, GSC, and keyword tracking.'}
+                        </p>
                     </div>
                 ) : (
                     <>

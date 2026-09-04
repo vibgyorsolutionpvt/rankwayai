@@ -187,6 +187,7 @@ export default function AuthenticatedLayout({ header, children }) {
     const page = usePage().props;
     const user = page.auth.user;
     const workspaces = page.workspaces || [];
+    const canCreateWorkspace = !!page.can_create_workspace;
     const activeWorkspace = page.activeWorkspace || null;
     const plan = page.plan || null;
     const [mobileOpen, setMobileOpen] = useState(false);
@@ -328,7 +329,7 @@ export default function AuthenticatedLayout({ header, children }) {
                         <div className="hidden min-w-0 flex-1 lg:block">{header}</div>
 
                         <div className="ml-auto flex shrink-0 items-center gap-2 self-center">
-                            {!user?.is_superadmin ? (
+                            {!user?.is_superadmin && canCreateWorkspace ? (
                                 <CreateWorkspaceModal
                                     buttonLabel="Create workspace"
                                     triggerClassName="!px-2.5 !py-1.5 text-xs sm:text-sm"

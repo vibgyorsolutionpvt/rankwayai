@@ -32,9 +32,5 @@ createInertiaApp({
             </ToastProvider>,
         );
     },
-    progress: {
-        color: '#0e9f90',
-        showSpinner: false,
-        delay: 80,
-    },
+    progress: false,
 });
