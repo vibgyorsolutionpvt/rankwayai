@@ -65,8 +65,9 @@ export default function AgencyTeamPanel({ agencyTeam, roles = [] }) {
             <div className="border-b border-line px-4 py-3.5">
                 <h3 className="font-display text-base font-bold text-ink">Agency team</h3>
                 <p className="mt-0.5 text-sm text-ink-muted">
-                    One team across all your workspaces. Invite once, pick which brands they can
-                    access — remove access per workspace anytime.
+                    Invite once, assign any owned workspaces. On each brand they can use every
+                    module you enabled for that workspace (and for that person) — SEO, SMM, Blog,
+                    CRM, WhatsApp, and more. Same shared data the owner set up.
                 </p>
             </div>
 

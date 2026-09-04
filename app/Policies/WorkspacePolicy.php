@@ -20,7 +20,15 @@ class WorkspacePolicy
 
     public function create(User $user): bool
     {
-        return true;
+        // First workspace (onboarding), or only account owners who already own a brand.
+        // Invited team members (admin/editor/viewer) cannot spin up new workspaces.
+        if ($user->workspaces()->doesntExist()) {
+            return true;
+        }
+
+        return $user->workspaces()
+            ->wherePivot('role', WorkspaceRole::Owner->value)
+            ->exists();
     }
 
     public function update(User $user, Workspace $workspace): bool

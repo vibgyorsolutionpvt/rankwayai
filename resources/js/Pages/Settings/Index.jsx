@@ -103,7 +103,8 @@ export default function Index({
                                 API keys for this workspace only — Social, WhatsApp/Email, RCS, and
                                 Google SEO. Each workspace keeps its own keys. Tap ⓘ on each card
                                 for where to get Client ID / secret / API key. Secrets stay
-                                encrypted.
+                                encrypted. Team members use the same keys the owner configured —
+                                they do not set up a separate account.
                             </p>
                         </div>
                         <ProvidersPanel

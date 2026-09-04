@@ -44,6 +44,31 @@ class WorkspacePageTest extends TestCase
                 ->where('workspaces.0.role', 'owner'));
     }
 
+    public function test_team_member_cannot_create_workspace(): void
+    {
+        $owner = User::factory()->create();
+        $member = User::factory()->create();
+        $workspace = Workspace::factory()->create(['name' => 'Agency HQ']);
+        $workspace->users()->attach($owner->id, ['role' => WorkspaceRole::Owner->value]);
+        $workspace->users()->attach($member->id, ['role' => WorkspaceRole::Admin->value]);
+
+        $this->actingAs($member)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('workspaces.store'), ['domain' => 'https://sneaky-brand.test'])
+            ->assertSessionHasErrors('domain');
+
+        $this->assertDatabaseMissing('workspaces', [
+            'name' => 'sneaky-brand.test',
+        ]);
+
+        $this->actingAs($member)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('seo.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('can_create_workspace', false));
+    }
+
     public function test_non_member_cannot_switch_to_foreign_workspace(): void
     {
         $owner = User::factory()->create();

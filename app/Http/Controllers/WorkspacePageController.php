@@ -68,14 +68,14 @@ class WorkspacePageController extends Controller
 
     public function store(StoreWorkspaceRequest $request, ProvisionClientWorkspace $provision): RedirectResponse
     {
-        $this->authorize('create', Workspace::class);
-
         $plans = app(PlanAccess::class);
         if (! $plans->canCreateWorkspace($request->user())) {
             throw ValidationException::withMessages([
                 'domain' => $plans->denyCreateWorkspaceMessage($request->user()),
             ]);
         }
+
+        $this->authorize('create', Workspace::class);
 
         $domain = DomainNormalizer::normalize($request->validated('domain'));
         if ($domain === '' || ! str_contains($domain, '.')) {

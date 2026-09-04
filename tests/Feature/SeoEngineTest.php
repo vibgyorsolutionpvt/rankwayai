@@ -31,6 +31,49 @@ class SeoEngineTest extends TestCase
         return [$user, $workspace];
     }
 
+    public function test_team_member_sees_owner_connected_seo_site(): void
+    {
+        $owner = User::factory()->create(['is_superadmin' => false]);
+        $member = User::factory()->create(['is_superadmin' => false]);
+        $workspace = Workspace::factory()->create([
+            'name' => 'Vibgyor Solution',
+            'website' => 'https://vibgyorsolution.com',
+        ]);
+        $workspace->users()->attach($owner->id, ['role' => WorkspaceRole::Owner->value]);
+        $workspace->users()->attach($member->id, ['role' => WorkspaceRole::Editor->value]);
+
+        SeoSite::query()->create([
+            'workspace_id' => $workspace->id,
+            'domain' => 'vibgyorsolution.com',
+            'status' => 'connected',
+            'gsc_connected' => true,
+            'gsc_queries' => [
+                [
+                    'query' => 'vibgyor solution',
+                    'page' => 'https://vibgyorsolution.com/',
+                    'clicks' => 5,
+                    'impressions' => 40,
+                    'ctr' => 12.5,
+                    'position' => 8.2,
+                    'google_page' => 1,
+                ],
+            ],
+            'gsc_summary' => ['clicks' => 5, 'impressions' => 40, 'keywords_count' => 1],
+        ]);
+
+        $this->actingAs($member)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('seo.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Seo/Index')
+                ->has('sites', 1)
+                ->where('sites.0.domain', 'vibgyorsolution.com')
+                ->where('site.domain', 'vibgyorsolution.com')
+                ->where('workspace.role', 'editor')
+                ->where('site.gsc_connected', true));
+    }
+
     public function test_live_crawl_stores_real_pages_and_site_specific_issues(): void
     {
         Http::fake([

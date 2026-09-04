@@ -1,4 +1,5 @@
-import { router, usePage } from '@inertiajs/react';
+import { usePage } from '@inertiajs/react';
+import WorkspaceNavLoader from '@/Components/WorkspaceNavLoader';
 import {
     createContext,
     useCallback,
@@ -25,19 +26,6 @@ export const toast = {
     error: (message, duration) => toastApi.error(message, duration),
     info: (message, duration) => toastApi.info(message, duration),
 };
-
-function Spinner({ className = 'h-5 w-5' }) {
-    return (
-        <svg className={`animate-spin ${className}`} viewBox="0 0 24 24" fill="none" aria-hidden>
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-            <path
-                className="opacity-90"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8v3a5 5 0 00-5 5H4z"
-            />
-        </svg>
-    );
-}
 
 function ToastIcon({ type }) {
     if (type === 'success') {
@@ -81,56 +69,6 @@ const iconWrap = {
     info: 'bg-signal-soft text-signal-strong',
 };
 
-function ActionLoader() {
-    const [active, setActive] = useState(false);
-    const [label, setLabel] = useState('Working…');
-    const timer = useRef(null);
-
-    useEffect(() => {
-        const onStart = (event) => {
-            const visit = event?.detail?.visit;
-            const method = (visit?.method || 'get').toLowerCase();
-            const isMutation = method !== 'get';
-            clearTimeout(timer.current);
-            timer.current = setTimeout(() => {
-                setLabel(isMutation ? 'Saving…' : 'Loading…');
-                setActive(true);
-            }, isMutation ? 100 : 200);
-        };
-        const stop = () => {
-            clearTimeout(timer.current);
-            setActive(false);
-        };
-
-        const offStart = router.on('start', onStart);
-        const offFinish = router.on('finish', stop);
-        const offError = router.on('error', stop);
-
-        return () => {
-            clearTimeout(timer.current);
-            offStart();
-            offFinish();
-            offError();
-        };
-    }, []);
-
-    if (!active) return null;
-
-    return (
-        <div
-            className="pointer-events-none fixed inset-0 z-[200] flex items-start justify-center pt-20"
-            aria-live="polite"
-            aria-busy="true"
-        >
-            <div className="pointer-events-none absolute inset-0 bg-ink/10 backdrop-blur-[1px]" />
-            <div className="relative flex items-center gap-2.5 rounded-full border border-line bg-white/95 px-4 py-2.5 text-sm font-semibold text-ink shadow-panel">
-                <Spinner className="h-4 w-4 text-signal" />
-                <span>{label}</span>
-            </div>
-        </div>
-    );
-}
-
 /** Mount inside Inertia page tree (layouts) so usePage works */
 export function AppFeedback() {
     const { flash, errors } = usePage().props;
@@ -161,7 +99,7 @@ export function AppFeedback() {
         push(String(values[0]), 'error');
     }, [errors, push]);
 
-    return <ActionLoader />;
+    return <WorkspaceNavLoader />;
 }
 
 export function useToast() {

@@ -240,3 +240,39 @@
         text-align: right;
     }
 }
+
+@keyframes nav-loader-bar {
+    0% {
+        transform: translateX(-120%);
+    }
+    100% {
+        transform: translateX(220%);
+    }
+}
+
+@keyframes nav-loader-ring {
+    0% {
+        transform: rotate(0deg);
+        opacity: 0.85;
+    }
+    50% {
+        opacity: 1;
+    }
+    100% {
+        transform: rotate(360deg);
+        opacity: 0.85;
+    }
+}
+
+@keyframes nav-loader-dot {
+    0%,
+    80%,
+    100% {
+        opacity: 0.25;
+        transform: translateY(0);
+    }
+    40% {
+        opacity: 1;
+        transform: translateY(-3px);
+    }
+}

@@ -123,6 +123,9 @@ class HandleInertiaRequests extends Middleware
                 : null,
             'navigation' => $navigation,
             'plan' => $plan,
+            'can_create_workspace' => $user && (! $user->is_superadmin || $simulatingUser)
+                ? $plans->canCreateWorkspace($user)
+                : false,
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),

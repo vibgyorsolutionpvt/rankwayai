@@ -119,11 +119,26 @@ class PlanAccess
 
     public function canCreateWorkspace(User $user): bool
     {
+        if ($user->workspaces()->doesntExist()) {
+            return true;
+        }
+
+        if (! $user->workspaces()->wherePivot('role', WorkspaceRole::Owner->value)->exists()) {
+            return false;
+        }
+
         return $this->ownedWorkspaceCount($user) < $this->workspaceLimitForUser($user);
     }
 
     public function denyCreateWorkspaceMessage(User $user): string
     {
+        if (
+            $user->workspaces()->exists()
+            && ! $user->workspaces()->wherePivot('role', WorkspaceRole::Owner->value)->exists()
+        ) {
+            return 'Only the workspace owner can create new workspaces. Ask your agency admin.';
+        }
+
         $ent = $this->accountEntitlementForUser($user);
         $limit = $ent['limit'];
         $plan = $ent['plan'];

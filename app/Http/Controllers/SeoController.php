@@ -139,7 +139,15 @@ class SeoController extends Controller
             ]);
 
         return Inertia::render('Seo/Index', [
-            'workspace' => ['id' => $workspace->id, 'name' => $workspace->name],
+            'workspace' => [
+                'id' => $workspace->id,
+                'name' => $workspace->name,
+                'website' => $workspace->website,
+                'suggested_domain' => filled($workspace->website)
+                    ? \App\Support\DomainNormalizer::normalize((string) $workspace->website)
+                    : null,
+                'role' => $workspace->roleFor($request->user())?->value,
+            ],
             'sites' => $sites,
             'other_workspaces_with_sites' => $otherWorkspacesWithSites,
             'site' => $site,

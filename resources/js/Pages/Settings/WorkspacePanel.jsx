@@ -301,8 +301,9 @@ export default function WorkspacePanel({
                             Workspace modules
                         </h3>
                         <p className="mt-0.5 text-sm text-ink-muted">
-                            Choose which menus this workspace shows. Other workspaces keep their
-                            own menus and API keys. Items turned off by platform admin stay locked.
+                            Menus for this brand (SEO, SMM, Blog, CRM, …). Team members only see
+                            modules that are on here — then you can narrow further per person below.
+                            Other workspaces keep their own menus and API keys.
                         </p>
                     </div>
                     <div className="grid gap-2 p-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
@@ -418,9 +419,10 @@ export default function WorkspacePanel({
                             <p className="mt-0.5 text-sm text-ink-muted">
                                 <span className="font-semibold text-ink">{activeWorkspace.name}</span>
                                 {' — '}
-                                role decide karta hai manage rights;{' '}
-                                <span className="font-semibold text-ink">Set permissions</span> se
-                                har user ke sidebar menus on/off karo.
+                                role = manage rights;{' '}
+                                <span className="font-semibold text-ink">Set permissions</span> =
+                                which modules (SEO, SMM, Blog, CRM…) this person can open on this
+                                brand. They work on your shared setup, not a separate account.
                             </p>
                         </div>
                         <div className="rounded-md bg-mist px-3 py-1.5 text-xs font-semibold text-ink-muted">
