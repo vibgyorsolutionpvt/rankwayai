@@ -8,6 +8,8 @@ import PrimaryButton from '@/Components/PrimaryButton';
 import TextInput from '@/Components/TextInput';
 import Toggle from '@/Components/Toggle';
 import { confirmAsk } from '@/Components/ConfirmProvider';
+import { toast } from '@/Components/ToastProvider';
+import { compressImageIfNeeded } from '@/Utils/imageCompressor';
 import { Head, Link, router, useForm } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
 
@@ -59,10 +61,27 @@ export default function Edit({ workspace, brand, kits = [] }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [brand.id]);
 
-    const onLogoChange = (e) => {
+    const onLogoChange = async (e) => {
         const file = e.target.files?.[0] || null;
-        form.setData('logo', file);
-        if (file) {
+        if (!file) {
+            form.setData('logo', null);
+            setLogoPreview(null);
+            return;
+        }
+
+        if (file.size > 2 * 1024 * 1024) {
+            const res = await compressImageIfNeeded(file, {
+                maxBytes: 2 * 1024 * 1024,
+                targetBytes: 1.5 * 1024 * 1024,
+                maxDimension: 2048,
+            });
+            form.setData('logo', res.file);
+            setLogoPreview(URL.createObjectURL(res.file));
+            if (res.compressed) {
+                toast.success('Logo auto-compressed to under 2 MB.');
+            }
+        } else {
+            form.setData('logo', file);
             setLogoPreview(URL.createObjectURL(file));
         }
     };
