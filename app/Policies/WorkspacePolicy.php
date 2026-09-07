@@ -20,10 +20,22 @@ class WorkspacePolicy
 
     public function create(User $user): bool
     {
-        // First workspace (onboarding), or only account owners who already own a brand.
-        // Invited team members (admin/editor/viewer) cannot spin up new workspaces.
+        if ($user->is_superadmin) {
+            return true;
+        }
+
+        // First workspace (onboarding)
         if ($user->workspaces()->doesntExist()) {
             return true;
+        }
+
+        // If currently in an active workspace where the user is an invited team member (not owner), deny creation.
+        $activeId = (int) session('active_workspace_id');
+        if ($activeId) {
+            $activeRole = $user->workspaces()->where('workspaces.id', $activeId)->value('workspace_user.role');
+            if ($activeRole && $activeRole !== WorkspaceRole::Owner->value) {
+                return false;
+            }
         }
 
         return $user->workspaces()

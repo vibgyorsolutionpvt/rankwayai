@@ -30,6 +30,7 @@ class SocialSchedulerTest extends TestCase
         $user = User::factory()->create();
         $workspace = Workspace::factory()->create();
         $workspace->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
+        app(BillingService::class)->changePlan($workspace, 'starter', 'active');
 
         return [$user, $workspace];
     }
@@ -270,10 +271,12 @@ class SocialSchedulerTest extends TestCase
 
     public function test_publisher_writes_permalinks(): void
     {
+        Queue::fake([\App\Jobs\SyncSocialPostEngagementJob::class]);
         [$user, $workspace] = $this->memberWithWorkspace();
 
         \Illuminate\Support\Facades\Http::fake([
             'graph.facebook.com/*' => \Illuminate\Support\Facades\Http::sequence()
+                ->push(['id' => 'photo_999'], 200)
                 ->push(['id' => '111_222'], 200)
                 ->push(['permalink_url' => 'https://www.facebook.com/111/posts/222'], 200),
         ]);
@@ -454,5 +457,397 @@ class SocialSchedulerTest extends TestCase
                 ->has('posts.data', 1)
                 ->where('posts.data.0.id', $todayPost->id)
                 ->where('filters.date_preset', 'today'));
+    }
+
+    public function test_post_creation_defaults_to_publish_to_story_true(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('social.posts.store'), [
+                'title' => 'Story Post',
+                'body' => 'Testing story flag',
+                'platforms' => ['facebook', 'instagram', 'threads'],
+                'delivery' => 'draft',
+                'generate_posters' => false,
+                'public_media_url' => $this->samplePublicMediaUrl(),
+            ])
+            ->assertRedirect();
+
+        $post = SocialPost::query()->latest('id')->first();
+        $this->assertNotNull($post);
+        $this->assertTrue($post->publish_to_story);
+        $this->assertEquals(['facebook', 'instagram', 'threads'], $post->platforms);
+    }
+
+    public function test_publisher_publishes_facebook_story_when_enabled(): void
+    {
+        Queue::fake([\App\Jobs\SyncSocialPostEngagementJob::class]);
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        \Illuminate\Support\Facades\Http::fake([
+            'graph.facebook.com/*/photos' => \Illuminate\Support\Facades\Http::response(['id' => 'photo_123'], 200),
+            'graph.facebook.com/*/feed' => \Illuminate\Support\Facades\Http::response(['id' => 'page_feed_456'], 200),
+            'graph.facebook.com/*/photo_stories' => \Illuminate\Support\Facades\Http::response(['post_id' => 'story_789'], 200),
+            'graph.facebook.com/*' => \Illuminate\Support\Facades\Http::response(['permalink_url' => 'https://facebook.com/posts/456'], 200),
+        ]);
+
+        SocialAccount::query()->create([
+            'workspace_id' => $workspace->id,
+            'platform' => 'facebook',
+            'account_name' => 'FB Page',
+            'account_type' => 'page',
+            'connection_mode' => 'oauth',
+            'status' => 'connected',
+            'health' => 'healthy',
+            'external_id' => 'fb_page_1',
+            'access_token' => 'page-token',
+            'connected_at' => now(),
+        ]);
+
+        $asset = MediaAsset::query()->create([
+            'workspace_id' => $workspace->id,
+            'uploaded_by' => $user->id,
+            'disk' => 'public',
+            'path' => $this->samplePublicMediaUrl(),
+            'original_name' => 'sample.jpg',
+            'mime_type' => 'image/jpeg',
+            'size' => 0,
+            'status' => 'ready',
+        ]);
+
+        $post = SocialPost::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'title' => 'FB Feed & Story',
+            'body' => 'Caption text',
+            'platforms' => ['facebook'],
+            'status' => 'publishing',
+            'publish_to_story' => true,
+            'media_asset_id' => $asset->id,
+        ]);
+
+        $result = app(SocialPublisherService::class)->publish($post);
+        $post->refresh();
+
+        $this->assertTrue($result['ok']);
+        $this->assertArrayHasKey('facebook', $post->permalinks);
+        $this->assertArrayHasKey('facebook_story', $post->permalinks);
+        $this->assertStringContainsString('story_789', $post->permalinks['facebook_story']);
+    }
+
+    public function test_publisher_publishes_instagram_story_when_enabled(): void
+    {
+        Queue::fake([\App\Jobs\SyncSocialPostEngagementJob::class]);
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        \Illuminate\Support\Facades\Http::fake([
+            'graph.facebook.com/*/media' => \Illuminate\Support\Facades\Http::sequence()
+                ->push(['id' => 'ig_container_feed'], 200)
+                ->push(['id' => 'ig_container_story'], 200),
+            'graph.facebook.com/*/media_publish' => \Illuminate\Support\Facades\Http::sequence()
+                ->push(['id' => 'ig_media_feed'], 200)
+                ->push(['id' => 'ig_media_story'], 200),
+            'graph.facebook.com/ig_container_*' => \Illuminate\Support\Facades\Http::response(['status_code' => 'FINISHED'], 200),
+            'graph.facebook.com/ig_media_*' => \Illuminate\Support\Facades\Http::response(['permalink' => 'https://instagram.com/p/feed123'], 200),
+            'graph.facebook.com/*' => \Illuminate\Support\Facades\Http::response(['status_code' => 'FINISHED', 'permalink' => 'https://instagram.com/p/feed123'], 200),
+        ]);
+
+        SocialAccount::query()->create([
+            'workspace_id' => $workspace->id,
+            'platform' => 'instagram',
+            'account_name' => 'IG Business',
+            'account_type' => 'page',
+            'connection_mode' => 'oauth',
+            'status' => 'connected',
+            'health' => 'healthy',
+            'external_id' => 'ig_user_1',
+            'access_token' => 'ig-token',
+            'connected_at' => now(),
+        ]);
+
+        $asset = MediaAsset::query()->create([
+            'workspace_id' => $workspace->id,
+            'uploaded_by' => $user->id,
+            'disk' => 'public',
+            'path' => $this->samplePublicMediaUrl(),
+            'original_name' => 'sample.jpg',
+            'mime_type' => 'image/jpeg',
+            'size' => 0,
+            'status' => 'ready',
+        ]);
+
+        $post = SocialPost::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'title' => 'IG Feed & Story',
+            'body' => 'IG Caption',
+            'platforms' => ['instagram'],
+            'status' => 'publishing',
+            'publish_to_story' => true,
+            'media_asset_id' => $asset->id,
+        ]);
+
+        $result = app(SocialPublisherService::class)->publish($post);
+        $post->refresh();
+
+        $this->assertTrue($result['ok']);
+        $this->assertArrayHasKey('instagram', $post->permalinks);
+        $this->assertArrayHasKey('instagram_story', $post->permalinks);
+    }
+
+    public function test_social_account_test_connection_healthy_for_sandbox(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        $account = SocialAccount::query()->create([
+            'workspace_id' => $workspace->id,
+            'platform' => 'facebook',
+            'account_name' => 'Demo Sandbox',
+            'account_type' => 'page',
+            'connection_mode' => 'sandbox',
+            'status' => 'connected',
+            'health' => 'healthy',
+            'external_id' => 'stub_123',
+            'access_token' => 'stub_token',
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('social.accounts.test', $account->id))
+            ->assertSessionHas('success');
+
+        $this->assertSame('healthy', $account->fresh()->health);
+        $this->assertNull($account->fresh()->last_error);
+    }
+
+    public function test_social_account_test_connection_facebook_healthy(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        \Illuminate\Support\Facades\Http::fake([
+            'graph.facebook.com/v19.0/fb_page_123*' => \Illuminate\Support\Facades\Http::response([
+                'id' => 'fb_page_123',
+                'name' => 'My Live Brand Page',
+            ], 200),
+        ]);
+
+        $account = SocialAccount::query()->create([
+            'workspace_id' => $workspace->id,
+            'platform' => 'facebook',
+            'account_name' => 'Old Name',
+            'account_type' => 'page',
+            'connection_mode' => 'oauth',
+            'status' => 'connected',
+            'health' => 'healthy',
+            'external_id' => 'fb_page_123',
+            'access_token' => 'live_token_abc',
+            'token_expires_at' => now()->addDays(30),
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('social.accounts.test', $account->id))
+            ->assertSessionHas('success');
+
+        $this->assertSame('healthy', $account->fresh()->health);
+        $this->assertSame('My Live Brand Page', $account->fresh()->account_name);
+        $this->assertNull($account->fresh()->last_error);
+    }
+
+    public function test_social_account_test_connection_catches_meta_error_190(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        \Illuminate\Support\Facades\Http::fake([
+            'graph.facebook.com/v19.0/fb_page_invalid*' => \Illuminate\Support\Facades\Http::response([
+                'error' => [
+                    'message' => 'Error validating access token: The session has been invalidated.',
+                    'type' => 'OAuthException',
+                    'code' => 190,
+                    'error_subcode' => 460,
+                ],
+            ], 400),
+        ]);
+
+        $account = SocialAccount::query()->create([
+            'workspace_id' => $workspace->id,
+            'platform' => 'facebook',
+            'account_name' => 'Expired Page',
+            'account_type' => 'page',
+            'connection_mode' => 'oauth',
+            'status' => 'connected',
+            'health' => 'healthy',
+            'external_id' => 'fb_page_invalid',
+            'access_token' => 'bad_token',
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('social.accounts.test', $account->id))
+            ->assertSessionHas('error');
+
+        $this->assertSame('error', $account->fresh()->health);
+        $this->assertStringContainsString('Error 190', $account->fresh()->last_error);
+    }
+
+    public function test_social_account_test_all_connections(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        SocialAccount::query()->create([
+            'workspace_id' => $workspace->id,
+            'platform' => 'facebook',
+            'account_name' => 'Sandbox 1',
+            'account_type' => 'page',
+            'connection_mode' => 'sandbox',
+            'status' => 'connected',
+            'health' => 'healthy',
+            'external_id' => 'stub_1',
+            'access_token' => 'stub_token_1',
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('social.accounts.test-all'))
+            ->assertSessionHas('success');
+    }
+
+    public function test_health_check_endpoint_returns_clean_when_healthy(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        SocialAccount::query()->create([
+            'workspace_id' => $workspace->id,
+            'platform' => 'facebook',
+            'account_name' => 'Healthy Sandbox',
+            'account_type' => 'page',
+            'connection_mode' => 'sandbox',
+            'status' => 'connected',
+            'health' => 'healthy',
+            'external_id' => 'stub_h1',
+            'access_token' => 'stub_token_h1',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->postJson(route('social.accounts.health-check'));
+
+        $response->assertOk()
+            ->assertJson([
+                'checked' => true,
+                'has_issues' => false,
+                'total_checked' => 1,
+                'failed_accounts' => [],
+            ]);
+    }
+
+    public function test_health_check_endpoint_returns_failed_accounts_and_reconnect_url(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        \Illuminate\Support\Facades\Http::fake([
+            'graph.facebook.com/v19.0/fb_page_broken*' => \Illuminate\Support\Facades\Http::response([
+                'error' => [
+                    'message' => 'Error validating access token: The session has been invalidated.',
+                    'type' => 'OAuthException',
+                    'code' => 190,
+                    'error_subcode' => 460,
+                ],
+            ], 400),
+        ]);
+
+        SocialAccount::query()->create([
+            'workspace_id' => $workspace->id,
+            'platform' => 'facebook',
+            'account_name' => 'Broken Page',
+            'account_type' => 'page',
+            'connection_mode' => 'oauth',
+            'status' => 'connected',
+            'health' => 'healthy',
+            'external_id' => 'fb_page_broken',
+            'access_token' => 'invalid_token',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->postJson(route('social.accounts.health-check'));
+
+        $response->assertOk()
+            ->assertJson([
+                'checked' => true,
+                'has_issues' => true,
+                'total_checked' => 1,
+            ]);
+
+        $this->assertCount(1, $response->json('failed_accounts'));
+        $failed = $response->json('failed_accounts.0');
+        $this->assertSame('facebook', $failed['platform']);
+        $this->assertSame('Broken Page', $failed['account_name']);
+        $this->assertStringContainsString('Error 190', $failed['error_message']);
+        $this->assertNotEmpty($failed['reconnect_url']);
+    }
+
+    public function test_login_triggers_check_social_on_login(): void
+    {
+        $user = \App\Models\User::factory()->create(['password' => bcrypt('password123')]);
+        $workspace = \App\Models\Workspace::factory()->create();
+        $workspace->users()->attach($user->id, ['role' => \App\Enums\WorkspaceRole::Owner->value]);
+
+        $response = $this->post('/login', [
+            'email' => $user->email,
+            'password' => 'password123',
+        ]);
+
+        $response->assertSessionHas('check_social_on_login', true);
+    }
+
+    public function test_workspace_switch_triggers_check_social_on_workspace_switch(): void
+    {
+        [$user, $workspace1] = $this->memberWithWorkspace();
+        $workspace2 = \App\Models\Workspace::factory()->create();
+        $workspace2->users()->attach($user->id, ['role' => \App\Enums\WorkspaceRole::Owner->value]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace1->id])
+            ->post(route('workspaces.switch', $workspace2), ['redirect' => 'back']);
+
+        $response->assertRedirect();
+        $response->assertSessionHas('active_workspace_id', $workspace2->id);
+        $response->assertSessionHas('check_social_on_workspace_switch', true);
+    }
+
+    public function test_health_check_catches_disconnected_accounts(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        SocialAccount::query()->create([
+            'workspace_id' => $workspace->id,
+            'platform' => 'facebook',
+            'account_name' => 'Disconnected Page',
+            'account_type' => 'page',
+            'connection_mode' => 'oauth',
+            'status' => 'disconnected',
+            'health' => 'error',
+            'external_id' => 'fb_page_disc',
+            'access_token' => 'some_token',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->postJson(route('social.accounts.health-check'));
+
+        $response->assertOk()
+            ->assertJson([
+                'checked' => true,
+                'has_issues' => true,
+                'total_checked' => 1,
+            ]);
+
+        $this->assertCount(1, $response->json('failed_accounts'));
+        $failed = $response->json('failed_accounts.0');
+        $this->assertSame('disconnected', $failed['status']);
+        $this->assertStringContainsString('disconnected', strtolower($failed['error_message']));
     }
 }

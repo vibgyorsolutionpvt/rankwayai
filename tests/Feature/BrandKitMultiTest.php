@@ -6,6 +6,7 @@ use App\Enums\WorkspaceRole;
 use App\Models\BrandKit;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\Billing\BillingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -18,6 +19,7 @@ class BrandKitMultiTest extends TestCase
         $user = User::factory()->create();
         $workspace = Workspace::factory()->create();
         $workspace->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
+        app(BillingService::class)->changePlan($workspace, 'starter', 'active');
 
         return [$user, $workspace];
     }

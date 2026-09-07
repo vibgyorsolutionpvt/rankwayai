@@ -72,13 +72,18 @@ class SocialConnectionService
             'nonce' => Str::random(16),
         ]));
 
+        $igScopes = ['pages_show_list', 'instagram_basic', 'instagram_content_publish'];
+        if (config('social.meta_request_instagram_insights', false)) {
+            $igScopes[] = 'instagram_manage_insights';
+        }
+
         return match ($platform) {
             'facebook', 'instagram' => 'https://www.facebook.com/v19.0/dialog/oauth?'.http_build_query([
                 'client_id' => $this->integrations->socialCredential($workspace, 'meta', 'app_id'),
                 'redirect_uri' => $this->oauthRedirectUri($platform),
                 'state' => $state,
                 'scope' => $platform === 'instagram'
-                    ? 'pages_show_list,instagram_basic,instagram_content_publish,instagram_manage_insights'
+                    ? implode(',', $igScopes)
                     : 'pages_show_list,pages_manage_posts,pages_read_engagement',
             ]),
             'threads' => 'https://threads.net/oauth/authorize?'.http_build_query([
@@ -552,5 +557,315 @@ class SocialConnectionService
             'id' => 'x_'.Str::random(8),
             'name' => 'X account',
         ];
+    }
+
+    /**
+     * Test the health of a social account connection against the live platform API.
+     *
+     * @return array{ok:bool,health:string,message:string}
+     */
+    public function testConnection(SocialAccount $account): array
+    {
+        if ($account->status !== 'connected') {
+            return [
+                'ok' => false,
+                'health' => 'error',
+                'message' => 'Account is marked as disconnected. Reconnect to restore access.',
+            ];
+        }
+
+        if (blank($account->access_token)) {
+            $msg = 'Missing access token. Please reconnect this account.';
+            $account->update(['health' => 'error', 'last_error' => $msg]);
+
+            return [
+                'ok' => false,
+                'health' => 'error',
+                'message' => $msg,
+            ];
+        }
+
+        if ($account->connection_mode === 'sandbox') {
+            $account->update(['health' => 'healthy', 'last_error' => null]);
+
+            return [
+                'ok' => true,
+                'health' => 'healthy',
+                'message' => 'Sandbox mode: Test connection is active and ready.',
+            ];
+        }
+
+        if ($account->token_expires_at && $account->token_expires_at->isPast()) {
+            $msg = 'Access token expired on '.$account->token_expires_at->toFormattedDateString().'. Please click Reconnect.';
+            $account->update(['health' => 'error', 'last_error' => $msg]);
+
+            return [
+                'ok' => false,
+                'health' => 'error',
+                'message' => $msg,
+            ];
+        }
+
+        return match ($account->platform) {
+            'facebook' => $this->testFacebookConnection($account),
+            'instagram' => $this->testInstagramConnection($account),
+            'threads' => $this->testThreadsConnection($account),
+            'linkedin' => $this->testLinkedInConnection($account),
+            'x' => $this->testXConnection($account),
+            default => [
+                'ok' => true,
+                'health' => 'healthy',
+                'message' => 'Connection active.',
+            ],
+        };
+    }
+
+    private function testFacebookConnection(SocialAccount $account): array
+    {
+        $pageId = (string) $account->external_id;
+        $token = (string) $account->access_token;
+
+        try {
+            $response = Http::timeout(15)->get(self::GRAPH.'/'.rawurlencode($pageId), [
+                'fields' => 'id,name,link,category',
+                'access_token' => $token,
+            ]);
+
+            if ($response->successful() && filled($response->json('id'))) {
+                $pageName = (string) ($response->json('name') ?? $account->account_name);
+                $account->update([
+                    'health' => 'healthy',
+                    'last_error' => null,
+                    'account_name' => $pageName ?: $account->account_name,
+                ]);
+
+                $expires = $account->token_expires_at
+                    ? ' (Token valid until '.$account->token_expires_at->format('M j, Y').')'
+                    : '';
+
+                return [
+                    'ok' => true,
+                    'health' => 'healthy',
+                    'message' => "Facebook connection healthy! Connected to Page '{$pageName}' (ID: {$pageId}){$expires}.",
+                ];
+            }
+
+            $errorMsg = $this->parseMetaError($response->json(), $response->body());
+            $account->update([
+                'health' => 'error',
+                'last_error' => $errorMsg,
+            ]);
+
+            return [
+                'ok' => false,
+                'health' => 'error',
+                'message' => "Facebook connection failed: {$errorMsg}",
+            ];
+        } catch (\Throwable $e) {
+            $msg = 'Facebook connection check failed: '.$e->getMessage();
+            $account->update(['health' => 'error', 'last_error' => $msg]);
+
+            return ['ok' => false, 'health' => 'error', 'message' => $msg];
+        }
+    }
+
+    private function testInstagramConnection(SocialAccount $account): array
+    {
+        $igUserId = (string) $account->external_id;
+        $token = (string) $account->access_token;
+
+        try {
+            $response = Http::timeout(15)->get(self::GRAPH.'/'.rawurlencode($igUserId), [
+                'fields' => 'id,username,name',
+                'access_token' => $token,
+            ]);
+
+            if ($response->successful() && filled($response->json('id'))) {
+                $username = (string) ($response->json('username') ?? $response->json('name') ?? $account->account_name);
+                $displayName = $username ? (str_starts_with($username, '@') ? $username : '@'.$username) : $account->account_name;
+                $account->update([
+                    'health' => 'healthy',
+                    'last_error' => null,
+                    'account_name' => $displayName,
+                ]);
+
+                $expires = $account->token_expires_at
+                    ? ' (Token valid until '.$account->token_expires_at->format('M j, Y').')'
+                    : '';
+
+                return [
+                    'ok' => true,
+                    'health' => 'healthy',
+                    'message' => "Instagram connection healthy! Connected as {$displayName} (ID: {$igUserId}){$expires}.",
+                ];
+            }
+
+            $errorMsg = $this->parseMetaError($response->json(), $response->body());
+            $account->update([
+                'health' => 'error',
+                'last_error' => $errorMsg,
+            ]);
+
+            return [
+                'ok' => false,
+                'health' => 'error',
+                'message' => "Instagram connection failed: {$errorMsg}",
+            ];
+        } catch (\Throwable $e) {
+            $msg = 'Instagram connection check failed: '.$e->getMessage();
+            $account->update(['health' => 'error', 'last_error' => $msg]);
+
+            return ['ok' => false, 'health' => 'error', 'message' => $msg];
+        }
+    }
+
+    private function testThreadsConnection(SocialAccount $account): array
+    {
+        $userId = (string) $account->external_id;
+        $token = (string) $account->access_token;
+
+        try {
+            $endpoint = $userId !== ''
+                ? self::THREADS_GRAPH.'/'.rawurlencode($userId)
+                : self::THREADS_GRAPH.'/me';
+
+            $response = Http::timeout(15)->get($endpoint, [
+                'fields' => 'id,username',
+                'access_token' => $token,
+            ]);
+
+            if ($response->successful() && (filled($response->json('id')) || filled($response->json('username')))) {
+                $username = (string) ($response->json('username') ?? $account->account_name);
+                $displayName = $username ? (str_starts_with($username, '@') ? $username : '@'.$username) : $account->account_name;
+                $account->update([
+                    'health' => 'healthy',
+                    'last_error' => null,
+                    'account_name' => $displayName,
+                ]);
+
+                $expires = $account->token_expires_at
+                    ? ' (Token valid until '.$account->token_expires_at->format('M j, Y').')'
+                    : '';
+
+                return [
+                    'ok' => true,
+                    'health' => 'healthy',
+                    'message' => "Threads connection healthy! Connected as {$displayName}{$expires}.",
+                ];
+            }
+
+            $errorMsg = $this->parseMetaError($response->json(), $response->body());
+            $account->update([
+                'health' => 'error',
+                'last_error' => $errorMsg,
+            ]);
+
+            return [
+                'ok' => false,
+                'health' => 'error',
+                'message' => "Threads connection failed: {$errorMsg}",
+            ];
+        } catch (\Throwable $e) {
+            $msg = 'Threads connection check failed: '.$e->getMessage();
+            $account->update(['health' => 'error', 'last_error' => $msg]);
+
+            return ['ok' => false, 'health' => 'error', 'message' => $msg];
+        }
+    }
+
+    private function testLinkedInConnection(SocialAccount $account): array
+    {
+        $token = (string) $account->access_token;
+
+        try {
+            $response = Http::timeout(15)->withToken($token)->get('https://api.linkedin.com/v2/userinfo');
+
+            if ($response->successful()) {
+                $name = (string) ($response->json('name') ?? $account->account_name);
+                $account->update([
+                    'health' => 'healthy',
+                    'last_error' => null,
+                    'account_name' => $name,
+                ]);
+
+                return [
+                    'ok' => true,
+                    'health' => 'healthy',
+                    'message' => "LinkedIn connection healthy! Connected as '{$name}'.",
+                ];
+            }
+
+            $msg = $response->json('message') ?? 'LinkedIn token invalid or expired. Please reconnect.';
+            $account->update(['health' => 'error', 'last_error' => $msg]);
+
+            return ['ok' => false, 'health' => 'error', 'message' => "LinkedIn connection failed: {$msg}"];
+        } catch (\Throwable $e) {
+            $msg = 'LinkedIn check failed: '.$e->getMessage();
+            $account->update(['health' => 'error', 'last_error' => $msg]);
+
+            return ['ok' => false, 'health' => 'error', 'message' => $msg];
+        }
+    }
+
+    private function testXConnection(SocialAccount $account): array
+    {
+        $token = (string) $account->access_token;
+
+        try {
+            $response = Http::timeout(15)->withToken($token)->get('https://api.twitter.com/2/users/me');
+
+            if ($response->successful() && filled($response->json('data.id'))) {
+                $username = (string) ($response->json('data.username') ?? '');
+                $displayName = $username ? '@'.$username : $account->account_name;
+                $account->update([
+                    'health' => 'healthy',
+                    'last_error' => null,
+                    'account_name' => $displayName,
+                ]);
+
+                return [
+                    'ok' => true,
+                    'health' => 'healthy',
+                    'message' => "X connection healthy! Connected as {$displayName}.",
+                ];
+            }
+
+            $msg = $response->json('detail') ?? $response->json('title') ?? 'X token invalid or expired. Please reconnect.';
+            $account->update(['health' => 'error', 'last_error' => $msg]);
+
+            return ['ok' => false, 'health' => 'error', 'message' => "X connection failed: {$msg}"];
+        } catch (\Throwable $e) {
+            $msg = 'X check failed: '.$e->getMessage();
+            $account->update(['health' => 'error', 'last_error' => $msg]);
+
+            return ['ok' => false, 'health' => 'error', 'message' => $msg];
+        }
+    }
+
+    private function parseMetaError(mixed $json, string $body): string
+    {
+        if (is_array($json) && isset($json['error'])) {
+            $code = (int) ($json['error']['code'] ?? 0);
+            $subcode = (int) ($json['error']['error_subcode'] ?? 0);
+            $msg = $json['error']['message'] ?? $json['error']['error_user_msg'] ?? null;
+
+            if ($code === 190) {
+                return 'Meta session expired or password changed (Error 190). Please click Reconnect to sign in again.';
+            }
+
+            if ($code === 200) {
+                return 'Meta permission error (Error 200). Ensure the user has admin or editor role on this Facebook Page.';
+            }
+
+            if ($code === 100) {
+                return 'Invalid Page or User ID on Meta (Error 100). Please reconnect.';
+            }
+
+            if (is_string($msg) && $msg !== '') {
+                return $msg;
+            }
+        }
+
+        return 'Meta API error: '.Str::limit($body, 180);
     }
 }

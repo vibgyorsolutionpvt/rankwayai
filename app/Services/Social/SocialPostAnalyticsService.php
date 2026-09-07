@@ -23,9 +23,14 @@ class SocialPostAnalyticsService
      */
     public static function requiredScopes(): array
     {
+        $ig = ['pages_show_list', 'instagram_basic', 'instagram_content_publish'];
+        if (config('social.meta_request_instagram_insights', false)) {
+            $ig[] = 'instagram_manage_insights';
+        }
+
         return [
             'facebook' => ['pages_show_list', 'pages_manage_posts', 'pages_read_engagement'],
-            'instagram' => ['pages_show_list', 'instagram_basic', 'instagram_content_publish', 'instagram_manage_insights'],
+            'instagram' => $ig,
             'threads' => ['threads_basic', 'threads_content_publish', 'threads_manage_insights'],
         ];
     }

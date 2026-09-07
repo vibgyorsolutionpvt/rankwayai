@@ -119,12 +119,30 @@ class PlanAccess
 
     public function canCreateWorkspace(User $user): bool
     {
+        if ($user->is_superadmin) {
+            return true;
+        }
+
         if ($user->workspaces()->doesntExist()) {
             return true;
         }
 
+        // Team members acting in a shared workspace where they are not the owner cannot create.
+        $activeId = (int) session('active_workspace_id');
+        if ($activeId) {
+            $activeRole = $user->workspaces()->where('workspaces.id', $activeId)->value('workspace_user.role');
+            if ($activeRole && $activeRole !== WorkspaceRole::Owner->value) {
+                return false;
+            }
+        }
+
         if (! $user->workspaces()->wherePivot('role', WorkspaceRole::Owner->value)->exists()) {
             return false;
+        }
+
+        $account = $this->accounts->account($user);
+        if ((int) $account->topup_credits > 0) {
+            return true;
         }
 
         return $this->ownedWorkspaceCount($user) < $this->workspaceLimitForUser($user);
@@ -132,9 +150,12 @@ class PlanAccess
 
     public function denyCreateWorkspaceMessage(User $user): string
     {
+        $activeId = (int) session('active_workspace_id');
+        $activeRole = $activeId ? $user->workspaces()->where('workspaces.id', $activeId)->value('workspace_user.role') : null;
+
         if (
-            $user->workspaces()->exists()
-            && ! $user->workspaces()->wherePivot('role', WorkspaceRole::Owner->value)->exists()
+            ($activeRole && $activeRole !== WorkspaceRole::Owner->value)
+            || ($user->workspaces()->exists() && ! $user->workspaces()->wherePivot('role', WorkspaceRole::Owner->value)->exists())
         ) {
             return 'Only the workspace owner can create new workspaces. Ask your agency admin.';
         }

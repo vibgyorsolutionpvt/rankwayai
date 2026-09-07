@@ -16,9 +16,12 @@ class EditorMediaTest extends TestCase
     {
         Storage::fake('public');
         $user = User::factory()->create();
+        $workspace = \App\Models\Workspace::factory()->create();
+        $workspace->users()->attach($user->id, ['role' => \App\Enums\WorkspaceRole::Owner->value]);
 
         $response = $this->actingAs($user)
-            ->post(route('editor.images.store'), [
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->postJson(route('editor.images.store'), [
                 'image' => UploadedFile::fake()->image('photo.jpg', 800, 600),
             ]);
 

@@ -21,7 +21,7 @@ class EnsureModuleAccess
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();
-        if (! $user || $user->is_superadmin) {
+        if (! $user || $user->is_superadmin || $request->routeIs('social.accounts.health-check')) {
             return $next($request);
         }
 

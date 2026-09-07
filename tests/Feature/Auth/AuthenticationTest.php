@@ -20,6 +20,8 @@ class AuthenticationTest extends TestCase
     public function test_users_can_authenticate_using_the_login_screen(): void
     {
         $user = User::factory()->create();
+        $workspace = \App\Models\Workspace::factory()->create();
+        $workspace->users()->attach($user->id, ['role' => \App\Enums\WorkspaceRole::Owner->value]);
 
         $response = $this->post('/login', [
             'email' => $user->email,

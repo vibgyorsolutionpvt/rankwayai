@@ -22,6 +22,7 @@ class CloseoutIntegrationsTest extends TestCase
         $user = User::factory()->create();
         $workspace = Workspace::factory()->create();
         $workspace->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
+        app(\App\Services\Billing\BillingService::class)->changePlan($workspace, 'starter', 'active');
 
         return [$user, $workspace];
     }

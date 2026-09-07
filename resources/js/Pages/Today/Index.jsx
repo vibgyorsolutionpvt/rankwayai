@@ -3,13 +3,21 @@ import HelpGuide, { HELP } from '@/Components/HelpGuide';
 import PrimaryButton from '@/Components/PrimaryButton';
 import { Head, Link, router } from '@inertiajs/react';
 
-export default function Index({ workspace, brand, site, seoTasks, posts, keywords, counts }) {
+export default function Index({
+    workspace = {},
+    brand = null,
+    site = null,
+    seoTasks = [],
+    posts = [],
+    keywords = [],
+    counts = {},
+}) {
     return (
         <AuthenticatedLayout
             header={
                 <div>
                     <div className="text-xs font-semibold uppercase tracking-[0.16em] text-ink-muted">
-                        {workspace.name}
+                        {workspace?.name || 'Workspace'}
                     </div>
                     <div className="flex items-center gap-1.5">
                         <h2 className="font-display text-2xl font-bold text-ink">Today</h2>
@@ -45,24 +53,24 @@ export default function Index({ workspace, brand, site, seoTasks, posts, keyword
                     {[
                         {
                             label: 'SEO tasks',
-                            value: counts.open_seo_tasks,
+                            value: counts?.open_seo_tasks ?? 0,
                             href: route('seo.index'),
                         },
                         {
                             label: 'Scheduled posts',
-                            value: counts.scheduled_posts,
+                            value: counts?.scheduled_posts ?? 0,
                             href: route('social.index'),
                         },
-                        { label: 'Open issues', value: counts.issues, href: route('seo.index') },
-                        { label: 'Media assets', value: counts.media, href: route('media.index') },
+                        { label: 'Open issues', value: counts?.issues ?? 0, href: route('seo.index') },
+                        { label: 'Media assets', value: counts?.media ?? 0, href: route('media.index') },
                         {
                             label: 'Open leads',
-                            value: counts.open_leads ?? 0,
+                            value: counts?.open_leads ?? 0,
                             href: route('crm.index'),
                         },
                         {
                             label: 'Channel campaigns',
-                            value: counts.channel_campaigns ?? 0,
+                            value: counts?.channel_campaigns ?? 0,
                             href: route('channels.index'),
                         },
                     ].map((card) => (
