@@ -145,6 +145,9 @@ Route::middleware(['auth', 'verified', 'workspace.setup', 'module'])->group(func
     Route::get('/social/oauth/{platform}/callback', [SocialController::class, 'oauthCallback'])->name('social.oauth.callback');
     Route::post('/social/oauth/select-page', [SocialController::class, 'selectOAuthPage'])->name('social.oauth.select-page');
     Route::post('/social/oauth/cancel-page-pick', [SocialController::class, 'cancelOAuthPagePick'])->name('social.oauth.cancel-page-pick');
+    Route::post('/social/accounts/health-check', [SocialController::class, 'healthCheck'])->name('social.accounts.health-check');
+    Route::post('/social/accounts/test-all', [SocialController::class, 'testAllConnections'])->name('social.accounts.test-all');
+    Route::post('/social/accounts/{account}/test', [SocialController::class, 'testConnection'])->name('social.accounts.test');
     Route::post('/social/accounts/{account}/reconnect', [SocialController::class, 'reconnect'])->name('social.accounts.reconnect');
     Route::post('/social/accounts/{account}/disconnect', [SocialController::class, 'disconnect'])->name('social.accounts.disconnect');
     Route::delete('/social/accounts/{account}', [SocialController::class, 'destroyAccount'])->name('social.accounts.destroy');

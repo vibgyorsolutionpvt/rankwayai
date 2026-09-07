@@ -13,7 +13,7 @@ import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
 import { toast } from '@/Components/ToastProvider';
 import { confirmAsk } from '@/Components/ConfirmProvider';
 import Toggle from '@/Components/Toggle';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 function escapeHtml(text) {
     return String(text)
@@ -84,6 +84,8 @@ const platformLabels = {
     threads: 'Threads',
     linkedin: 'LinkedIn',
     x: 'X (Twitter)',
+    facebook_story: 'Facebook Story',
+    instagram_story: 'Instagram Story',
 };
 
 const platformTone = {
@@ -92,6 +94,8 @@ const platformTone = {
     threads: 'bg-zinc-900 text-white border-zinc-800',
     linkedin: 'bg-sky-100 text-sky-800 border-sky-200',
     x: 'bg-zinc-200 text-zinc-800 border-zinc-300',
+    facebook_story: 'bg-blue-50 text-blue-700 border-blue-200',
+    instagram_story: 'bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200',
 };
 
 const statusTone = {
@@ -172,6 +176,8 @@ const platformShort = {
     threads: 'Threads',
     linkedin: 'LI',
     x: 'X',
+    facebook_story: 'FB Story',
+    instagram_story: 'IG Story',
 };
 
 function formatMetric(value) {
@@ -831,10 +837,21 @@ export default function Index({
         availablePlatforms.includes('threads') &&
         !connectedPlatforms.includes('threads');
 
+    const defaultPostPlatforms = useCallback(() => {
+        const preferred = ['facebook', 'instagram', 'threads'];
+        const active = preferred.filter((p) => availablePlatforms.includes(p));
+        return active.length
+            ? active
+            : availablePlatforms.length
+              ? [availablePlatforms[0]]
+              : ['facebook', 'instagram', 'threads'];
+    }, [availablePlatforms]);
+
     const postForm = useForm({
         title: '',
         body: '',
-        platforms: ['instagram'],
+        platforms: ['facebook', 'instagram', 'threads'],
+        publish_to_story: true,
         scheduled_at: '',
         delivery: 'draft',
         requires_approval: false,
@@ -866,7 +883,7 @@ export default function Index({
         if (platforms.length !== postForm.data.platforms.length) {
             postForm.setData(
                 'platforms',
-                platforms.length ? platforms : [availablePlatforms[0]],
+                platforms.length ? platforms : defaultPostPlatforms(),
             );
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -884,7 +901,7 @@ export default function Index({
         // eslint-disable-next-line react-hooks/exhaustive-deps -- only sync on workspace/mode change
     }, [workspace?.id, workspace?.name, connectionModes.facebook]);
 
-    const [activePreview, setActivePreview] = useState(postForm.data.platforms[0] || 'instagram');
+    const [activePreview, setActivePreview] = useState(postForm.data.platforms[0] || 'facebook');
     const [editingPostId, setEditingPostId] = useState(null);
     const [searchDraft, setSearchDraft] = useState(filters.q);
     const [showAdvancedFilters, setShowAdvancedFilters] = useState(
@@ -1118,7 +1135,8 @@ export default function Index({
     const blankPost = () => ({
         title: '',
         body: '',
-        platforms: availablePlatforms[0] ? [availablePlatforms[0]] : ['instagram'],
+        platforms: defaultPostPlatforms(),
+        publish_to_story: true,
         scheduled_at: '',
         delivery: 'draft',
         requires_approval: false,
@@ -1182,7 +1200,8 @@ export default function Index({
         postForm.setData({
             title: post.title || '',
             body,
-            platforms: post.platforms?.length ? post.platforms : ['instagram'],
+            platforms: post.platforms?.length ? post.platforms : defaultPostPlatforms(),
+            publish_to_story: post.publish_to_story !== undefined ? !!post.publish_to_story : true,
             scheduled_at: post.scheduled_at_local || '',
             delivery,
             requires_approval: !!post.requires_approval,
@@ -1286,12 +1305,13 @@ export default function Index({
             return;
         }
 
+        const requiresImage = postForm.data.platforms.includes('instagram');
         if (
-            postForm.data.platforms.length > 0 &&
+            requiresImage &&
             !postForm.data.media_asset_id &&
             !String(postForm.data.public_media_url || '').trim()
         ) {
-            const msg = 'All social posts need an image — pick media or paste a public https URL.';
+            const msg = 'Instagram posts require an image — pick media or paste a public https URL.';
             postForm.setError('media_asset_id', msg);
             toast.error(msg);
             return;
@@ -1306,6 +1326,7 @@ export default function Index({
             scheduled_at: data.delivery === 'schedule' ? data.scheduled_at || null : null,
             requires_approval: !!data.requires_approval,
             generate_posters: !!data.generate_posters,
+            publish_to_story: data.publish_to_story !== false,
         }));
 
         const opts = {
@@ -1839,15 +1860,25 @@ export default function Index({
                                         </div>
                                         <div>
                                             <div className="flex flex-col gap-1.5">
-                                                <span
-                                                    className={
-                                                        'inline-flex w-fit rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ' +
-                                                        (statusTone[displayStatus(post)] ||
-                                                            statusTone.draft)
-                                                    }
-                                                >
-                                                    {displayStatus(post)}
-                                                </span>
+                                                <div className="flex flex-wrap items-center gap-1">
+                                                    <span
+                                                        className={
+                                                            'inline-flex w-fit rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ' +
+                                                            (statusTone[displayStatus(post)] ||
+                                                                statusTone.draft)
+                                                        }
+                                                    >
+                                                        {displayStatus(post)}
+                                                    </span>
+                                                    {post.publish_to_story ? (
+                                                        <span
+                                                            title="Story publish enabled"
+                                                            className="inline-flex items-center rounded border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700"
+                                                        >
+                                                            +Story
+                                                        </span>
+                                                    ) : null}
+                                                </div>
                                                 {(post.platform_statuses || []).length > 0 ? (
                                                     <div className="flex flex-wrap gap-1">
                                                         {(post.platform_statuses || []).map(
@@ -2431,6 +2462,11 @@ export default function Index({
                                                                 ? 'live'
                                                                 : 'test mode'})
                                                         </span>
+                                                        {account.token_expires_at ? (
+                                                            <span className="ms-2 text-[11px] text-ink-muted">
+                                                                · Token valid until {new Date(account.token_expires_at).toLocaleDateString()}
+                                                            </span>
+                                                        ) : null}
                                                     </span>
                                                     <span
                                                         className={
@@ -2439,7 +2475,7 @@ export default function Index({
                                                                 healthTone.unknown)
                                                         }
                                                     >
-                                                        {account.status}/{account.health}
+                                                        {account.status}
                                                     </span>
                                                 </div>
                                                 {account.last_error ? (
@@ -2448,6 +2484,20 @@ export default function Index({
                                                     </div>
                                                 ) : null}
                                                 <div className="mt-2 flex flex-wrap gap-2">
+                                                    {account.connection_mode === 'oauth' &&
+                                                    (account.health === 'error' ||
+                                                        account.status === 'disconnected' ||
+                                                        Boolean(account.last_error)) ? (
+                                                        <a
+                                                            href={`/social/oauth/${encodeURIComponent(account.platform)}/start?account_type=${encodeURIComponent(account.account_type || 'page')}&account_name=${encodeURIComponent(account.account_name || '')}`}
+                                                            className="inline-flex items-center gap-1.5 rounded-md border border-signal bg-signal px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-signal/90"
+                                                        >
+                                                            <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                                                <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H3.75a.75.75 0 00-.75.75v4.482a.75.75 0 001.5 0v-2.227l.385.385a7 7 0 0011.83-3.218.75.75 0 00-1.403-.427zM4.688 8.576a5.5 5.5 0 019.201-2.466l.312.311H11.77a.75.75 0 000 1.5h4.482a.75.75 0 00.75-.75V2.689a.75.75 0 00-1.5 0v2.227l-.385-.385a7 7 0 00-11.83 3.218.75.75 0 001.403.427z" clipRule="evenodd" />
+                                                            </svg>
+                                                            Reconnect {platformLabels[account.platform] || account.platform}
+                                                        </a>
+                                                    ) : null}
                                                     <SecondaryButton
                                                         type="button"
                                                         onClick={async () => {
@@ -3060,6 +3110,31 @@ export default function Index({
                                     posterSizes.join(', ') || 'Instagram / Facebook / LinkedIn'
                                 })`}
                             />
+                            <div className="rounded-lg border border-line bg-mist/40 p-3">
+                                <label className="flex items-start gap-3 cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        checked={postForm.data.publish_to_story !== false}
+                                        onChange={(e) =>
+                                            postForm.setData('publish_to_story', e.target.checked)
+                                        }
+                                        className="mt-0.5 h-4 w-4 rounded border-line text-signal focus:ring-signal"
+                                    />
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm font-semibold text-ink">
+                                                Publish to Story (Facebook & Instagram)
+                                            </span>
+                                            <span className="rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-purple-700">
+                                                24h Story
+                                            </span>
+                                        </div>
+                                        <p className="mt-0.5 text-xs text-ink-muted">
+                                            Also shares this image as a 24-hour Story to connected Facebook Page and Instagram accounts.
+                                        </p>
+                                    </div>
+                                </label>
+                            </div>
                             <div className="flex flex-wrap gap-2">
                                 <PrimaryButton processing={postForm.processing}>
                                     {editingPostId

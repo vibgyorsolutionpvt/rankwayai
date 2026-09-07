@@ -16,6 +16,7 @@ use App\Services\Social\SocialConnectionService;
 use App\Services\Social\SocialPostAnalyticsService;
 use App\Services\Social\SocialPublisherService;
 use App\Support\SocialPlatforms;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -34,7 +35,7 @@ class SocialController extends Controller
         PlanAccess $plans,
         SocialPostAnalyticsService $analytics,
         WorkspaceIntegrationService $integrations,
-    ): Response {
+    ): Response|RedirectResponse {
         $workspace = $this->workspace($request);
 
         $month = $request->query('month', now()->format('Y-m'));
@@ -48,25 +49,6 @@ class SocialController extends Controller
         $view = (string) $request->query('view', 'posts');
         if (! in_array($view, ['posts', 'calendar', 'accounts', 'compose'], true)) {
             $view = 'posts';
-        }
-
-        if (! $request->has('view')) {
-            return redirect()->route('social.index', array_merge(
-                ['view' => 'posts'],
-                array_filter([
-                    'month' => $request->query('month'),
-                    'status' => $request->query('status'),
-                    'platform' => $request->query('platform'),
-                    'q' => $request->query('q'),
-                    'page' => $request->query('page'),
-                    'date_preset' => $request->query('date_preset'),
-                    'date_from' => $request->query('date_from'),
-                    'date_to' => $request->query('date_to'),
-                    'date_field' => $request->query('date_field'),
-                    'sort' => $request->query('sort'),
-                    'approval' => $request->query('approval'),
-                ], fn ($value) => $value !== null && $value !== '' && $value !== 'all')
-            ));
         }
 
         $status = (string) $request->query('status', 'all');
@@ -457,6 +439,7 @@ class SocialController extends Controller
             'scheduled_at' => $data['scheduled_at'] ?? null,
             'status' => $status,
             'requires_approval' => $requiresApproval,
+            'publish_to_story' => $request->boolean('publish_to_story', true),
             'media_asset_id' => $data['media_asset_id'] ?? null,
             'brand_kit_id' => $data['brand_kit_id'] ?? null,
             'approved_at' => ($data['delivery'] === 'now' && ! $requiresApproval) ? now() : null,
@@ -502,7 +485,7 @@ class SocialController extends Controller
             }
         }
 
-        $data = $this->validatedPostPayload($request);
+        $data = $this->validatedPostPayload($request, $post);
         $requiresApproval = $request->boolean('requires_approval');
 
         $status = match ($data['delivery']) {
@@ -518,6 +501,7 @@ class SocialController extends Controller
             'scheduled_at' => $data['scheduled_at'] ?? null,
             'status' => $status,
             'requires_approval' => $requiresApproval,
+            'publish_to_story' => $request->has('publish_to_story') ? $request->boolean('publish_to_story') : $post->publish_to_story,
             'media_asset_id' => $data['media_asset_id'] ?? null,
             'brand_kit_id' => $data['brand_kit_id'] ?? null,
             'failure_reason' => null,
@@ -557,7 +541,7 @@ class SocialController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function validatedPostPayload(Request $request): array
+    private function validatedPostPayload(Request $request, ?SocialPost $existingPost = null): array
     {
         $data = $request->validate([
             'title' => ['nullable', 'string', 'max:120'],
@@ -571,6 +555,7 @@ class SocialController extends Controller
             'public_media_url' => ['nullable', 'url', 'max:2048'],
             'brand_kit_id' => ['nullable', 'integer'],
             'generate_posters' => ['boolean'],
+            'publish_to_story' => ['nullable', 'boolean'],
         ]);
 
         if (blank($data['scheduled_at'] ?? null)) {
@@ -624,6 +609,8 @@ class SocialController extends Controller
                     ->exists(),
                 422
             );
+        } elseif ($existingPost && $existingPost->media_asset_id && ! $request->has('media_asset_id') && ! $request->has('public_media_url')) {
+            $data['media_asset_id'] = $existingPost->media_asset_id;
         } else {
             $data['media_asset_id'] = null;
         }
@@ -679,13 +666,14 @@ class SocialController extends Controller
             return back()->with('error', 'Approve this post before publishing.');
         }
 
-        if (! app(SocialPublisherService::class)->hasAttachedMedia($post)) {
-            return back()->with('error', 'Generate or attach an image before publishing.');
+        $publisher = app(SocialPublisherService::class);
+        $needsImage = in_array('instagram', $post->platforms ?? [], true);
+
+        if ($needsImage && ! $publisher->hasAttachedMedia($post)) {
+            return back()->with('error', 'Instagram requires an image before publishing.');
         }
 
-        $publisher = app(SocialPublisherService::class);
-
-        if (! $publisher->hasPublicImage($post)) {
+        if ($publisher->hasAttachedMedia($post) && ! $publisher->hasPublicImage($post)) {
             if (app()->environment('local') && config('social.simulate_publish')) {
                 $publisher->simulateLocalPublish($post);
 
@@ -996,11 +984,141 @@ class SocialController extends Controller
             ->with('success', 'Page selection cancelled.');
     }
 
+    public function healthCheck(
+        Request $request,
+        SocialConnectionService $connections
+    ): JsonResponse {
+        try {
+            $workspace = $this->workspace($request);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'checked' => false,
+                'has_issues' => false,
+                'total_checked' => 0,
+                'failed_accounts' => [],
+            ]);
+        }
+
+        $accounts = $workspace->socialAccounts()->get();
+
+        if ($accounts->isEmpty()) {
+            return response()->json([
+                'checked' => true,
+                'has_issues' => false,
+                'total_checked' => 0,
+                'failed_accounts' => [],
+            ]);
+        }
+
+        $failed = [];
+        $total = 0;
+
+        foreach ($accounts as $account) {
+            $total++;
+            $result = $connections->testConnection($account);
+
+            if (! $result['ok']) {
+                $reconnectUrl = null;
+                if ($account->connection_mode === 'oauth') {
+                    $reconnectUrl = route('social.oauth.start', [
+                        'platform' => $account->platform,
+                        'account_type' => $account->account_type ?: 'page',
+                        'account_name' => $account->account_name ?: $workspace->name,
+                    ]);
+                }
+
+                $failed[] = [
+                    'id' => $account->id,
+                    'platform' => $account->platform,
+                    'account_name' => $account->account_name,
+                    'account_type' => $account->account_type ?? 'page',
+                    'status' => $account->status,
+                    'connection_mode' => $account->connection_mode,
+                    'health' => $account->fresh()->health,
+                    'error_message' => $result['message'],
+                    'reconnect_url' => $reconnectUrl,
+                ];
+            }
+        }
+
+        return response()->json([
+            'checked' => true,
+            'has_issues' => count($failed) > 0,
+            'total_checked' => $total,
+            'failed_accounts' => $failed,
+        ]);
+    }
+
+    public function testConnection(
+        Request $request,
+        SocialAccount $account,
+        SocialConnectionService $connections
+    ): RedirectResponse {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+        abort_unless($account->workspace_id === $workspace->id, 404);
+
+        $result = $connections->testConnection($account);
+
+        if ($result['ok']) {
+            return back()->with('success', $result['message']);
+        }
+
+        return back()->with('error', $result['message']);
+    }
+
+    public function testAllConnections(
+        Request $request,
+        SocialConnectionService $connections
+    ): RedirectResponse {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+
+        $accounts = $workspace->socialAccounts()->where('status', 'connected')->get();
+
+        if ($accounts->isEmpty()) {
+            return back()->with('error', 'No connected accounts to test.');
+        }
+
+        $healthy = 0;
+        $failed = 0;
+        $messages = [];
+
+        foreach ($accounts as $account) {
+            $res = $connections->testConnection($account);
+            if ($res['ok']) {
+                $healthy++;
+            } else {
+                $failed++;
+                $messages[] = ucfirst($account->platform).': '.$res['message'];
+            }
+        }
+
+        if ($failed === 0) {
+            return back()->with('success', "All {$healthy} account(s) tested and healthy!");
+        }
+
+        return back()->with('error', "{$failed} account(s) have connection issues: ".implode(' | ', $messages));
+    }
+
     public function reconnect(Request $request, SocialAccount $account): RedirectResponse
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
         abort_unless($account->workspace_id === $workspace->id, 404);
+
+        if ($account->connection_mode === 'oauth') {
+            $connections = app(SocialConnectionService::class);
+            $url = $connections->oauthAuthorizeUrl(
+                $workspace,
+                $account->platform,
+                $account->account_type ?: 'page',
+                $account->account_name
+            );
+            if ($url) {
+                return redirect()->away($url);
+            }
+        }
 
         $account->markConnected();
 

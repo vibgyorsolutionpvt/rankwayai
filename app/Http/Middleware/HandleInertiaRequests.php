@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Enums\WorkspaceRole;
 use App\Models\Workspace;
 use App\Services\Access\ModuleAccess;
 use App\Services\Admin\UserSimulator;
@@ -92,7 +93,40 @@ class HandleInertiaRequests extends Middleware
                     $navigation = $modules->navItemsFor($user, null);
                 }
             } else {
+                $workspaces = app(VisibleWorkspaceService::class)
+                    ->forUser($user)
+                    ->map(fn (Workspace $workspace) => [
+                        'id' => $workspace->id,
+                        'name' => $workspace->name,
+                        'slug' => $workspace->slug,
+                        'role' => $workspace->pivot->role,
+                        'industry' => $workspace->resolvedIndustry(),
+                        'city' => $workspace->resolvedCity(),
+                    ])
+                    ->values()
+                    ->all();
+
+                $activeId = (int) $request->session()->get('active_workspace_id');
+                $activeWorkspace = collect($workspaces)->firstWhere('id', $activeId)
+                    ?? ($workspaces[0] ?? null);
+
+                if ($activeWorkspace && $activeId !== (int) $activeWorkspace['id']) {
+                    $request->session()->put('active_workspace_id', $activeWorkspace['id']);
+                }
+
                 $navigation = $modules->navItemsFor($user, null);
+            }
+        }
+
+        $canCreateWorkspace = false;
+        if ($user) {
+            if ($user->is_superadmin) {
+                $canCreateWorkspace = true;
+            } elseif ($activeWorkspace) {
+                $isOwner = ($activeWorkspace['role'] ?? '') === WorkspaceRole::Owner->value;
+                $canCreateWorkspace = $isOwner && $user->can('create', Workspace::class);
+            } else {
+                $canCreateWorkspace = $user->can('create', Workspace::class);
             }
         }
 
@@ -123,9 +157,9 @@ class HandleInertiaRequests extends Middleware
                 : null,
             'navigation' => $navigation,
             'plan' => $plan,
-            'can_create_workspace' => $user && (! $user->is_superadmin || $simulatingUser)
-                ? $plans->canCreateWorkspace($user)
-                : false,
+            'can_create_workspace' => $canCreateWorkspace,
+            'check_social_on_login' => fn () => (bool) $request->session()->pull('check_social_on_login', false),
+            'check_social_on_workspace_switch' => fn () => (bool) $request->session()->pull('check_social_on_workspace_switch', false),
             'flash' => [
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),

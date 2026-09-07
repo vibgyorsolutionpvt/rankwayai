@@ -2,6 +2,7 @@ import ApplicationLogo from '@/Components/ApplicationLogo';
 import BrandName from '@/Components/BrandName';
 import CreateWorkspaceModal from '@/Components/CreateWorkspaceModal';
 import Dropdown from '@/Components/Dropdown';
+import SocialConnectionAlertModal from '@/Components/SocialConnectionAlertModal';
 import { AppFeedback } from '@/Components/ToastProvider';
 import { Link, router, usePage } from '@inertiajs/react';
 import { useMemo, useState } from 'react';
@@ -230,6 +231,7 @@ export default function AuthenticatedLayout({ header, children }) {
     return (
         <div className="min-h-screen lg:grid lg:grid-cols-[220px_1fr]">
             <AppFeedback />
+            <SocialConnectionAlertModal />
             <aside className="sticky top-0 z-30 hidden h-svh self-start overflow-y-auto border-r border-line bg-gradient-to-b from-white via-white to-signal-soft/30 lg:flex lg:flex-col">
                 <div className="flex min-h-full flex-col px-2.5 py-4">
                     <Link href={homeHref} className="flex items-center gap-2 px-1.5">
@@ -258,8 +260,8 @@ export default function AuthenticatedLayout({ header, children }) {
                                       : 'Admin'
                                   : 'Signed in'}
                         </div>
-                        <div className="mt-1 truncate text-sm font-semibold text-ink">{user.name}</div>
-                        <div className="truncate text-xs text-ink-muted">{user.email}</div>
+                        <div className="mt-1 truncate text-sm font-semibold text-ink">{user?.name}</div>
+                        <div className="truncate text-xs text-ink-muted">{user?.email}</div>
                         {simulatingUser ? (
                             <button
                                 type="button"
@@ -329,14 +331,14 @@ export default function AuthenticatedLayout({ header, children }) {
                         <div className="hidden min-w-0 flex-1 lg:block">{header}</div>
 
                         <div className="ml-auto flex shrink-0 items-center gap-2 self-center">
-                            {!user?.is_superadmin && canCreateWorkspace ? (
+                            {canCreateWorkspace ? (
                                 <CreateWorkspaceModal
                                     buttonLabel="Create workspace"
                                     triggerClassName="!px-2.5 !py-1.5 text-xs sm:text-sm"
                                 />
                             ) : null}
 
-                            {!user?.is_superadmin && workspaces.length > 0 ? (
+                            {workspaces.length > 0 ? (
                                 <Dropdown>
                                     <Dropdown.Trigger>
                                         <button

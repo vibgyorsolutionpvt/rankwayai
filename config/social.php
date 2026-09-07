@@ -37,4 +37,16 @@ return [
     */
     'metrics_sync_delay_minutes' => (int) env('SOCIAL_METRICS_SYNC_DELAY_MINUTES', 3),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Instagram insights scope
+    |--------------------------------------------------------------------------
+    |
+    | Only enable if you have added `instagram_manage_insights` to your Meta
+    | App under App Review -> Permissions and Features in developer dashboard.
+    | Leaving false requests standard publishing scopes (no Invalid Scopes error).
+    |
+    */
+    'meta_request_instagram_insights' => env('META_REQUEST_INSTAGRAM_INSIGHTS', false),
+
 ];

@@ -130,6 +130,7 @@ class WorkspacePageController extends Controller
         $this->authorize('view', $workspace);
 
         $request->session()->put('active_workspace_id', $workspace->id);
+        $request->session()->put('check_social_on_workspace_switch', true);
 
         // Never carry compose draft / AI flash from the previous workspace.
         $request->session()->forget([

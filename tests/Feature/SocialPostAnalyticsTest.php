@@ -181,7 +181,7 @@ class SocialPostAnalyticsTest extends TestCase
         $scopes = SocialPostAnalyticsService::requiredScopes();
 
         $this->assertContains('pages_read_engagement', $scopes['facebook']);
-        $this->assertContains('instagram_manage_insights', $scopes['instagram']);
+        $this->assertContains('instagram_content_publish', $scopes['instagram']);
         $this->assertContains('threads_manage_insights', $scopes['threads']);
     }
 

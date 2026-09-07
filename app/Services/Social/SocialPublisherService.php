@@ -27,8 +27,10 @@ class SocialPublisherService
         $existingLog = $post->publish_log ?? [];
         $retryMode = $onlyPlatforms !== null;
 
-        if (! $retryMode && ! $this->hasPublicImage($post)) {
-            $message = 'An image is required — attach media or generate a poster before publishing.';
+        $needsImage = in_array('instagram', $post->platforms ?? [], true);
+
+        if (! $retryMode && $needsImage && ! $this->hasPublicImage($post)) {
+            $message = 'Instagram requires a public https image — attach media or generate a poster before publishing.';
             $post->update([
                 'status' => 'failed',
                 'failure_reason' => $message,
@@ -76,8 +78,14 @@ class SocialPublisherService
                 continue;
             }
 
-            if (! $this->hasPublicImage($post)) {
-                $errors[$platform] = 'A public https image is required for '.$platform.'.';
+            if ($platform === 'instagram' && ! $this->hasPublicImage($post)) {
+                $errors[$platform] = 'Instagram requires a public https image.';
+                $this->writeLog($post, $platform, 'failed', null, $errors[$platform]);
+                continue;
+            }
+
+            if ($this->hasAttachedMedia($post) && ! $this->hasPublicImage($post)) {
+                $errors[$platform] = 'Attached image must be a public https URL for '.$platform.' (Meta cannot reach localhost).';
                 $this->writeLog($post, $platform, 'failed', null, $errors[$platform]);
                 continue;
             }
@@ -109,6 +117,9 @@ class SocialPublisherService
                 : null;
             if ($permalink !== '') {
                 $newPermalinks[$platform] = $permalink;
+            }
+            if (! empty($result['story_permalink'])) {
+                $newPermalinks[$platform.'_story'] = (string) $result['story_permalink'];
             }
             $log[] = [
                 'platform' => $platform,
@@ -316,22 +327,59 @@ class SocialPublisherService
             $imageUrl = $this->resolveRedirectUrl($imageUrl) ?: $imageUrl;
         }
 
-        if (! $imageUrl) {
-            return ['ok' => false, 'message' => 'Facebook posts need an image. Attach media or generate a poster.'];
-        }
+        $response = null;
 
-        $response = Http::asForm()->timeout(60)->post(self::GRAPH.'/'.rawurlencode($pageId).'/photos', [
-            'url' => $imageUrl,
-            'caption' => $message,
-            'published' => 'true',
-            'access_token' => $token,
-        ]);
+        if ($imageUrl) {
+            // Step 1: Upload photo as unpublished to obtain a media_fbid
+            $photoUpload = Http::asForm()->timeout(60)->post(self::GRAPH.'/'.rawurlencode($pageId).'/photos', [
+                'url' => $imageUrl,
+                'published' => 'false',
+                'access_token' => $token,
+            ]);
 
-        // Redirecting image hosts (e.g. picsum) sometimes fail photo scrape — fall back to feed + link.
-        if (! $response->successful()) {
+            $photoFbid = (string) ($photoUpload->json('id') ?? '');
+
+            if ($photoUpload->successful() && $photoFbid !== '') {
+                // Step 2: Publish a Feed post (timeline story) with the uploaded photo attached.
+                // This ensures the post appears on the Page Feed / Timeline with Like, Comment, and SHARE buttons.
+                $response = Http::asForm()->timeout(60)->post(self::GRAPH.'/'.rawurlencode($pageId).'/feed', [
+                    'message' => $message !== '' ? $message : ' ',
+                    'attached_media' => [
+                        json_encode(['media_fbid' => $photoFbid]),
+                    ],
+                    'access_token' => $token,
+                ]);
+            }
+
+            // Fallback 1: If feed with attached_media failed or photo upload failed, try feed with link
+            if (! $response || ! $response->successful()) {
+                $fallbackFeed = Http::asForm()->timeout(60)->post(self::GRAPH.'/'.rawurlencode($pageId).'/feed', [
+                    'message' => $message !== '' ? $message : ' ',
+                    'link' => $imageUrl,
+                    'access_token' => $token,
+                ]);
+
+                if ($fallbackFeed->successful()) {
+                    $response = $fallbackFeed;
+                }
+            }
+
+            // Fallback 2: Direct published photo in album if feed calls failed
+            if (! $response || ! $response->successful()) {
+                $response = Http::asForm()->timeout(60)->post(self::GRAPH.'/'.rawurlencode($pageId).'/photos', [
+                    'url' => $imageUrl,
+                    'caption' => $message,
+                    'published' => 'true',
+                    'access_token' => $token,
+                ]);
+            }
+        } else {
+            if ($message === '') {
+                return ['ok' => false, 'message' => 'Facebook posts need text or an image.'];
+            }
+
             $response = Http::asForm()->timeout(60)->post(self::GRAPH.'/'.rawurlencode($pageId).'/feed', [
-                'message' => $message !== '' ? $message : ' ',
-                'link' => $imageUrl,
+                'message' => $message,
                 'access_token' => $token,
             ]);
         }
@@ -366,10 +414,21 @@ class SocialPublisherService
             }
         }
 
+        $storyPermalink = null;
+        if (! empty($post->publish_to_story) && $imageUrl) {
+            $storyImageUrl = $this->publicStoryImageUrl($post) ?: $imageUrl;
+            $reuseFbid = ($storyImageUrl === $imageUrl && ! empty($photoFbid)) ? $photoFbid : null;
+            $storyResult = $this->publishFacebookStory($pageId, $storyImageUrl, $token, $reuseFbid);
+            if ($storyResult['ok'] ?? false) {
+                $storyPermalink = $storyResult['permalink'] ?? null;
+            }
+        }
+
         return [
             'ok' => true,
             'permalink' => $permalink ?? ('https://facebook.com/'.$pageId),
             'external_post_id' => $postId !== '' ? $postId : null,
+            'story_permalink' => $storyPermalink,
         ];
     }
 
@@ -443,10 +502,20 @@ class SocialPublisherService
             $permalink = (string) $look->json('permalink');
         }
 
+        $storyPermalink = null;
+        if (! empty($post->publish_to_story) && $imageUrl) {
+            $storyImageUrl = $this->publicStoryImageUrl($post) ?: $imageUrl;
+            $storyResult = $this->publishInstagramStory($igUserId, $storyImageUrl, $token);
+            if ($storyResult['ok'] ?? false) {
+                $storyPermalink = $storyResult['permalink'] ?? null;
+            }
+        }
+
         return [
             'ok' => true,
             'permalink' => $permalink,
             'external_post_id' => $mediaId,
+            'story_permalink' => $storyPermalink,
         ];
     }
 
@@ -474,16 +543,20 @@ class SocialPublisherService
             $imageUrl = $this->resolveRedirectUrl($imageUrl) ?: $imageUrl;
         }
 
-        if (! $imageUrl) {
-            return ['ok' => false, 'message' => 'Threads posts need an image. Attach media or generate a poster.'];
-        }
-
         $payload = [
             'access_token' => $token,
             'text' => $text !== '' ? $text : ' ',
-            'media_type' => 'IMAGE',
-            'image_url' => $imageUrl,
         ];
+
+        if ($imageUrl) {
+            $payload['media_type'] = 'IMAGE';
+            $payload['image_url'] = $imageUrl;
+        } else {
+            if ($text === '') {
+                return ['ok' => false, 'message' => 'Threads posts need text or an image.'];
+            }
+            $payload['media_type'] = 'TEXT';
+        }
 
         $container = Http::asForm()->timeout(60)->post(
             self::THREADS_GRAPH.'/'.rawurlencode($userId).'/threads',
@@ -500,7 +573,10 @@ class SocialPublisherService
         $creationId = (string) $container->json('id');
 
         if ($imageUrl) {
-            usleep(1_500_000);
+            $wait = $this->waitForThreadsContainer($creationId, $token);
+            if (! ($wait['ok'] ?? false)) {
+                return $wait;
+            }
         }
 
         $publish = Http::asForm()->timeout(60)->post(
@@ -536,6 +612,43 @@ class SocialPublisherService
             'permalink' => $permalink,
             'external_post_id' => $mediaId,
         ];
+    }
+
+    /**
+     * @return array{ok:bool, message?:string}
+     */
+    private function waitForThreadsContainer(string $creationId, string $token): array
+    {
+        for ($i = 0; $i < 12; $i++) {
+            if ($i > 0) {
+                usleep(600_000);
+            }
+
+            $status = Http::timeout(30)->get(self::THREADS_GRAPH.'/'.rawurlencode($creationId), [
+                'fields' => 'id,status,error_message',
+                'access_token' => $token,
+            ]);
+
+            if (! $status->successful()) {
+                return [
+                    'ok' => false,
+                    'message' => $this->graphError($status->json(), $status->body()),
+                ];
+            }
+
+            $code = strtoupper((string) ($status->json('status') ?? ''));
+            if ($code === 'FINISHED' || $code === 'PUBLISHED' || $code === '') {
+                return ['ok' => true];
+            }
+
+            if ($code === 'ERROR' || $code === 'EXPIRED') {
+                $detail = (string) ($status->json('error_message') ?? $code);
+
+                return ['ok' => false, 'message' => 'Threads media processing '.$code.($detail ? ': '.$detail : '')];
+            }
+        }
+
+        return ['ok' => false, 'message' => 'Threads media still processing — please retry in a moment.'];
     }
 
     /**
@@ -603,6 +716,111 @@ class SocialPublisherService
         return null;
     }
 
+    public function publicStoryImageUrl(SocialPost $post): ?string
+    {
+        $posters = $post->poster_variants ?? [];
+        if (! empty($posters['ig_story']) && is_string($posters['ig_story'])) {
+            $url = $this->normalizePublicUrl($posters['ig_story']);
+            if ($url) {
+                return $this->resolveRedirectUrl($url) ?: $url;
+            }
+        }
+
+        return $this->publicMediaUrl($post);
+    }
+
+    /**
+     * Publish photo to Facebook Page Story.
+     *
+     * @return array{ok:bool, permalink?:string, message?:string, story_id?:string}
+     */
+    private function publishFacebookStory(string $pageId, string $imageUrl, string $token, ?string $existingPhotoFbid = null): array
+    {
+        try {
+            $photoId = $existingPhotoFbid;
+
+            if (! $photoId) {
+                $photoUpload = Http::asForm()->timeout(60)->post(self::GRAPH.'/'.rawurlencode($pageId).'/photos', [
+                    'url' => $imageUrl,
+                    'published' => 'false',
+                    'access_token' => $token,
+                ]);
+
+                if (! $photoUpload->successful() || blank($photoUpload->json('id'))) {
+                    return ['ok' => false, 'message' => $this->graphError($photoUpload->json(), $photoUpload->body())];
+                }
+
+                $photoId = (string) $photoUpload->json('id');
+            }
+
+            $storyResponse = Http::asForm()->timeout(60)->post(self::GRAPH.'/'.rawurlencode($pageId).'/photo_stories', [
+                'photo_id' => $photoId,
+                'access_token' => $token,
+            ]);
+
+            if (! $storyResponse->successful()) {
+                return ['ok' => false, 'message' => $this->graphError($storyResponse->json(), $storyResponse->body())];
+            }
+
+            $storyId = (string) ($storyResponse->json('post_id') ?? $storyResponse->json('id') ?? '');
+
+            return [
+                'ok' => true,
+                'permalink' => $storyId !== '' ? 'https://facebook.com/stories/'.$storyId : 'https://facebook.com/'.$pageId,
+                'story_id' => $storyId,
+            ];
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Publish photo to Instagram Story.
+     *
+     * @return array{ok:bool, permalink?:string, message?:string, story_id?:string}
+     */
+    private function publishInstagramStory(string $igUserId, string $imageUrl, string $token): array
+    {
+        try {
+            // Step 1: Create Story container
+            $container = Http::asForm()->timeout(60)->post(self::GRAPH.'/'.rawurlencode($igUserId).'/media', [
+                'image_url' => $imageUrl,
+                'media_type' => 'STORIES',
+                'access_token' => $token,
+            ]);
+
+            if (! $container->successful() || blank($container->json('id'))) {
+                return ['ok' => false, 'message' => $this->graphError($container->json(), $container->body())];
+            }
+
+            $creationId = (string) $container->json('id');
+            $ready = $this->waitForIgContainer($creationId, $token);
+            if (! ($ready['ok'] ?? false)) {
+                return ['ok' => false, 'message' => $ready['message'] ?? 'Instagram story media container failed.'];
+            }
+
+            // Step 2: Publish Story container
+            $publish = Http::asForm()->timeout(60)->post(self::GRAPH.'/'.rawurlencode($igUserId).'/media_publish', [
+                'creation_id' => $creationId,
+                'access_token' => $token,
+            ]);
+
+            if (! $publish->successful() || blank($publish->json('id'))) {
+                return ['ok' => false, 'message' => $this->graphError($publish->json(), $publish->body())];
+            }
+
+            $storyMediaId = (string) $publish->json('id');
+
+            return [
+                'ok' => true,
+                'permalink' => 'https://www.instagram.com/stories/',
+                'story_id' => $storyMediaId,
+            ];
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+    }
+
     public function hasAttachedMedia(SocialPost $post): bool
     {
         if ($post->media_asset_id) {
@@ -624,6 +842,7 @@ class SocialPublisherService
     public function simulateLocalPublish(SocialPost $post): void
     {
         $log = [];
+        $permalinks = [];
         foreach ($post->platforms ?? [] as $platform) {
             $log[] = [
                 'platform' => $platform,
@@ -631,13 +850,17 @@ class SocialPublisherService
                 'permalink' => null,
                 'status' => 'simulated',
             ];
+
+            if (! empty($post->publish_to_story) && in_array($platform, ['facebook', 'instagram'], true)) {
+                $permalinks[$platform.'_story'] = 'https://'.$platform.'.com/stories/simulated';
+            }
         }
 
         $post->update([
             'status' => 'published',
             'published_at' => now(),
             'failure_reason' => null,
-            'permalinks' => [],
+            'permalinks' => $permalinks,
             'publish_log' => $log,
         ]);
     }
@@ -737,9 +960,24 @@ class SocialPublisherService
     private function graphError(mixed $json, string $body): string
     {
         if (is_array($json)) {
+            $code = (int) ($json['error']['code'] ?? 0);
+            $subcode = (int) ($json['error']['error_subcode'] ?? 0);
             $msg = $json['error']['message']
                 ?? $json['error']['error_user_msg']
                 ?? null;
+
+            if ($code === 190) {
+                return 'Meta session expired or password changed (Error 190). Please reconnect this account under SMM → Accounts.';
+            }
+
+            if ($code === 200) {
+                return 'Meta permissions error (Error 200). Ensure the Meta account has Page admin/editor access and required permissions.';
+            }
+
+            if ($code === 9007) {
+                return 'Threads media is still processing (Error 9007). Please retry in a few moments.';
+            }
+
             if (is_string($msg) && $msg !== '') {
                 return $msg;
             }

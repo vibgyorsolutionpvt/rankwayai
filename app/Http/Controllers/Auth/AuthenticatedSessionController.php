@@ -39,6 +39,7 @@ class AuthenticatedSessionController extends Controller
         $request->authenticate();
 
         $request->session()->regenerate();
+        $request->session()->put('check_social_on_login', true);
 
         $user = $request->user();
         if ($user) {

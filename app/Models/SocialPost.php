@@ -24,6 +24,7 @@ class SocialPost extends Model
         'publish_log',
         'poster_variants',
         'requires_approval',
+        'publish_to_story',
         'approved_at',
         'approved_by',
     ];
@@ -39,6 +40,7 @@ class SocialPost extends Model
             'published_at' => 'datetime',
             'approved_at' => 'datetime',
             'requires_approval' => 'boolean',
+            'publish_to_story' => 'boolean',
         ];
     }
 
@@ -87,6 +89,7 @@ class SocialPost extends Model
             'permalinks' => $this->permalinks ?? [],
             'poster_variants' => $this->poster_variants ?? [],
             'requires_approval' => $this->requires_approval,
+            'publish_to_story' => (bool) ($this->publish_to_story ?? true),
             'approved_at' => $this->approved_at?->toDateTimeString(),
             'media_asset_id' => $this->media_asset_id,
             'brand_kit_id' => $this->brand_kit_id,
