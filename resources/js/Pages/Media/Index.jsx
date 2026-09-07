@@ -7,6 +7,7 @@ import TextInput from '@/Components/TextInput';
 import { Head, router } from '@inertiajs/react';
 import { confirmAsk } from '@/Components/ConfirmProvider';
 import { toast } from '@/Components/ToastProvider';
+import { compressImageIfNeeded, resizeImageToTarget } from '@/Utils/imageCompressor';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 const NO_FOLDER = '';
@@ -307,6 +308,7 @@ export default function Index({
     const [newFolder, setNewFolder] = useState('');
     const [pendingFiles, setPendingFiles] = useState([]);
     const [uploading, setUploading] = useState(false);
+    const [compressing, setCompressing] = useState(false);
     const [search, setSearch] = useState(filters?.q || '');
     const [typeFilter, setTypeFilter] = useState('all');
     const [selectedId, setSelectedId] = useState(null);
@@ -410,15 +412,12 @@ export default function Index({
         if (value !== NEW_FOLDER) setNewFolder('');
     };
 
-    const takeFiles = (fileList) => {
+    const takeFiles = async (fileList) => {
         const incoming = Array.from(fileList || []);
         if (!incoming.length) return;
 
-        const tooBig = incoming.filter((file) => file.size > MAX_FILE_BYTES);
         const notImage = incoming.filter((file) => !isAllowedImage(file));
-        const allowed = incoming.filter(
-            (file) => file.size <= MAX_FILE_BYTES && isAllowedImage(file),
-        );
+        const validImages = incoming.filter((file) => isAllowedImage(file));
 
         if (notImage.length) {
             toast.error(
@@ -427,13 +426,53 @@ export default function Index({
                     : `${notImage.length} files skipped — only images are allowed.`,
             );
         }
-        if (tooBig.length) {
-            toast.error(
-                tooBig.length === 1
-                    ? `${tooBig[0].name} is over 2 MB.`
-                    : `${tooBig.length} files are over 2 MB and were skipped.`,
-            );
+        if (!validImages.length) return;
+
+        setCompressing(true);
+
+        const allowed = [];
+        const processedResults = [];
+
+        try {
+            for (let i = 0; i < validImages.length; i++) {
+                const file = validImages[i];
+                const res = await resizeImageToTarget(file, {
+                    targetWidth: 1080,
+                    targetHeight: 1350,
+                    renameWithDateTime: true,
+                    index: i,
+                    mimeType: 'image/jpeg',
+                    quality: 0.90,
+                });
+
+                if (res.changed && res.file) {
+                    allowed.push(res.file);
+                    processedResults.push(res);
+                } else if (res.file) {
+                    allowed.push(res.file);
+                }
+            }
+        } catch (err) {
+            console.error('Error processing media files:', err);
+        } finally {
+            setCompressing(false);
         }
+
+        if (processedResults.length > 0) {
+            if (processedResults.length === 1) {
+                const info = processedResults[0];
+                toast.success(
+                    `Resized to 1080×1350 & renamed to ${info.newName} (${formatBytes(info.originalSize)} → ${formatBytes(info.finalSize)})`,
+                    5000,
+                );
+            } else {
+                toast.success(
+                    `${processedResults.length} images resized to 1080×1350 & renamed with datetime.`,
+                    5000,
+                );
+            }
+        }
+
         if (!allowed.length) return;
 
         setPendingFiles((existing) => {
@@ -471,7 +510,7 @@ export default function Index({
         url: previewUrls[index] || null,
     }));
 
-    const submitUpload = (e) => {
+    const submitUpload = async (e) => {
         e?.preventDefault?.();
 
         const folder =
@@ -491,20 +530,48 @@ export default function Index({
             return;
         }
 
-        const oversized = pendingFiles.filter((file) => file.size > MAX_FILE_BYTES);
+        // Safety pass: if any pending file is oversized, resize/compress it
+        let filesToUpload = [...pendingFiles];
+        const oversized = filesToUpload.filter((file) => file.size > MAX_FILE_BYTES);
         if (oversized.length) {
+            setCompressing(true);
+            try {
+                const processedList = [];
+                for (let i = 0; i < filesToUpload.length; i++) {
+                    const file = filesToUpload[i];
+                    if (file.size > MAX_FILE_BYTES) {
+                        const res = await resizeImageToTarget(file, {
+                            targetWidth: 1080,
+                            targetHeight: 1350,
+                            renameWithDateTime: true,
+                            index: i,
+                        });
+                        processedList.push(res.file);
+                    } else {
+                        processedList.push(file);
+                    }
+                }
+                filesToUpload = processedList;
+                setPendingFiles(processedList);
+            } finally {
+                setCompressing(false);
+            }
+        }
+
+        const stillOversized = filesToUpload.filter((file) => file.size > MAX_FILE_BYTES);
+        if (stillOversized.length) {
             toast.error('Har image 2 MB se chhoti honi chahiye.');
             return;
         }
 
-        const invalid = pendingFiles.filter((file) => !isAllowedImage(file));
+        const invalid = filesToUpload.filter((file) => !isAllowedImage(file));
         if (invalid.length) {
             toast.error('Sirf images upload ho sakti hain: JPG, PNG, WebP, GIF.');
             return;
         }
 
         const data = new FormData();
-        pendingFiles.forEach((file, i) => {
+        filesToUpload.forEach((file, i) => {
             data.append(`files[${i}]`, file);
         });
         data.append('folder', folder);
@@ -627,7 +694,19 @@ export default function Index({
                                         : 'border-line bg-mist/30')
                                 }
                             >
-                                {fileCount === 0 ? (
+                                {compressing ? (
+                                    <div className="flex min-h-[180px] flex-col items-center justify-center gap-3 text-center">
+                                        <span className="h-9 w-9 animate-spin rounded-full border-2 border-signal border-t-transparent" />
+                                        <div>
+                                            <div className="text-sm font-semibold text-ink">
+                                                Resizing to 1080×1350 & renaming…
+                                            </div>
+                                            <div className="mt-1 text-xs text-ink-muted">
+                                                Formatting for optimal Instagram & Facebook portrait posts
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : fileCount === 0 ? (
                                     <div
                                         role="button"
                                         tabIndex={0}
@@ -655,11 +734,17 @@ export default function Index({
                                             </div>
                                         </div>
                                         <p className="text-xs text-ink-muted">
-                                            JPG, PNG, WebP, GIF · max 2 MB each
+                                            JPG, PNG, WebP, GIF · Resized to 1080×1350 px · Renamed by datetime
                                         </p>
                                     </div>
                                 ) : (
                                     <div className="space-y-4">
+                                        {compressing ? (
+                                            <div className="flex items-center gap-2 rounded-lg border border-signal/30 bg-signal-soft/40 p-2.5 text-xs font-semibold text-signal-strong">
+                                                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-signal border-t-transparent" />
+                                                <span>Resizing & renaming image(s) to 1080×1350 px…</span>
+                                            </div>
+                                        ) : null}
                                         <div className="flex flex-wrap items-center justify-between gap-2">
                                             <div className="text-sm font-semibold text-ink">
                                                 {fileCount} file{fileCount === 1 ? '' : 's'} ready
@@ -668,13 +753,15 @@ export default function Index({
                                                 <SecondaryButton
                                                     type="button"
                                                     className="px-4 py-2"
+                                                    disabled={compressing}
                                                     onClick={() => fileRef.current?.click()}
                                                 >
                                                     + Add more
                                                 </SecondaryButton>
                                                 <button
                                                     type="button"
-                                                    className="text-xs font-semibold text-ink-muted hover:text-ink"
+                                                    disabled={compressing}
+                                                    className="text-xs font-semibold text-ink-muted hover:text-ink disabled:opacity-50"
                                                     onClick={clearFiles}
                                                 >
                                                     Clear all
@@ -788,11 +875,11 @@ export default function Index({
                                 <PrimaryButton
                                     type="button"
                                     processing={uploading}
-                                    disabled={!fileCount || uploading}
+                                    disabled={!fileCount || uploading || compressing}
                                     className="w-full sm:w-auto"
                                     onClick={submitUpload}
                                 >
-                                    {uploading ? 'Uploading…' : 'Upload'}
+                                    {uploading ? 'Uploading…' : compressing ? 'Compressing…' : 'Upload'}
                                 </PrimaryButton>
                             </div>
 
