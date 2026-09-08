@@ -7,6 +7,7 @@ use App\Models\SocialAccount;
 use App\Models\SocialPost;
 use App\Models\SocialPublishLog;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class SocialPublisherService
@@ -120,6 +121,9 @@ class SocialPublisherService
             }
             if (! empty($result['story_permalink'])) {
                 $newPermalinks[$platform.'_story'] = (string) $result['story_permalink'];
+                $this->writeLog($post, $platform.'_story', 'published', (string) $result['story_permalink']);
+            } elseif (! empty($result['story_error'])) {
+                $this->writeLog($post, $platform.'_story', 'failed', null, (string) $result['story_error']);
             }
             $log[] = [
                 'platform' => $platform,
@@ -127,6 +131,8 @@ class SocialPublisherService
                 'permalink' => $permalink,
                 'external_post_id' => $externalPostId,
                 'status' => 'published',
+                'story_permalink' => $result['story_permalink'] ?? null,
+                'story_error' => $result['story_error'] ?? null,
             ];
             $this->writeLog($post, $platform, 'published', $permalink !== '' ? $permalink : null, null, $externalPostId);
             $account->update(['health' => 'healthy', 'last_error' => null]);
@@ -211,11 +217,7 @@ class SocialPublisherService
                     'error' => null,
                     'can_resend' => false,
                 ];
-
-                continue;
-            }
-
-            if ($attempted) {
+            } elseif ($attempted) {
                 $statuses[] = [
                     'platform' => $platform,
                     'label' => $label,
@@ -224,18 +226,42 @@ class SocialPublisherService
                     'error' => $this->lastAttemptError($post, $platform),
                     'can_resend' => $this->canResendPlatform($post, $platform),
                 ];
-
-                continue;
+            } else {
+                $statuses[] = [
+                    'platform' => $platform,
+                    'label' => $label,
+                    'status' => 'pending',
+                    'permalink' => null,
+                    'error' => null,
+                    'can_resend' => false,
+                ];
             }
 
-            $statuses[] = [
-                'platform' => $platform,
-                'label' => $label,
-                'status' => 'pending',
-                'permalink' => null,
-                'error' => null,
-                'can_resend' => false,
-            ];
+            // Include Story status pill if publish_to_story was enabled
+            if (! empty($post->publish_to_story) && in_array($platform, ['facebook', 'instagram'], true)) {
+                $storyPlatform = $platform.'_story';
+                $storyLabel = $platform === 'facebook' ? 'FB Story' : 'IG Story';
+
+                if (! empty($permalinks[$storyPlatform])) {
+                    $statuses[] = [
+                        'platform' => $storyPlatform,
+                        'label' => $storyLabel,
+                        'status' => 'published',
+                        'permalink' => $permalinks[$storyPlatform],
+                        'error' => null,
+                        'can_resend' => false,
+                    ];
+                } elseif ($attempted) {
+                    $statuses[] = [
+                        'platform' => $storyPlatform,
+                        'label' => $storyLabel,
+                        'status' => 'failed',
+                        'permalink' => null,
+                        'error' => $this->lastAttemptError($post, $storyPlatform),
+                        'can_resend' => false,
+                    ];
+                }
+            }
         }
 
         return $statuses;
@@ -415,12 +441,24 @@ class SocialPublisherService
         }
 
         $storyPermalink = null;
-        if (! empty($post->publish_to_story) && $imageUrl) {
-            $storyImageUrl = $this->publicStoryImageUrl($post) ?: $imageUrl;
-            $reuseFbid = ($storyImageUrl === $imageUrl && ! empty($photoFbid)) ? $photoFbid : null;
-            $storyResult = $this->publishFacebookStory($pageId, $storyImageUrl, $token, $reuseFbid);
-            if ($storyResult['ok'] ?? false) {
-                $storyPermalink = $storyResult['permalink'] ?? null;
+        $storyError = null;
+        if (! empty($post->publish_to_story)) {
+            if ($imageUrl) {
+                $storyImageUrl = $this->publicStoryImageUrl($post) ?: $imageUrl;
+                $storyResult = $this->publishFacebookStory($pageId, $storyImageUrl, $token);
+                if ($storyResult['ok'] ?? false) {
+                    $storyPermalink = $storyResult['permalink'] ?? null;
+                } else {
+                    $storyError = $storyResult['message'] ?? 'Facebook story publish failed.';
+                    Log::warning('Facebook story publishing failed', [
+                        'post_id' => $post->id,
+                        'page_id' => $pageId,
+                        'error' => $storyError,
+                    ]);
+                }
+            } else {
+                $storyError = 'Facebook Story requires an image. Text-only stories are not supported by Meta API.';
+                Log::info('Facebook story skipped: no image attached', ['post_id' => $post->id]);
             }
         }
 
@@ -429,6 +467,7 @@ class SocialPublisherService
             'permalink' => $permalink ?? ('https://facebook.com/'.$pageId),
             'external_post_id' => $postId !== '' ? $postId : null,
             'story_permalink' => $storyPermalink,
+            'story_error' => $storyError,
         ];
     }
 
@@ -503,11 +542,24 @@ class SocialPublisherService
         }
 
         $storyPermalink = null;
-        if (! empty($post->publish_to_story) && $imageUrl) {
-            $storyImageUrl = $this->publicStoryImageUrl($post) ?: $imageUrl;
-            $storyResult = $this->publishInstagramStory($igUserId, $storyImageUrl, $token);
-            if ($storyResult['ok'] ?? false) {
-                $storyPermalink = $storyResult['permalink'] ?? null;
+        $storyError = null;
+        if (! empty($post->publish_to_story)) {
+            if ($imageUrl) {
+                $storyImageUrl = $this->publicStoryImageUrl($post) ?: $imageUrl;
+                $storyResult = $this->publishInstagramStory($igUserId, $storyImageUrl, $token);
+                if ($storyResult['ok'] ?? false) {
+                    $storyPermalink = $storyResult['permalink'] ?? null;
+                } else {
+                    $storyError = $storyResult['message'] ?? 'Instagram story publish failed.';
+                    Log::warning('Instagram story publishing failed', [
+                        'post_id' => $post->id,
+                        'ig_user_id' => $igUserId,
+                        'error' => $storyError,
+                    ]);
+                }
+            } else {
+                $storyError = 'Instagram Story requires an image.';
+                Log::info('Instagram story skipped: no image attached', ['post_id' => $post->id]);
             }
         }
 
@@ -516,6 +568,7 @@ class SocialPublisherService
             'permalink' => $permalink,
             'external_post_id' => $mediaId,
             'story_permalink' => $storyPermalink,
+            'story_error' => $storyError,
         ];
     }
 
@@ -563,6 +616,29 @@ class SocialPublisherService
             $payload
         );
 
+        // If user ID was stale and gave 404/Error 24, attempt once with /me/threads
+        if (! $container->successful() && blank($container->json('id'))) {
+            $errJson = $container->json();
+            $errCode = (int) ($errJson['error']['code'] ?? 0);
+            if ($errCode === 24 || str_contains((string) ($errJson['error']['message'] ?? ''), 'does not exist')) {
+                $retryMe = Http::asForm()->timeout(60)->post(
+                    self::THREADS_GRAPH.'/me/threads',
+                    $payload
+                );
+                if ($retryMe->successful() && filled($retryMe->json('id'))) {
+                    $container = $retryMe;
+                    $meInfo = Http::timeout(15)->get(self::THREADS_GRAPH.'/me', [
+                        'fields' => 'id,username',
+                        'access_token' => $token,
+                    ]);
+                    if ($meInfo->successful() && filled($meInfo->json('id'))) {
+                        $userId = (string) $meInfo->json('id');
+                        $account->update(['external_id' => $userId]);
+                    }
+                }
+            }
+        }
+
         if (! $container->successful() || blank($container->json('id'))) {
             return [
                 'ok' => false,
@@ -572,25 +648,66 @@ class SocialPublisherService
 
         $creationId = (string) $container->json('id');
 
-        if ($imageUrl) {
-            $wait = $this->waitForThreadsContainer($creationId, $token);
-            if (! ($wait['ok'] ?? false)) {
-                return $wait;
-            }
+        // Always wait for container ready status (for both image and text), as Threads servers
+        // process the container asynchronously across their cluster. Calling threads_publish too
+        // quickly returns code 24 ("The requested resource does not exist" / Media Not Found).
+        $wait = $this->waitForThreadsContainer($creationId, $token);
+        if (! ($wait['ok'] ?? false)) {
+            return $wait;
         }
 
-        $publish = Http::asForm()->timeout(60)->post(
-            self::THREADS_GRAPH.'/'.rawurlencode($userId).'/threads_publish',
-            [
-                'creation_id' => $creationId,
-                'access_token' => $token,
-            ]
-        );
+        // Retry publish up to 4 times with exponential backoff if Meta reports transient
+        // resource not ready / does not exist (code 24 / error_subcode 4279009 / Media Not Found).
+        $publish = null;
+        for ($attempt = 1; $attempt <= 4; $attempt++) {
+            $publish = Http::asForm()->timeout(60)->post(
+                self::THREADS_GRAPH.'/'.rawurlencode($userId).'/threads_publish',
+                [
+                    'creation_id' => $creationId,
+                    'access_token' => $token,
+                ]
+            );
 
-        if (! $publish->successful() || blank($publish->json('id'))) {
+            if ($publish->successful() && filled($publish->json('id'))) {
+                break;
+            }
+
+            $errJson = $publish->json();
+            $errCode = (int) ($errJson['error']['code'] ?? 0);
+            $errSubcode = (int) ($errJson['error']['error_subcode'] ?? 0);
+            $errMsg = (string) ($errJson['error']['message'] ?? '');
+
+            $isResourceNotFound = $errCode === 24 || $errSubcode === 4279009 || str_contains($errMsg, 'requested resource does not exist');
+            if ($isResourceNotFound) {
+                // If the user ID was rejected on publish, attempt publish via /me/threads_publish
+                if ($attempt === 2) {
+                    $publishMe = Http::asForm()->timeout(60)->post(
+                        self::THREADS_GRAPH.'/me/threads_publish',
+                        [
+                            'creation_id' => $creationId,
+                            'access_token' => $token,
+                        ]
+                    );
+                    if ($publishMe->successful() && filled($publishMe->json('id'))) {
+                        $publish = $publishMe;
+                        break;
+                    }
+                }
+
+                if ($attempt < 4) {
+                    // Sleep 2.5s, 4s, 6s across retries while container finishes propagating on Meta's cluster
+                    sleep($attempt * 2);
+                    continue;
+                }
+            }
+
+            break;
+        }
+
+        if (! $publish || ! $publish->successful() || blank($publish->json('id'))) {
             return [
                 'ok' => false,
-                'message' => $this->graphError($publish->json(), $publish->body()),
+                'message' => $this->graphError($publish?->json(), $publish?->body() ?? 'Threads publish failed'),
             ];
         }
 
@@ -619,9 +736,10 @@ class SocialPublisherService
      */
     private function waitForThreadsContainer(string $creationId, string $token): array
     {
-        for ($i = 0; $i < 12; $i++) {
+        for ($i = 0; $i < 15; $i++) {
             if ($i > 0) {
-                usleep(600_000);
+                // Wait 1.2s between polls (Meta takes 1.5s - 5s on average to register container across cluster)
+                usleep(1_200_000);
             }
 
             $status = Http::timeout(30)->get(self::THREADS_GRAPH.'/'.rawurlencode($creationId), [
@@ -630,6 +748,13 @@ class SocialPublisherService
             ]);
 
             if (! $status->successful()) {
+                // If container is still propagating (code 24), don't fail immediately — keep waiting
+                $errJson = $status->json();
+                $errCode = (int) ($errJson['error']['code'] ?? 0);
+                if ($errCode === 24 && $i < 14) {
+                    continue;
+                }
+
                 return [
                     'ok' => false,
                     'message' => $this->graphError($status->json(), $status->body()),
@@ -637,7 +762,7 @@ class SocialPublisherService
             }
 
             $code = strtoupper((string) ($status->json('status') ?? ''));
-            if ($code === 'FINISHED' || $code === 'PUBLISHED' || $code === '') {
+            if ($code === 'FINISHED' || $code === 'PUBLISHED') {
                 return ['ok' => true];
             }
 
@@ -646,9 +771,12 @@ class SocialPublisherService
 
                 return ['ok' => false, 'message' => 'Threads media processing '.$code.($detail ? ': '.$detail : '')];
             }
+
+            // If empty status or IN_PROGRESS, continue polling
         }
 
-        return ['ok' => false, 'message' => 'Threads media still processing — please retry in a moment.'];
+        // After loop, return ok true to proceed with publish (the retry mechanism in publish will catch any transient delay)
+        return ['ok' => true];
     }
 
     /**
@@ -734,32 +862,55 @@ class SocialPublisherService
      *
      * @return array{ok:bool, permalink?:string, message?:string, story_id?:string}
      */
-    private function publishFacebookStory(string $pageId, string $imageUrl, string $token, ?string $existingPhotoFbid = null): array
+    private function publishFacebookStory(string $pageId, string $imageUrl, string $token): array
     {
         try {
-            $photoId = $existingPhotoFbid;
+            $imageUrl = $this->resolveRedirectUrl($imageUrl) ?: $imageUrl;
 
-            if (! $photoId) {
-                $photoUpload = Http::asForm()->timeout(60)->post(self::GRAPH.'/'.rawurlencode($pageId).'/photos', [
-                    'url' => $imageUrl,
-                    'published' => 'false',
-                    'access_token' => $token,
-                ]);
+            // Step 1: Upload a fresh unpublished photo specifically for the Story.
+            // Meta Page Stories API requires photo_id of an UNPUBLISHED photo.
+            // Do NOT reuse a photo that was already attached/published to a feed post,
+            // as Meta marks attached photos published and rejects them on /photo_stories.
+            $photoUpload = Http::asForm()->timeout(60)->post(self::GRAPH.'/'.rawurlencode($pageId).'/photos', [
+                'url' => $imageUrl,
+                'published' => 'false',
+                'access_token' => $token,
+            ]);
 
-                if (! $photoUpload->successful() || blank($photoUpload->json('id'))) {
-                    return ['ok' => false, 'message' => $this->graphError($photoUpload->json(), $photoUpload->body())];
-                }
+            if (! $photoUpload->successful() || blank($photoUpload->json('id'))) {
+                $err = $this->graphError($photoUpload->json(), $photoUpload->body());
+                Log::warning('Facebook story photo upload failed', ['page_id' => $pageId, 'error' => $err]);
 
-                $photoId = (string) $photoUpload->json('id');
+                return ['ok' => false, 'message' => 'Facebook story photo upload failed: '.$err];
             }
 
-            $storyResponse = Http::asForm()->timeout(60)->post(self::GRAPH.'/'.rawurlencode($pageId).'/photo_stories', [
+            $photoId = (string) $photoUpload->json('id');
+
+            // Step 2: Publish to Page Stories endpoint (POST /{page-id}/photo_stories)
+            $url = self::GRAPH.'/'.rawurlencode($pageId).'/photo_stories';
+
+            $storyResponse = Http::asForm()->timeout(60)->post($url, [
                 'photo_id' => $photoId,
                 'access_token' => $token,
             ]);
 
+            // If transient delay or format fallback, retry with query params after brief delay
             if (! $storyResponse->successful()) {
-                return ['ok' => false, 'message' => $this->graphError($storyResponse->json(), $storyResponse->body())];
+                usleep(1_500_000);
+                $storyResponse = Http::asForm()->timeout(60)->post($url.'?'.http_build_query([
+                    'photo_id' => $photoId,
+                    'access_token' => $token,
+                ]), [
+                    'photo_id' => $photoId,
+                    'access_token' => $token,
+                ]);
+            }
+
+            if (! $storyResponse->successful()) {
+                $err = $this->graphError($storyResponse->json(), $storyResponse->body());
+                Log::warning('Facebook photo_stories API failed', ['page_id' => $pageId, 'photo_id' => $photoId, 'error' => $err]);
+
+                return ['ok' => false, 'message' => 'Facebook photo_stories failed: '.$err];
             }
 
             $storyId = (string) ($storyResponse->json('post_id') ?? $storyResponse->json('id') ?? '');
@@ -770,6 +921,8 @@ class SocialPublisherService
                 'story_id' => $storyId,
             ];
         } catch (\Throwable $e) {
+            Log::warning('Facebook story exception', ['page_id' => $pageId, 'exception' => $e->getMessage()]);
+
             return ['ok' => false, 'message' => $e->getMessage()];
         }
     }
@@ -976,6 +1129,10 @@ class SocialPublisherService
 
             if ($code === 9007) {
                 return 'Threads media is still processing (Error 9007). Please retry in a few moments.';
+            }
+
+            if ($code === 24 || $subcode === 4279009) {
+                return 'Threads container was still propagating on Meta servers. The system retries automatically; please try publishing again.';
             }
 
             if (is_string($msg) && $msg !== '') {

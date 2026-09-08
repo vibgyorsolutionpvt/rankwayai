@@ -597,6 +597,84 @@ class SocialSchedulerTest extends TestCase
         $this->assertArrayHasKey('instagram_story', $post->permalinks);
     }
 
+    public function test_publisher_logs_story_error_when_facebook_story_fails(): void
+    {
+        Queue::fake([\App\Jobs\SyncSocialPostEngagementJob::class]);
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        \Illuminate\Support\Facades\Http::fake([
+            'graph.facebook.com/*/photos' => \Illuminate\Support\Facades\Http::response(['id' => 'photo_123'], 200),
+            'graph.facebook.com/*/feed' => \Illuminate\Support\Facades\Http::response(['id' => 'page_feed_456'], 200),
+            'graph.facebook.com/*/photo_stories*' => \Illuminate\Support\Facades\Http::response([
+                'error' => [
+                    'message' => 'The photo must be unpublished to create a story.',
+                    'type' => 'OAuthException',
+                    'code' => 100,
+                ],
+            ], 400),
+            'graph.facebook.com/*' => \Illuminate\Support\Facades\Http::response(['permalink_url' => 'https://facebook.com/posts/456'], 200),
+        ]);
+
+        SocialAccount::query()->create([
+            'workspace_id' => $workspace->id,
+            'platform' => 'facebook',
+            'account_name' => 'FB Page',
+            'account_type' => 'page',
+            'connection_mode' => 'oauth',
+            'status' => 'connected',
+            'health' => 'healthy',
+            'external_id' => 'fb_page_1',
+            'access_token' => 'page-token',
+            'connected_at' => now(),
+        ]);
+
+        $asset = MediaAsset::query()->create([
+            'workspace_id' => $workspace->id,
+            'uploaded_by' => $user->id,
+            'disk' => 'public',
+            'path' => $this->samplePublicMediaUrl(),
+            'original_name' => 'sample.jpg',
+            'mime_type' => 'image/jpeg',
+            'size' => 0,
+            'status' => 'ready',
+        ]);
+
+        $post = SocialPost::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'title' => 'FB Feed & Story Fail Test',
+            'body' => 'Caption text',
+            'platforms' => ['facebook'],
+            'status' => 'publishing',
+            'publish_to_story' => true,
+            'media_asset_id' => $asset->id,
+        ]);
+
+        $result = app(SocialPublisherService::class)->publish($post);
+        $post->refresh();
+
+        $this->assertTrue($result['ok']);
+        $this->assertArrayHasKey('facebook', $post->permalinks);
+        $this->assertArrayNotHasKey('facebook_story', $post->permalinks);
+
+        // Verify SocialPublishLog has the story error logged
+        $storyLog = \App\Models\SocialPublishLog::query()
+            ->where('social_post_id', $post->id)
+            ->where('platform', 'facebook_story')
+            ->first();
+
+        $this->assertNotNull($storyLog);
+        $this->assertSame('failed', $storyLog->status);
+        $this->assertStringContainsString('The photo must be unpublished', $storyLog->error);
+
+        // Verify platformStatuses includes the story failure pill
+        $statuses = app(SocialPublisherService::class)->platformStatuses($post);
+        $storyStatus = collect($statuses)->firstWhere('platform', 'facebook_story');
+        $this->assertNotNull($storyStatus);
+        $this->assertSame('failed', $storyStatus['status']);
+        $this->assertStringContainsString('The photo must be unpublished', $storyStatus['error']);
+    }
+
     public function test_social_account_test_connection_healthy_for_sandbox(): void
     {
         [$user, $workspace] = $this->memberWithWorkspace();
@@ -849,5 +927,57 @@ class SocialSchedulerTest extends TestCase
         $failed = $response->json('failed_accounts.0');
         $this->assertSame('disconnected', $failed['status']);
         $this->assertStringContainsString('disconnected', strtolower($failed['error_message']));
+    }
+
+    public function test_publisher_threads_retries_transient_not_exist(): void
+    {
+        Queue::fake([\App\Jobs\SyncSocialPostEngagementJob::class]);
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        \Illuminate\Support\Facades\Http::fake([
+            'https://graph.threads.net/v1.0/th_user_1/threads' => \Illuminate\Support\Facades\Http::response(['id' => 'container_123'], 200),
+            'https://graph.threads.net/v1.0/container_123*' => \Illuminate\Support\Facades\Http::response(['id' => 'container_123', 'status' => 'FINISHED'], 200),
+            'https://graph.threads.net/v1.0/th_user_1/threads_publish' => \Illuminate\Support\Facades\Http::sequence()
+                ->push([
+                    'error' => [
+                        'message' => 'The requested resource does not exist',
+                        'type' => 'OAuthException',
+                        'code' => 24,
+                        'error_subcode' => 4279009,
+                    ],
+                ], 400)
+                ->push(['id' => 'thread_post_999'], 200),
+            'https://graph.threads.net/v1.0/thread_post_999*' => \Illuminate\Support\Facades\Http::response([
+                'id' => 'thread_post_999',
+                'permalink' => 'https://www.threads.net/@demo/post/999',
+            ], 200),
+        ]);
+
+        $account = SocialAccount::query()->create([
+            'workspace_id' => $workspace->id,
+            'platform' => 'threads',
+            'account_name' => '@demo',
+            'connection_mode' => 'oauth',
+            'status' => 'connected',
+            'health' => 'healthy',
+            'external_id' => 'th_user_1',
+            'access_token' => 'threads-token-test',
+            'connected_at' => now(),
+        ]);
+
+        $post = SocialPost::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'title' => 'Threads Test',
+            'body' => 'Testing threads post propagation',
+            'platforms' => ['threads'],
+            'status' => 'publishing',
+        ]);
+
+        $result = app(SocialPublisherService::class)->publish($post);
+
+        $this->assertTrue($result['ok'], 'Threads publishing succeeded via retry: '.($result['message'] ?? ''));
+        $this->assertArrayHasKey('threads', $result['permalinks']);
+        $this->assertSame('https://www.threads.net/@demo/post/999', $result['permalinks']['threads']);
     }
 }

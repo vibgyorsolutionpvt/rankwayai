@@ -725,6 +725,7 @@ class SocialConnectionService
         $token = (string) $account->access_token;
 
         try {
+            // First try with the stored numeric user ID, or fallback to 'me'
             $endpoint = $userId !== ''
                 ? self::THREADS_GRAPH.'/'.rawurlencode($userId)
                 : self::THREADS_GRAPH.'/me';
@@ -733,6 +734,24 @@ class SocialConnectionService
                 'fields' => 'id,username',
                 'access_token' => $token,
             ]);
+
+            // If querying by numeric userId gave Error 24 / not exist, try with /me
+            if (! $response->successful() && $userId !== '') {
+                $errJson = $response->json();
+                $errCode = (int) ($errJson['error']['code'] ?? 0);
+                if ($errCode === 24 || str_contains((string) ($errJson['error']['message'] ?? ''), 'does not exist')) {
+                    $retryMe = Http::timeout(15)->get(self::THREADS_GRAPH.'/me', [
+                        'fields' => 'id,username',
+                        'access_token' => $token,
+                    ]);
+                    if ($retryMe->successful()) {
+                        $response = $retryMe;
+                        if (filled($retryMe->json('id'))) {
+                            $account->update(['external_id' => (string) $retryMe->json('id')]);
+                        }
+                    }
+                }
+            }
 
             if ($response->successful() && (filled($response->json('id')) || filled($response->json('username')))) {
                 $username = (string) ($response->json('username') ?? $account->account_name);
@@ -859,6 +878,10 @@ class SocialConnectionService
 
             if ($code === 100) {
                 return 'Invalid Page or User ID on Meta (Error 100). Please reconnect.';
+            }
+
+            if ($code === 24 || $subcode === 4279009) {
+                return 'Account ID or resource not found on Threads (Error 24). Please reconnect your Threads account.';
             }
 
             if (is_string($msg) && $msg !== '') {
