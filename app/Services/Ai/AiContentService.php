@@ -340,12 +340,15 @@ USER_PROMPT:
 
 Rules:
 - Write the post ONLY about USER_PROMPT topic. Do not dump the full company service catalogue.
-- Body format (always):
+- Fix spelling/typos from USER_PROMPT (e.g. contetn→content). Never copy misspellings or instruction words (create/write/likho/content) into title or body.
+- Title must be a clean marketing headline about the topic — not a paste of the user brief.
+- Body format (REQUIRED — return the COMPLETE caption ready to post):
   1) One short intro paragraph of about 10–15 words (hook), then a blank line
-  2) Then ✅ bullet lines on their own lines (user does not need to ask for icons)
+  2) At least 3 bullet lines. EACH line MUST start with a context emoji that matches THAT line's meaning (not the same ✅ on every line, not -, *, or •).
+     Examples: ticket/booking → 🎟️ ; price/budget/cost-effective → ₹ or 💰 ; hotel/stay → 🏨 ; car/cab/pickup → 🚗 ; temple/spiritual → 🙏 ; food → 🍽️ ; family → 👨‍👩‍👧 ; place/sightseeing → 📍 ; timing/days → ⏱️ ; support/help → 🤝
   3) Then a blank line and soft_cta from SAVED_DETAILS
 - Use relevant_services_for_this_prompt only if they match the prompt; otherwise stay on the prompt topic.
-- Do not put phone/email/website/hashtags in body.
+- Do not put phone/email/website/hashtags in body — the system appends those.
 
 Respond with JSON only:
 {"title":"...","body":"...","platforms":{$platformJson}}
@@ -422,6 +425,7 @@ PROMPT;
     ): array {
         $title = trim(preg_replace('/\s+/u', ' ', (string) ($draft['title'] ?? '')) ?? '');
         $body = $this->normalizeComposeBodyFormatting((string) ($draft['body'] ?? ''));
+        $body = $this->ensureComposeIconBullets($body, $workspace, $settings, $offer);
 
         return $this->enforceVariantWordLimit([
             'title' => Str::limit($title, 70, ''),
@@ -431,7 +435,145 @@ PROMPT;
     }
 
     /**
-     * Fix common LLM formatting mistakes so captions look postable (✅ never mid-sentence).
+     * Ensure bullet lines exist; prefer context icons (🎟️ ₹ 🏨…) over a flat paragraph.
+     * OpenAI should supply relevant icons — this only fills gaps / upgrades -,*,• markers.
+     */
+    private function ensureComposeIconBullets(
+        string $body,
+        Workspace $workspace,
+        WorkspaceAiSetting $settings,
+        string $offer,
+    ): string {
+        $body = trim($body);
+        if ($body === '') {
+            return $body;
+        }
+
+        $normalized = [];
+        foreach (preg_split("/\r\n|\r|\n/", $body) ?: [] as $line) {
+            $line = trim($line);
+            if ($line === '') {
+                $normalized[] = '';
+                continue;
+            }
+
+            // Upgrade plain list markers to a meaning-matched icon
+            if (preg_match('/^(?:☑|•|\-|\*|–|—|\d+[\.\)])\s+(.+)$/u', $line, $m)) {
+                $text = trim($m[1]);
+                $normalized[] = $this->iconForBulletText($text).' '.$text;
+                continue;
+            }
+
+            // Already has an emoji / currency bullet — keep OpenAI's choice
+            if ($this->lineStartsWithComposeIcon($line)) {
+                $normalized[] = $line;
+                continue;
+            }
+
+            $normalized[] = $line;
+        }
+        $body = trim(implode("\n", $normalized));
+
+        if ($this->bodyHasServiceBullets($body)) {
+            return $body;
+        }
+
+        $parts = preg_split("/\n{2,}/", $body) ?: [$body];
+        $intro = trim((string) ($parts[0] ?? ''));
+        $intro = trim(preg_replace('/(?:📞|✉️|🌐|📱|☎️).*$/us', '', $intro) ?? $intro);
+
+        $offerings = $this->resolveBrandOfferings($workspace);
+        $services = $offerings['services'] !== []
+            ? $offerings['services']
+            : $this->defaultServicesForIndustry(
+                $this->industrySpokenLabel((string) ($settings->industry ?: 'business')),
+            );
+
+        $bullets = [];
+        foreach (array_slice($services, 0, 4) as $service) {
+            $service = trim((string) $service);
+            if ($service === '' || preg_match('/^business\s+services?$/iu', $service)) {
+                continue;
+            }
+            $bullets[] = $this->iconForBulletText($service).' '.$service;
+        }
+
+        if (count($bullets) < 3) {
+            $topicBits = preg_split('/\s+/u', $intro) ?: [];
+            $short = trim(Str::limit(implode(' ', array_slice($topicBits, 0, 10)), 56, ''));
+            $fallbacks = array_values(array_filter([
+                $short !== '' ? $this->iconForBulletText($short).' '.$short : null,
+                '🚗 Comfortable travel with clear day-wise plans',
+                '👨‍👩‍👧 Family-friendly stops and flexible timing',
+                '📍 Easy pickup & drop from your city',
+            ]));
+            foreach ($fallbacks as $line) {
+                if (count($bullets) >= 4) {
+                    break;
+                }
+                if (! in_array($line, $bullets, true)) {
+                    $bullets[] = $line;
+                }
+            }
+        }
+
+        if ($bullets === []) {
+            return $body;
+        }
+
+        $cta = $offer !== ''
+            ? $offer
+            : trim((string) ($workspace->resolveBrandKit()?->default_cta_label ?? 'Get started'));
+
+        if ($intro === '') {
+            $intro = 'Plan your next trip with '.$workspace->name.'.';
+        }
+
+        return trim($intro."\n\n".implode("\n", $bullets)."\n\n".$cta);
+    }
+
+    /**
+     * Pick a bullet icon that matches the line meaning (ticket, price, hotel…).
+     */
+    private function iconForBulletText(string $text): string
+    {
+        $t = mb_strtolower($text);
+
+        return match (true) {
+            (bool) preg_match('/\b(ticket|tickets|booking|book|reserve|entry)\b/u', $t) => '🎟️',
+            (bool) preg_match('/\b(cost|price|budget|afford|cheap|value|inr|rs\.?|rupee|dollar|usd|₹|\$|fee|pricing)\b/u', $t)
+                || str_contains($text, '₹')
+                || str_contains($text, '$') => '₹',
+            (bool) preg_match('/\b(hotel|stay|resort|room|night)\b/u', $t) => '🏨',
+            (bool) preg_match('/\b(car|cab|taxi|pickup|pick-up|drop|driver|vehicle)\b/u', $t) => '🚗',
+            (bool) preg_match('/\b(temple|spiritual|darshan|pilgrim|mathura|ayodhya|vrindavan|krishna|mandir)\b/u', $t) => '🙏',
+            (bool) preg_match('/\b(food|meal|lunch|dinner|cuisine|restaurant)\b/u', $t) => '🍽️',
+            (bool) preg_match('/\b(family|kids|children|couple|romantic)\b/u', $t) => '👨‍👩‍👧',
+            (bool) preg_match('/\b(day|days|night|nights|timing|itinerary|schedule|hours?)\b/u', $t) => '⏱️',
+            (bool) preg_match('/\b(place|sight|tour|visit|fort|monument|taj|agra|city|guide)\b/u', $t) => '📍',
+            (bool) preg_match('/\b(support|help|care|assist|whatsapp|call)\b/u', $t) => '🤝',
+            (bool) preg_match('/\b(seo|search|google|rank)\b/u', $t) => '🔍',
+            (bool) preg_match('/\b(website|web|app|software|crm)\b/u', $t) => '💻',
+            (bool) preg_match('/\b(social|instagram|facebook|content|smm)\b/u', $t) => '📱',
+            (bool) preg_match('/\b(cloud|host|server|secure|security)\b/u', $t) => '☁️',
+            default => '✅',
+        };
+    }
+
+    private function lineStartsWithComposeIcon(string $line): bool
+    {
+        if (preg_match('/^(?:📞|✉️|🌐|📱|☎️)\s+/u', $line)) {
+            return false;
+        }
+
+        return (bool) preg_match(
+            '/^(?:✅|☑|🎟️|🎫|💰|₹|\$|€|£|🏨|🚗|🚕|🙏|🍽️|👨‍👩‍👧|📍|⏱️|⏰|🤝|🔍|💻|☁️|🛡️|🤖|💬|🎉|✨|🌟|🏞️|🚌|🛫)\s+\S+/u',
+            $line,
+        );
+    }
+
+    /**
+     * Fix common LLM formatting mistakes so captions look postable (icons never mid-sentence).
      */
     private function normalizeComposeBodyFormatting(string $body): string
     {
@@ -440,11 +582,12 @@ PROMPT;
             return '';
         }
 
-        // "sentence. ✅ Next" or "you.✅ Next" → break before checkmark bullets
-        $body = preg_replace('/([.!?…])\s*([✅☑•])/u', "$1\n\n$2", $body) ?? $body;
-        $body = preg_replace('/(\S)\s+(✅|☑|•)\s+/u', "$1\n\n$2 ", $body) ?? $body;
+        $icon = '✅|☑|•|🎟️|🎫|💰|₹|\$|€|£|🏨|🚗|🚕|🙏|🍽️|👨‍👩‍👧|📍|⏱️|⏰|🤝|🔍|💻|☁️|🛡️|🤖|💬|🎉|✨|🌟|🏞️|🚌|🛫';
 
-        // Ensure each ✅ starts its own line
+        // "sentence. ✅ Next" → break before icon bullets
+        $body = preg_replace('/([.!?…])\s*('.$icon.')/u', "$1\n\n$2", $body) ?? $body;
+        $body = preg_replace('/(\S)\s+('.$icon.')\s+/u', "$1\n\n$2 ", $body) ?? $body;
+
         $lines = [];
         foreach (preg_split("/\n/", $body) ?: [] as $line) {
             $line = trim($line);
@@ -452,9 +595,10 @@ PROMPT;
                 $lines[] = '';
                 continue;
             }
-            // Split accidental "text ✅ item ✅ item" on one line
-            if (preg_match_all('/✅\s+[^\n✅]+/u', $line, $hits) && count($hits[0]) > 1) {
-                $prefix = trim(preg_replace('/✅\s+[^\n✅]+/u', '', $line) ?? '');
+            // Split accidental "text ✅ item ✅ item" / mixed-icon runs on one line
+            if (preg_match_all('/(?:'.$icon.')\s+[^\n✅☑🎟️🎫💰₹\$€£🏨🚗🚕🙏🍽️👨‍👩‍👧📍⏱️⏰🤝🔍💻☁️🛡️🤖💬🎉✨🌟🏞️🚌🛫]+/u', $line, $hits)
+                && count($hits[0]) > 1) {
+                $prefix = trim(preg_replace('/(?:'.$icon.')\s+[^\n]+/u', '', $line) ?? '');
                 if ($prefix !== '') {
                     $lines[] = $prefix;
                     $lines[] = '';
@@ -467,7 +611,6 @@ PROMPT;
             $lines[] = $line;
         }
 
-        // Collapse 3+ blank lines → 1 blank
         $out = [];
         $blank = 0;
         foreach ($lines as $line) {
@@ -806,7 +949,7 @@ STD;
         $t = $this->stripComposeInstructionShell($t);
         $t = $this->stripComposeFormatNoise($t);
         $t = preg_replace(
-            '/\b(please|pls|kindly|write|likho|likhna|likh|banao|banaye|generate|create|make|draft|caption|content|contnent|contents?|post|posts|form|forms|social\s*media|ke\s+lie|ke\s+liye|for\s+(a\s+|the\s+)?post|about|regarding|on\s+the\s+topic\s+of|topic|offer|announce|promotion|jisme|jis\s*me|jismein|hoga|hogi|honge|wala|wali|include|using|use|add)\b/iu',
+            '/\b(please|pls|kindly|write|likho|likhna|likh|banao|banaye|generate|create|make|draft|caption|content|contetn|contnet|contnent|contents?|post|posts|form|forms|social\s*media|ke\s+lie|ke\s+liye|for\s+(a\s+|the\s+)?post|about|regarding|on\s+the\s+topic\s+of|topic|offer|announce|promotion|jisme|jis\s*me|jismein|hoga|hogi|honge|wala|wali|include|using|use|add)\b/iu',
             ' ',
             $t,
         ) ?? $t;
@@ -854,7 +997,7 @@ STD;
     {
         return [
             'please', 'pls', 'kindly', 'write', 'likho', 'likhna', 'likh', 'banao', 'banaye',
-            'generate', 'create', 'make', 'draft', 'caption', 'content', 'contnent', 'contents',
+            'generate', 'create', 'make', 'draft', 'caption', 'content', 'contetn', 'contnet', 'contnent', 'contents',
             'post', 'posts', 'form', 'forms', 'meta', 'platform', 'platforms', 'channel', 'channels',
             'bullet', 'bullets', 'icon', 'icons', 'emoji', 'emojis', 'point', 'points',
             'format', 'formatting', 'list', 'lists', 'hashtag', 'hashtags', 'tag', 'tags',
@@ -1641,11 +1784,6 @@ STD;
 
     private function bodyHasServiceBullets(string $body): bool
     {
-        if (str_contains($body, '✅')) {
-            return true;
-        }
-
-        // At least 3 bullet-ish lines (• - * or emoji + service name)
         $lines = preg_split("/\r\n|\r|\n/", $body) ?: [];
         $hits = 0;
         foreach ($lines as $line) {
@@ -1653,8 +1791,8 @@ STD;
             if ($line === '') {
                 continue;
             }
-            if (preg_match('/^(?:✅|☑|•|\-|\*|\d+[\.\)])\s+\S+/u', $line)
-                || preg_match('/^(?:🌐|🔍|📱|💼|☁️|🛡️|🤖|💬|🤝)\s+\S+/u', $line)) {
+            if ($this->lineStartsWithComposeIcon($line)
+                || preg_match('/^(?:•|\-|\*|\d+[\.\)])\s+\S+/u', $line)) {
                 $hits++;
             }
         }
@@ -1997,14 +2135,17 @@ STD;
                 continue;
             }
 
-            $isBullet = (bool) preg_match('/^(?:✅|☑|•|\-|\*|\d+[\.\)])\s+\S+/u', $trimmed)
-                || (bool) preg_match('/^(?:🌐|🔍|📱|💼|☁️|🛡️|🤖|💬|🤝)\s+\S+/u', $trimmed);
+            $isBullet = $this->lineStartsWithComposeIcon($trimmed)
+                || (bool) preg_match('/^(?:•|\-|\*|\d+[\.\)])\s+\S+/u', $trimmed);
 
             if ($mainLines !== [] && $pendingBlank && ! $isBullet) {
                 $mainLines[] = '';
             } elseif ($mainLines !== [] && $pendingBlank && $isBullet) {
                 // Keep bullet clusters tight (single newlines).
-            } elseif ($mainLines !== [] && $isBullet && preg_match('/^(?:✅|☑|•|\-|\*)/u', (string) end($mainLines))) {
+            } elseif ($mainLines !== [] && $isBullet && (
+                $this->lineStartsWithComposeIcon((string) end($mainLines))
+                || preg_match('/^(?:•|\-|\*)/u', (string) end($mainLines))
+            )) {
                 // consecutive bullets — no extra blank
             } elseif ($mainLines !== [] && $isBullet) {
                 $mainLines[] = '';
@@ -2029,8 +2170,8 @@ STD;
                 $flushBullets();
                 continue;
             }
-            $isBullet = (bool) preg_match('/^(?:✅|☑|•|\-|\*|\d+[\.\)])\s+\S+/u', $line)
-                || (bool) preg_match('/^(?:🌐|🔍|📱|💼|☁️|🛡️|🤖|💬|🤝)\s+\S+/u', $line);
+            $isBullet = $this->lineStartsWithComposeIcon($line)
+                || (bool) preg_match('/^(?:•|\-|\*|\d+[\.\)])\s+\S+/u', $line);
             if ($isBullet) {
                 $bulletRun[] = $line;
             } else {
