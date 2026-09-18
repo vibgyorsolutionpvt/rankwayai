@@ -6,7 +6,7 @@ use App\Models\SocialPost;
 use App\Services\Social\SocialPublisherService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Log;
 
 class PublishSocialPostJob implements ShouldQueue
 {
@@ -39,33 +39,52 @@ class PublishSocialPostJob implements ShouldQueue
             return;
         }
 
+        // Already done (e.g. terminating sync + late queue worker) — don't double-post.
+        if ($post->status === 'published' && empty($this->onlyPlatforms)) {
+            return;
+        }
+
         $post->update(['status' => 'publishing', 'failure_reason' => null]);
         $publisher->publish($post, $this->onlyPlatforms);
     }
 
     /**
-     * 1) Queue the job (HTTP returns immediately with status=publishing)
-     * 2) After the response is sent, drain the queue so Meta publish finishes
-     *    without waiting for a long-running queue:work / cron.
+     * Fast HTTP submit, then publish immediately after the response is sent.
+     *
+     * Hostinger note: never push a "drain queue" closure onto the database queue —
+     * with no queue:work daemon that deadlocks and posts stay PUBLISHING forever.
+     * We run the job sync in app terminating() (after the browser already got redirect).
      *
      * @param  list<string>|null  $onlyPlatforms
      */
     public static function queueAndProcess(int $socialPostId, ?array $onlyPlatforms = null): void
     {
-        static::dispatch($socialPostId, $onlyPlatforms);
+        app()->terminating(function () use ($socialPostId, $onlyPlatforms) {
+            try {
+                $fresh = SocialPost::query()->find($socialPostId);
+                if (! $fresh) {
+                    return;
+                }
+                if ($fresh->status === 'published' && empty($onlyPlatforms)) {
+                    return;
+                }
+                if ($fresh->status === 'failed') {
+                    return;
+                }
 
-        // Hostinger / no daemon: process queued jobs right after the browser gets the redirect.
-        dispatch(function () {
-            if (config('queue.default') === 'sync') {
-                return;
+                static::dispatchSync($socialPostId, $onlyPlatforms);
+            } catch (\Throwable $e) {
+                Log::error('PublishSocialPostJob terminating publish failed', [
+                    'post_id' => $socialPostId,
+                    'error' => $e->getMessage(),
+                ]);
+                report($e);
+
+                SocialPost::query()->whereKey($socialPostId)->where('status', 'publishing')->update([
+                    'status' => 'failed',
+                    'failure_reason' => mb_substr($e->getMessage(), 0, 500),
+                ]);
             }
-
-            Artisan::call('queue:work', [
-                '--stop-when-empty' => true,
-                '--max-time' => 90,
-                '--tries' => 3,
-                '--max-jobs' => 10,
-            ]);
-        })->afterResponse();
+        });
     }
 }

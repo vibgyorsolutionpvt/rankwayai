@@ -1,4 +1,4 @@
-# Project Atlas (Marketing OS)
+# RankwayAI (Marketing OS)
 
 Multi-tenant SaaS for **SEO + Social Media** marketing automation.
 
@@ -25,7 +25,7 @@ Open: **http://localhost:8000**
 **Client** (`info@vibgyorsolution.com` / `Password1!`) lands on **Today**:
 - Brand · Media · Social · SEO · Workspace
 
-**Superadmin** (`superadmin@atlas.test` / `Password1!`) lands on **Platform**.
+**Superadmin** (`superadmin@rankwayai.com` / `Password1!`) lands on **Platform**.
 
 ## Cursor rule
 
