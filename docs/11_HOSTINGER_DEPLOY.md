@@ -195,45 +195,39 @@ Health check: `https://DOMAIN/up` → should return OK.
 
 ## F. Cron jobs (Hostinger → Advanced → Cron Jobs)
 
-### Cron 1 — Laravel scheduler (required)
+### Cron 1 — Laravel scheduler (ACTIVE — keep this)
 
 ```
 * * * * *
 ```
 
-Command:
+Command (fix path — often `~/public_html`):
 
 ```bash
-cd /home/USER/domains/DOMAIN/rankwayai && php artisan schedule:run >> /dev/null 2>&1
+cd /home/USER/domains/DOMAIN/public_html && php artisan schedule:run >> /dev/null 2>&1
 ```
 
-This runs:
+| Task | Default | Notes |
+|------|---------|--------|
+| `social:publish-due` | **every_minute** | Scheduled SMM posts — leave ON |
+| `social:sync-metrics` | disabled | Set `SCHEDULE_SOCIAL_SYNC_METRICS=hourly` to enable |
+| `channels:send-due` | disabled | Set `SCHEDULE_CHANNELS_SEND_DUE=every_minute` to enable |
+| `seo:run-due` | disabled | Set `SCHEDULE_SEO_RUN_DUE=hourly` to enable |
+| `rankway:recompute-ranks` | disabled | Set `SCHEDULE_RANKWAY_RECOMPUTE_RANKS="30 3 * * *"` to enable |
+| `festivals:sync` | disabled | Set `SCHEDULE_FESTIVALS_SYNC="0 2 1 * *"` to enable |
 
-| Command | When |
-|---------|------|
-| `social:publish-due` | every minute |
-| `channels:send-due` | every minute |
-| `seo:run-due` | hourly |
+Publish-now does **not** need cron (drains queue after HTTP response).
 
-### Cron 2 — queue drain (recommended on shared)
+### Cron 2 — queue drain (INACTIVE — do not enable unless needed)
+
+Extra load on shared hosting. Leave off; turn on only if jobs pile up without `afterResponse` drain.
 
 ```
-* * * * *
+# * * * * *
 ```
-
-Command:
 
 ```bash
-cd /home/USER/domains/DOMAIN/rankwayai && php artisan queue:work --stop-when-empty --max-time=50 --tries=3 >> /dev/null 2>&1
-```
-
-### Better queue (SSH session / screen)
-
-```bash
-cd ~/domains/DOMAIN/rankwayai
-screen -S rankway-queue
-php artisan queue:work --sleep=3 --tries=3
-# Ctrl+A then D to detach
+# cd /home/USER/domains/DOMAIN/public_html && php artisan queue:work --stop-when-empty --max-time=50 --tries=3 >> /dev/null 2>&1
 ```
 
 ---

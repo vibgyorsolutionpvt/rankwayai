@@ -462,11 +462,11 @@ class SocialController extends Controller
                 return back()->with('success', 'Post saved as draft — approval required before publish.');
             }
 
-            PublishSocialPostJob::dispatch($post->id);
+            PublishSocialPostJob::queueAndProcess($post->id);
 
             return back()->with(
                 'success',
-                'Publishing started — Meta can take a few seconds. Refresh if status still shows publishing.'
+                'Submitted — publishing to Meta now. Refresh in a few seconds if status still shows publishing.'
             );
         }
 
@@ -533,11 +533,11 @@ class SocialController extends Controller
                 return back()->with('success', 'Post updated — still needs approval before publish.');
             }
 
-            PublishSocialPostJob::dispatch($post->id);
+            PublishSocialPostJob::queueAndProcess($post->id);
 
             return back()->with(
                 'success',
-                'Publishing started — Meta can take a few seconds. Refresh if status still shows publishing.'
+                'Submitted — publishing to Meta now. Refresh in a few seconds if status still shows publishing.'
             );
         }
 
@@ -700,11 +700,11 @@ class SocialController extends Controller
         }
 
         $post->update(['status' => 'publishing', 'failure_reason' => null]);
-        PublishSocialPostJob::dispatch($post->id);
+        PublishSocialPostJob::queueAndProcess($post->id);
 
         return back()->with(
             'success',
-            'Publishing started — Meta can take a few seconds. Refresh if status still shows publishing.'
+            'Submitted — publishing to Meta now. Refresh in a few seconds if status still shows publishing.'
         );
     }
 
@@ -767,7 +767,7 @@ class SocialController extends Controller
         }
 
         $post->update(['status' => 'publishing', 'failure_reason' => null]);
-        PublishSocialPostJob::dispatch($post->id, $onlyPlatforms);
+        PublishSocialPostJob::queueAndProcess($post->id, $onlyPlatforms);
 
         $label = ! empty($data['platform'])
             ? ucfirst((string) $data['platform'])
@@ -775,7 +775,7 @@ class SocialController extends Controller
 
         return back()->with(
             'success',
-            $label.' republish queued — Meta can take a few seconds. Refresh shortly.'
+            $label.' submitted — publishing now. Refresh shortly if status still shows publishing.'
         );
     }
 
