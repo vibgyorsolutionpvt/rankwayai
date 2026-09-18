@@ -109,6 +109,9 @@ Route::middleware(['auth', 'verified', 'workspace.setup', 'module'])->group(func
         Route::get('/jobs', [PlatformAdminController::class, 'jobs'])->name('jobs');
         Route::post('/jobs/failed/{uuid}/retry', [PlatformAdminController::class, 'retryFailedJob'])->name('jobs.retry');
         Route::post('/jobs/failed/flush', [PlatformAdminController::class, 'flushFailedJobs'])->name('jobs.flush');
+        Route::get('/ai-logs', [PlatformAdminController::class, 'aiLogs'])->name('ai-logs');
+        Route::get('/ai-logs/{history}', [PlatformAdminController::class, 'aiLogShow'])->name('ai-logs.show');
+        Route::post('/ai-logs/clear-failover', [PlatformAdminController::class, 'clearAiFailover'])->name('ai-logs.clear-failover');
         Route::patch('/menus/{key}', [PlatformAdminController::class, 'updateMenu'])->name('menus.update');
         Route::patch('/social-platforms/{key}', [PlatformAdminController::class, 'updateSocialPlatform'])->name('social-platforms.update');
     });

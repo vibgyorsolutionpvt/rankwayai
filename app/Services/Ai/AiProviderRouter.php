@@ -75,9 +75,13 @@ class AiProviderRouter
         // Prefer last successful provider when healthy (saves free-tier quota)
         $sticky = Cache::get($this->stickyKey());
         if (is_string($sticky) && isset($this->providers[$sticky]) && ! $this->isCoolingDown($sticky)) {
-            $provider = $this->providers[$sticky];
-            if ($provider->configured()) {
-                return $provider;
+            // Never sticky-lock onto free APIs when a paid primary is configured —
+            // that caused prod to keep hitting mistral/cerebras instead of OpenAI.
+            if (! $this->shouldIgnoreSticky($sticky)) {
+                $provider = $this->providers[$sticky];
+                if ($provider->configured()) {
+                    return $provider;
+                }
             }
         }
 
@@ -103,7 +107,13 @@ class AiProviderRouter
     {
         $queue = $this->buildAttemptQueue();
         if ($queue === []) {
-            return AiCompletion::failed('template', 'No live AI provider configured');
+            $preferred = (string) config('ai.default', 'openai');
+            $error = 'No live AI provider configured';
+            if (in_array($preferred, ['openai', 'openrouter'], true)) {
+                $error = strtoupper($preferred).'_API_KEY missing — free backups blocked. Set the paid key in production .env, then Admin → AI logs → Clear failover.';
+            }
+
+            return AiCompletion::failed('template', $error);
         }
 
         $maxAttempts = max(1, (int) config('ai.failover.max_attempts', 3));
@@ -189,6 +199,17 @@ class AiProviderRouter
             }
         }
 
+        // Forced paid primary with no paid keys → do not silently burn free APIs
+        // (that produced mistral 429 → cerebras 404 → template garbage on prod).
+        $preferred = (string) config('ai.default', 'openai');
+        if (in_array($preferred, ['openai', 'openrouter'], true)) {
+            $hasPaid = ($this->providers['openai'] ?? null)?->configured()
+                || ($this->providers['openrouter'] ?? null)?->configured();
+            if (! $hasPaid) {
+                return [];
+            }
+        }
+
         return $queue;
     }
 
@@ -224,12 +245,44 @@ class AiProviderRouter
 
     private function rememberSuccess(string $id): void
     {
-        Cache::put(
-            $this->stickyKey(),
-            $id,
-            now()->addSeconds((int) config('ai.failover.sticky_ttl_seconds', 3600)),
-        );
+        // Do not sticky-lock free backups when OpenAI/OpenRouter is the intended primary.
+        if (! $this->shouldIgnoreSticky($id)) {
+            Cache::put(
+                $this->stickyKey(),
+                $id,
+                now()->addSeconds((int) config('ai.failover.sticky_ttl_seconds', 3600)),
+            );
+        }
         Cache::forget($this->cooldownKey($id));
+    }
+
+    /**
+     * Clear sticky winner + all provider cooldowns (admin recovery after bad keys).
+     */
+    public function clearFailoverState(): void
+    {
+        Cache::forget($this->stickyKey());
+        foreach (array_keys($this->providers) as $id) {
+            Cache::forget($this->cooldownKey($id));
+        }
+    }
+
+    private function shouldIgnoreSticky(string $id): bool
+    {
+        $tier = (string) (config("ai.providers.{$id}.tier") ?? 'free');
+        if ($tier !== 'free') {
+            return false;
+        }
+
+        $preferred = (string) config('ai.default', 'openai');
+        if (! in_array($preferred, ['openai', 'openrouter', 'auto'], true)) {
+            return false;
+        }
+
+        $openai = $this->providers['openai'] ?? null;
+        $openrouter = $this->providers['openrouter'] ?? null;
+
+        return ($openai?->configured() ?? false) || ($openrouter?->configured() ?? false);
     }
 
     private function stickyKey(): string

@@ -5,12 +5,14 @@ namespace App\Http\Controllers;
 use App\Models\ActivityLog;
 use App\Models\CreditRecharge;
 use App\Models\PlatformSetting;
+use App\Models\SocialComposePromptHistory;
 use App\Models\User;
 use App\Models\UserLoginLog;
 use App\Models\Workspace;
 use App\Models\WorkspaceSubscription;
 use App\Services\Access\ModuleAccess;
 use App\Services\Admin\UserSimulator;
+use App\Services\Ai\AiProviderRouter;
 use App\Services\Billing\BillingService;
 use App\Services\Billing\PlanCatalog;
 use App\Services\Workspaces\ProvisionClientWorkspace;
@@ -636,6 +638,175 @@ class PlatformAdminController extends Controller
             'billing_provider' => $sub?->billing_provider ?? 'manual',
             'current_period_ends_at' => $sub?->current_period_ends_at?->toDateString(),
         ];
+    }
+
+    public function aiLogs(Request $request, AiProviderRouter $router): Response
+    {
+        $q = trim((string) $request->query('q', ''));
+        $provider = trim((string) $request->query('provider', 'all'));
+        $status = trim((string) $request->query('status', 'all'));
+        $period = trim((string) $request->query('period', '7d'));
+        $workspaceId = (int) $request->query('workspace_id', 0);
+        $selectedId = (int) $request->query('id', 0);
+
+        $since = match ($period) {
+            'today' => now()->startOfDay(),
+            '30d' => now()->subDays(30),
+            'all' => null,
+            default => now()->subDays(7),
+        };
+
+        $base = SocialComposePromptHistory::query()
+            ->with(['workspace:id,name', 'user:id,name,email'])
+            ->when($since, fn ($query) => $query->where('created_at', '>=', $since))
+            ->when($workspaceId > 0, fn ($query) => $query->where('workspace_id', $workspaceId))
+            ->when($provider !== 'all' && $provider !== '', fn ($query) => $query->where('provider', $provider))
+            ->when($status === 'ok', fn ($query) => $query->where('ok', true)->where('provider', '!=', 'template'))
+            ->when($status === 'failed', fn ($query) => $query->where(function ($builder) {
+                $builder->where('ok', false)->orWhere('provider', 'template');
+            }))
+            ->when($status === 'template', fn ($query) => $query->where('provider', 'template'))
+            ->when($q !== '', function ($query) use ($q) {
+                $query->where(function ($builder) use ($q) {
+                    $builder
+                        ->where('prompt', 'like', '%'.$q.'%')
+                        ->orWhere('error', 'like', '%'.$q.'%')
+                        ->orWhere('model', 'like', '%'.$q.'%')
+                        ->orWhere('response_text', 'like', '%'.$q.'%');
+                });
+            });
+
+        $summaryQuery = clone $base;
+        $summary = [
+            'total' => (clone $summaryQuery)->count(),
+            'live_ok' => (clone $summaryQuery)->where('ok', true)->where('provider', '!=', 'template')->count(),
+            'template' => (clone $summaryQuery)->where('provider', 'template')->count(),
+            'failed' => (clone $summaryQuery)->where('ok', false)->count(),
+            'tokens' => (int) (clone $summaryQuery)->sum('tokens'),
+        ];
+
+        $logs = (clone $base)
+            ->orderByDesc('id')
+            ->paginate(25)
+            ->withQueryString()
+            ->through(fn (SocialComposePromptHistory $row) => $this->aiLogListPayload($row));
+
+        $selected = null;
+        if ($selectedId > 0) {
+            $row = SocialComposePromptHistory::query()
+                ->with(['workspace:id,name', 'user:id,name,email'])
+                ->find($selectedId);
+            if ($row) {
+                $selected = $this->aiLogDetailPayload($row);
+            }
+        }
+
+        $providerOptions = collect($router->status())
+            ->pluck('id')
+            ->merge(
+                SocialComposePromptHistory::query()
+                    ->whereNotNull('provider')
+                    ->distinct()
+                    ->orderBy('provider')
+                    ->pluck('provider')
+            )
+            ->push('template')
+            ->unique()
+            ->values()
+            ->all();
+
+        return Inertia::render('Admin/AiLogs', [
+            'stats' => $this->stats(),
+            'summary' => $summary,
+            'logs' => $logs,
+            'selected' => $selected,
+            'providers' => $router->status(),
+            'providerOptions' => $providerOptions,
+            'filterOptions' => [
+                'workspaces' => Workspace::query()
+                    ->orderBy('name')
+                    ->limit(200)
+                    ->get(['id', 'name'])
+                    ->map(fn (Workspace $workspace) => [
+                        'id' => $workspace->id,
+                        'name' => $workspace->name,
+                    ]),
+            ],
+            'filters' => [
+                'q' => $q,
+                'provider' => $provider,
+                'status' => $status,
+                'period' => $period,
+                'workspace_id' => $workspaceId > 0 ? $workspaceId : null,
+                'id' => $selectedId > 0 ? $selectedId : null,
+            ],
+        ]);
+    }
+
+    public function aiLogShow(SocialComposePromptHistory $history): RedirectResponse
+    {
+        return redirect()->route('admin.ai-logs', ['id' => $history->id]);
+    }
+
+    public function clearAiFailover(AiProviderRouter $router): RedirectResponse
+    {
+        $router->clearFailoverState();
+
+        return back()->with('success', 'AI sticky provider + cooldowns cleared. Next compose will prefer OpenAI again.');
+    }
+
+    /** @return array<string, mixed> */
+    private function aiLogListPayload(SocialComposePromptHistory $row): array
+    {
+        $attempts = is_array($row->attempts) ? $row->attempts : [];
+        $draft = is_array($row->draft) ? $row->draft : [];
+
+        return [
+            'id' => $row->id,
+            'created_at' => $row->created_at?->toDateTimeString(),
+            'workspace' => $row->workspace?->name,
+            'workspace_id' => $row->workspace_id,
+            'user' => $row->user?->name,
+            'user_email' => $row->user?->email,
+            'prompt' => $row->prompt,
+            'provider' => $row->provider ?: '—',
+            'model' => $row->model,
+            'http_status' => $row->http_status,
+            'tokens' => $row->tokens,
+            'ok' => (bool) $row->ok,
+            'is_template' => ($row->provider ?? '') === 'template',
+            'error' => $row->error,
+            'attempt_count' => count($attempts),
+            'attempt_chain' => collect($attempts)
+                ->map(function (array $attempt) {
+                    $provider = (string) ($attempt['provider'] ?? '?');
+                    $status = $attempt['http_status'] ?? null;
+
+                    return $status ? "{$provider} HTTP {$status}" : $provider;
+                })
+                ->values()
+                ->all(),
+            'draft_title' => (string) ($draft['title'] ?? ''),
+            'draft_preview' => mb_substr(trim((string) ($draft['body'] ?? '')), 0, 120),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function aiLogDetailPayload(SocialComposePromptHistory $row): array
+    {
+        $list = $this->aiLogListPayload($row);
+        $draft = is_array($row->draft) ? $row->draft : [];
+
+        return array_merge($list, [
+            'offer' => $row->offer,
+            'api_url' => $row->api_url,
+            'request_payload' => $row->request_payload,
+            'response_payload' => $row->response_payload,
+            'response_text' => $row->response_text,
+            'attempts' => $row->attempts,
+            'draft' => $draft,
+            'audit' => is_array($draft['audit'] ?? null) ? $draft['audit'] : null,
+        ]);
     }
 
     private function jobDisplayName(string $payload): string

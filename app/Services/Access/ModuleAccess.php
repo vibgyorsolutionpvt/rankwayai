@@ -221,6 +221,14 @@ class ModuleAccess
                     'tone' => 'fuchsia',
                 ],
                 [
+                    'key' => 'admin-ai-logs',
+                    'label' => 'AI logs',
+                    'route' => 'admin.ai-logs',
+                    'match' => 'admin.ai-logs*',
+                    'icon' => 'seo',
+                    'tone' => 'signal',
+                ],
+                [
                     'key' => 'admin-jobs',
                     'label' => 'Jobs',
                     'route' => 'admin.jobs',

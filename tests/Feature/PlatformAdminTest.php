@@ -164,4 +164,41 @@ class PlatformAdminTest extends TestCase
             ])
             ->assertRedirect();
     }
+
+    public function test_superadmin_can_open_ai_logs(): void
+    {
+        $admin = User::factory()->create(['is_superadmin' => true]);
+        $owner = User::factory()->create(['is_superadmin' => false]);
+        $workspace = Workspace::factory()->create(['name' => 'Vibgyor Holidays']);
+        $workspace->users()->attach($owner->id, ['role' => WorkspaceRole::Owner->value]);
+
+        \App\Models\SocialComposePromptHistory::query()->create([
+            'workspace_id' => $workspace->id,
+            'user_id' => $owner->id,
+            'prompt' => 'create content for agra mathura tour',
+            'provider' => 'template',
+            'ok' => false,
+            'error' => 'mistral HTTP 429 -> cerebras HTTP 404',
+            'request_payload' => ['messages' => [['role' => 'user', 'content' => 'hi']]],
+            'response_text' => null,
+            'attempts' => [
+                ['provider' => 'mistral', 'http_status' => 429],
+                ['provider' => 'cerebras', 'http_status' => 404],
+            ],
+            'draft' => ['title' => 'Agra Tour', 'body' => 'Flat paragraph'],
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.ai-logs'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Admin/AiLogs')
+                ->has('logs.data', 1)
+                ->where('summary.template', 1)
+                ->has('providers'));
+
+        $this->actingAs($admin)
+            ->post(route('admin.ai-logs.clear-failover'))
+            ->assertRedirect();
+    }
 }
