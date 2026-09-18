@@ -271,6 +271,47 @@ class AiLayerTest extends TestCase
         $this->assertMatchesRegularExpression('/^✅ Enjoy curated packages\./m', $out);
     }
 
+    public function test_compose_forces_icon_bullets_when_api_returns_flat_paragraph(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        WorkspaceAiSetting::query()->updateOrCreate(
+            ['workspace_id' => $workspace->id],
+            [
+                'tone' => 'english',
+                'industry' => 'Travel agency',
+                'location' => 'Noida',
+                'template_first' => false,
+            ]
+        );
+
+        $svc = app(AiContentService::class);
+        $ref = new \ReflectionClass($svc);
+        $m = $ref->getMethod('finalizeComposeApiDraft');
+        $m->setAccessible(true);
+
+        $settings = WorkspaceAiSetting::query()->where('workspace_id', $workspace->id)->firstOrFail();
+        $out = $m->invoke($svc, [
+            'title' => 'Agra Mathura Two Days Tour',
+            'body' => 'Explore Agra and Mathura with Vibgyor Holidays for a short spiritual getaway from Noida.',
+            'platforms' => ['facebook'],
+        ], $workspace, $settings, 'Get started', 70);
+
+        $this->assertGreaterThanOrEqual(3, preg_match_all('/^(?:✅|📍|🚗|👨‍👩‍👧|🙏|🎟️|🏨|⏱️|₹|💰)\s+/mu', $out['body']));
+    }
+
+    public function test_compose_picks_context_icon_for_bullet_text(): void
+    {
+        $svc = app(AiContentService::class);
+        $ref = new \ReflectionClass($svc);
+        $m = $ref->getMethod('iconForBulletText');
+        $m->setAccessible(true);
+
+        $this->assertSame('🎟️', $m->invoke($svc, 'Entry tickets included'));
+        $this->assertSame('₹', $m->invoke($svc, 'Cost-effective package for families'));
+        $this->assertSame('🏨', $m->invoke($svc, 'Hotel stay near the fort'));
+        $this->assertSame('🚗', $m->invoke($svc, 'Cab pickup from Noida'));
+    }
+
     public function test_budget_blocks_compose(): void
     {
         Queue::fake();
