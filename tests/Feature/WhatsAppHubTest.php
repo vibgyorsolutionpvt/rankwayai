@@ -43,6 +43,114 @@ class WhatsAppHubTest extends TestCase
                 ->has('campaigns'));
     }
 
+    public function test_whatsapp_setup_form_saves_business_details_as_pending(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('whatsapp.index', ['view' => 'setup']))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('WhatsApp/Index')
+                ->where('view', 'setup')
+                ->has('meta_setup.fields')
+                ->where('meta_setup.connected', false)
+                ->where('meta_setup.can_manage_meta', false)
+                ->where('meta_setup.onboarding_status', 'not_started')
+                ->where('meta_setup.values.business_display_name', $workspace->name)
+                ->where('meta_setup.autofilled_from', 'workspace_brand')
+                ->has('meta_setup.brand_profile')
+                ->where('meta_setup.brand_profile.business_display_name', $workspace->name));
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->put(route('whatsapp.setup'), [
+                'enabled' => true,
+                'credentials' => [
+                    'business_display_name' => 'Vibgyor Holidays',
+                    'business_phone' => '+919889995999',
+                    'business_category' => 'TRAVEL',
+                    'business_email' => 'info@vibgyorholidays.com',
+                    'business_website' => 'https://vibgyorholidays.com',
+                    'business_address' => 'Noida',
+                    'business_country' => 'IN',
+                    'business_about' => 'Holiday packages',
+                    // Clients cannot connect Meta themselves — these must be ignored.
+                    'phone_number_id' => 'should-be-ignored',
+                    'access_token' => 'should-be-ignored',
+                    'verify_token' => 'should-be-ignored',
+                ],
+            ])
+            ->assertRedirect(route('whatsapp.index', ['view' => 'setup']));
+
+        $svc = app(\App\Services\Integrations\WorkspaceIntegrationService::class);
+        $this->assertFalse($svc->hasWhatsappMeta($workspace));
+
+        $row = $svc->getRecord($workspace, 'whatsapp_meta');
+        $this->assertNotNull($row);
+        $this->assertSame('pending', $row->status);
+        $this->assertSame('+919889995999', $row->credential('business_phone'));
+        $this->assertSame('Vibgyor Holidays', $row->credential('business_display_name'));
+        $this->assertSame('pending_platform', $row->credential('onboarding_status'));
+        $this->assertTrue(blank($row->credential('phone_number_id')));
+        $this->assertTrue(blank($row->credential('access_token')));
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('whatsapp.index', ['view' => 'setup']))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('meta_setup.onboarding_status', 'pending_platform')
+                ->where('meta_setup.business_phone', '+919889995999')
+                ->where('meta_setup.connected', false));
+    }
+
+    public function test_superadmin_can_connect_meta_after_client_onboarding(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $admin = User::factory()->create(['is_superadmin' => true]);
+
+        $svc = app(\App\Services\Integrations\WorkspaceIntegrationService::class);
+        $svc->upsert($workspace, 'whatsapp_meta', [
+            'business_display_name' => 'Vibgyor Holidays',
+            'business_phone' => '+919889995999',
+        ]);
+        $pending = $svc->getRecord($workspace, 'whatsapp_meta');
+        $pending->update([
+            'status' => 'pending',
+            'credentials' => array_merge($pending->credentials ?? [], [
+                'onboarding_status' => 'pending_platform',
+            ]),
+            'last_error' => null,
+        ]);
+
+        $this->actingAs($admin)
+            ->withSession(['impersonate_workspace_id' => $workspace->id])
+            ->put(route('whatsapp.setup'), [
+                'enabled' => true,
+                'credentials' => [
+                    'business_display_name' => 'Vibgyor Holidays',
+                    'business_phone' => '+919889995999',
+                    'phone_number_id' => '1234567890',
+                    'waba_id' => 'waba-1',
+                    'access_token' => 'meta-token-test',
+                    'app_secret' => 'app-secret',
+                    'verify_token' => 'verify-me',
+                    'api_version' => 'v21.0',
+                ],
+            ])
+            ->assertRedirect(route('whatsapp.index', ['view' => 'setup']));
+
+        $this->assertTrue($svc->hasWhatsappMeta($workspace));
+        $this->assertSame('meta', $svc->whatsappProvider($workspace));
+        $cfg = $svc->whatsappMetaConfig($workspace);
+        $this->assertSame('1234567890', $cfg['phone_number_id']);
+        $row = $svc->get($workspace, 'whatsapp_meta');
+        $this->assertSame('connected', $row->credential('onboarding_status'));
+        $this->assertSame('+919889995999', $row->credential('business_phone'));
+    }
+
     public function test_can_save_whatsapp_template(): void
     {
         [$user, $workspace] = $this->memberWithWorkspace();

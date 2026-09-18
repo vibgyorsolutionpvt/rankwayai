@@ -444,6 +444,15 @@ export default function Welcome({ auth, canLogin, canRegister, seo }) {
                             <span aria-hidden className="text-line">
                                 ·
                             </span>
+                            <Link
+                                href={route('privacy')}
+                                className="font-semibold text-ink transition hover:text-signal-strong"
+                            >
+                                Privacy
+                            </Link>
+                            <span aria-hidden className="text-line">
+                                ·
+                            </span>
                             <span>
                                 A product of{' '}
                                 <a

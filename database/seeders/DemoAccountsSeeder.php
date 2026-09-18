@@ -18,8 +18,16 @@ class DemoAccountsSeeder extends Seeder
 {
     public function run(): void
     {
+        // Migrate legacy Project Atlas demo identity → RankwayAI
+        User::query()
+            ->where('email', 'superadmin@atlas.test')
+            ->update([
+                'email' => 'superadmin@rankwayai.com',
+                'name' => 'Super Admin',
+            ]);
+
         $superadmin = User::query()->updateOrCreate(
-            ['email' => 'superadmin@atlas.test'],
+            ['email' => 'superadmin@rankwayai.com'],
             [
                 'name' => 'Super Admin',
                 'password' => 'Password1!',
@@ -73,10 +81,32 @@ class DemoAccountsSeeder extends Seeder
 
         app(BillingService::class)->changePlan($workspace, 'starter', 'active');
 
+        // Fold legacy "Atlas Platform" into RankwayAI Platform
+        $legacyPlatform = Workspace::query()->where('slug', 'atlas-platform')->first();
         $platform = Workspace::query()->firstOrCreate(
-            ['slug' => 'atlas-platform'],
-            ['name' => 'Atlas Platform']
+            ['slug' => 'rankwayai-platform'],
+            ['name' => 'RankwayAI Platform']
         );
+        if ($platform->name !== 'RankwayAI Platform') {
+            $platform->update(['name' => 'RankwayAI Platform']);
+        }
+        if ($legacyPlatform && $legacyPlatform->id !== $platform->id) {
+            foreach ($legacyPlatform->users as $member) {
+                if (! $platform->hasMember($member)) {
+                    $platform->users()->attach($member->id, [
+                        'role' => $member->pivot->role,
+                    ]);
+                }
+            }
+            $legacyPlatform->users()->detach();
+            $legacyPlatform->delete();
+        } elseif ($legacyPlatform && $legacyPlatform->id === $platform->id) {
+            $legacyPlatform->update([
+                'slug' => 'rankwayai-platform',
+                'name' => 'RankwayAI Platform',
+            ]);
+            $platform = $legacyPlatform->fresh();
+        }
 
         if (! $platform->hasMember($superadmin)) {
             $platform->users()->attach($superadmin->id, [

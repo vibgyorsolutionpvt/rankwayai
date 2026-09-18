@@ -23,6 +23,20 @@ class MarketingController extends Controller
         ]));
     }
 
+    public function privacy(): Response
+    {
+        return Inertia::render('Marketing/Privacy', $this->pageProps([
+            'title' => 'Privacy Policy — RankwayAI',
+            'description' => 'How RankwayAI (a product of Vibgyor Solution) collects, uses, and protects your data — including WhatsApp, Meta, SEO, and account information.',
+            'path' => '/privacy',
+        ], [
+            'contact_email' => \App\Models\PlatformSetting::getValue(
+                'contact_email',
+                (string) config('seo.marketing.contact_email', 'contact@rankwayai.com')
+            ),
+        ]));
+    }
+
     public function contact(): Response
     {
         return Inertia::render('Marketing/Contact', $this->pageProps([

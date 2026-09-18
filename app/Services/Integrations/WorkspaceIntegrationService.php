@@ -127,6 +127,17 @@ class WorkspaceIntegrationService
             ->first();
     }
 
+    /**
+     * Any saved row (including pending / disconnected onboarding drafts).
+     */
+    public function getRecord(Workspace $workspace, string $provider): ?WorkspaceIntegration
+    {
+        return WorkspaceIntegration::query()
+            ->where('workspace_id', $workspace->id)
+            ->where('provider', $provider)
+            ->first();
+    }
+
     public function credential(Workspace $workspace, string $provider, string $key, mixed $default = null): mixed
     {
         $row = $this->get($workspace, $provider);
