@@ -46,9 +46,9 @@ class SocialController extends Controller
             $month = $cursor->format('Y-m');
         }
 
-        $view = (string) $request->query('view', 'posts');
+        $view = (string) $request->query('view', 'calendar');
         if (! in_array($view, ['posts', 'calendar', 'accounts', 'compose'], true)) {
-            $view = 'posts';
+            $view = 'calendar';
         }
 
         $status = (string) $request->query('status', 'all');
@@ -246,9 +246,15 @@ class SocialController extends Controller
                     'tokens' => $row->tokens,
                     'ok' => $row->ok,
                     'error' => $row->error,
-                    'response_text' => $row->response_text
-                        ? Str::limit($row->response_text, 400, '…')
-                        : null,
+                    'attempts' => collect($row->attempts ?? [])
+                        ->map(fn ($a) => [
+                            'provider' => $a['provider'] ?? null,
+                            'ok' => (bool) ($a['ok'] ?? false),
+                            'http_status' => $a['http_status'] ?? null,
+                            'error' => isset($a['error']) ? Str::limit((string) $a['error'], 120, '…') : null,
+                        ])
+                        ->values()
+                        ->all(),
                     'updated_at' => $row->updated_at?->toDateTimeString(),
                 ])
                 ->values()
@@ -334,6 +340,7 @@ class SocialController extends Controller
                     'provider' => $result['provider'] ?? 'template',
                     'draft' => $result['draft'] ?? null,
                 ],
+                $request->user(),
             );
         } catch (\Throwable $e) {
             report($e);
@@ -455,9 +462,12 @@ class SocialController extends Controller
                 return back()->with('success', 'Post saved as draft — approval required before publish.');
             }
 
-            PublishSocialPostJob::dispatchSync($post->id);
+            PublishSocialPostJob::dispatch($post->id);
 
-            return $this->publishFlashResponse($post);
+            return back()->with(
+                'success',
+                'Publishing started — Meta can take a few seconds. Refresh if status still shows publishing.'
+            );
         }
 
         if ($data['delivery'] === 'schedule') {
@@ -523,9 +533,12 @@ class SocialController extends Controller
                 return back()->with('success', 'Post updated — still needs approval before publish.');
             }
 
-            PublishSocialPostJob::dispatchSync($post->id);
+            PublishSocialPostJob::dispatch($post->id);
 
-            return $this->publishFlashResponse($post);
+            return back()->with(
+                'success',
+                'Publishing started — Meta can take a few seconds. Refresh if status still shows publishing.'
+            );
         }
 
         if ($data['delivery'] === 'schedule') {
@@ -686,9 +699,13 @@ class SocialController extends Controller
             return back()->with('error', 'Image must be a public https URL before publishing (localhost images cannot reach Meta).');
         }
 
-        PublishSocialPostJob::dispatchSync($post->id);
+        $post->update(['status' => 'publishing', 'failure_reason' => null]);
+        PublishSocialPostJob::dispatch($post->id);
 
-        return $this->publishFlashResponse($post);
+        return back()->with(
+            'success',
+            'Publishing started — Meta can take a few seconds. Refresh if status still shows publishing.'
+        );
     }
 
     public function retry(Request $request, SocialPost $post, PlanAccess $plans): RedirectResponse
@@ -750,18 +767,16 @@ class SocialController extends Controller
         }
 
         $post->update(['status' => 'publishing', 'failure_reason' => null]);
-        $publisher->publish($post, $onlyPlatforms);
+        PublishSocialPostJob::dispatch($post->id, $onlyPlatforms);
 
         $label = ! empty($data['platform'])
             ? ucfirst((string) $data['platform'])
             : 'Failed platforms';
 
-        $fresh = $post->fresh();
-        if ($fresh && empty($publisher->failedPlatforms($fresh))) {
-            return back()->with('success', $label.' republished successfully.');
-        }
-
-        return $this->publishFlashResponse($post);
+        return back()->with(
+            'success',
+            $label.' republish queued — Meta can take a few seconds. Refresh shortly.'
+        );
     }
 
     public function generatePosters(Request $request, SocialPost $post): RedirectResponse
@@ -1307,7 +1322,10 @@ class SocialController extends Controller
         }
 
         if ($fresh?->status === 'publishing') {
-            return back()->with('error', 'Publish is still running — refresh the page in a moment.');
+            return back()->with(
+                'success',
+                'Publishing in progress — Meta can take a few seconds. Refresh shortly.'
+            );
         }
 
         return back()->with(

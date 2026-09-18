@@ -3,6 +3,20 @@ import TextInput from '@/Components/TextInput';
 import axios from 'axios';
 import { useEffect, useState } from 'react';
 
+function formatMediaBadge(stamp) {
+    if (!stamp) return '';
+    const raw = String(stamp).trim();
+    const d = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T'));
+    if (Number.isNaN(d.getTime())) return raw;
+    return d.toLocaleString(undefined, {
+        day: '2-digit',
+        month: 'short',
+        year: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
+
 export default function MediaPickerModal({
     show,
     onClose,
@@ -129,7 +143,7 @@ export default function MediaPickerModal({
                                                 : 'border-line hover:border-signal/40')
                                         }
                                     >
-                                        <div className="aspect-square bg-mist">
+                                        <div className="relative aspect-square bg-mist">
                                             {asset.thumb_url ? (
                                                 <img
                                                     src={asset.thumb_url}
@@ -138,12 +152,17 @@ export default function MediaPickerModal({
                                                     loading="lazy"
                                                 />
                                             ) : null}
+                                            {asset.created_at ? (
+                                                <span className="pointer-events-none absolute bottom-1.5 right-1.5 max-w-[calc(100%-0.75rem)] truncate rounded-md bg-black/80 px-1.5 py-1 text-[10px] font-semibold leading-none text-white shadow-md">
+                                                    {formatMediaBadge(asset.created_at)}
+                                                </span>
+                                            ) : null}
                                         </div>
                                         <div className="truncate px-1.5 py-1 text-[10px] text-ink-muted">
                                             {asset.name}
                                         </div>
                                         {active ? (
-                                            <span className="absolute right-1 top-1 rounded bg-signal px-1.5 py-0.5 text-[10px] font-bold text-white">
+                                            <span className="absolute left-1 top-1 rounded bg-signal px-1.5 py-0.5 text-[10px] font-bold text-white">
                                                 ✓
                                             </span>
                                         ) : null}

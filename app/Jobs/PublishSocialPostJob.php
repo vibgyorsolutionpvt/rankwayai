@@ -13,7 +13,11 @@ class PublishSocialPostJob implements ShouldQueue
 
     public int $tries = 3;
 
-    public function __construct(public int $socialPostId) {}
+    /** @param  list<string>|null  $onlyPlatforms */
+    public function __construct(
+        public int $socialPostId,
+        public ?array $onlyPlatforms = null,
+    ) {}
 
     public function handle(SocialPublisherService $publisher): void
     {
@@ -33,6 +37,6 @@ class PublishSocialPostJob implements ShouldQueue
         }
 
         $post->update(['status' => 'publishing', 'failure_reason' => null]);
-        $publisher->publish($post);
+        $publisher->publish($post, $this->onlyPlatforms);
     }
 }

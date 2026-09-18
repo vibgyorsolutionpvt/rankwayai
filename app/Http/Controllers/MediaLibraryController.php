@@ -129,6 +129,7 @@ class MediaLibraryController extends Controller
                 'thumb_url' => $asset->url('thumb') ?: $asset->url(),
                 'mime_type' => $asset->mime_type,
                 'status' => $asset->status ?? 'ready',
+                'created_at' => $asset->created_at?->toDateTimeString(),
             ])
             ->filter(fn (array $asset) => filled($asset['url']))
             ->values();

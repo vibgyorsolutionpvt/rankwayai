@@ -50,7 +50,7 @@ class SocialComposePromptHistory extends Model
     }
 
     /**
-     * Store one compose attempt with full API meta (URL + request/response).
+     * Store one compose attempt with full API meta (URL + request/response + who/when).
      *
      * @param  array{
      *   provider?:?string,
@@ -73,6 +73,7 @@ class SocialComposePromptHistory extends Model
         string $prompt,
         string $offer = '',
         array $api = [],
+        ?User $actor = null,
     ): self {
         $prompt = trim($prompt);
         $offer = trim($offer);
@@ -89,9 +90,17 @@ class SocialComposePromptHistory extends Model
             $responsePayload = ['value' => $response];
         }
 
+        $draft = is_array($api['draft'] ?? null) ? $api['draft'] : [];
+        $draft['audit'] = [
+            'user_id' => $actor?->id ?? $userId,
+            'user_name' => $actor?->name,
+            'user_email' => $actor?->email,
+            'hit_at' => now()->toIso8601String(),
+        ];
+
         return static::query()->create([
             'workspace_id' => $workspace->id,
-            'user_id' => $userId,
+            'user_id' => $actor?->id ?? $userId,
             'prompt' => $prompt,
             'offer' => $offer !== '' ? $offer : null,
             'provider' => $api['provider'] ?? null,
@@ -105,7 +114,7 @@ class SocialComposePromptHistory extends Model
             'response_payload' => $responsePayload,
             'response_text' => $api['response_text'] ?? null,
             'attempts' => $api['attempts'] ?? null,
-            'draft' => $api['draft'] ?? null,
+            'draft' => $draft !== [] ? $draft : null,
         ]);
     }
 }
