@@ -50,6 +50,7 @@ Route::get('/', function () {
 })->name('welcome');
 
 Route::get('/about', [MarketingController::class, 'about'])->name('about');
+Route::get('/privacy', [MarketingController::class, 'privacy'])->name('privacy');
 Route::get('/pricing', [MarketingController::class, 'pricing'])->name('pricing');
 Route::get('/contact', [MarketingController::class, 'contact'])->name('contact');
 Route::post('/contact', [MarketingController::class, 'contactStore'])
@@ -274,6 +275,7 @@ Route::middleware(['auth', 'verified', 'workspace.setup', 'module'])->group(func
     Route::delete('/channels/{campaign}', [ChannelsController::class, 'destroy'])->name('channels.destroy');
 
     Route::get('/whatsapp', [WhatsAppController::class, 'index'])->name('whatsapp.index');
+    Route::put('/whatsapp/setup', [WhatsAppController::class, 'saveSetup'])->name('whatsapp.setup');
     Route::post('/whatsapp/conversations', [WhatsAppController::class, 'start'])
         ->middleware('throttle:40,1')
         ->name('whatsapp.conversations.start');

@@ -7,9 +7,12 @@ use App\Models\ChannelCampaign;
 use App\Models\ChannelMessageTemplate;
 use App\Models\CrmLead;
 use App\Models\WhatsappConversation;
+use App\Models\Workspace;
 use App\Services\Billing\PlanAccess;
 use App\Services\Channels\ChannelCampaignService;
 use App\Services\Channels\ChannelTemplateService;
+use App\Services\Integrations\IntegrationCatalog;
+use App\Services\Integrations\WorkspaceIntegrationService;
 use App\Services\WhatsApp\WhatsAppConversationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -20,15 +23,39 @@ class WhatsAppController extends Controller
 {
     use ResolvesWorkspace;
 
+    /** @var list<string> */
+    private const BUSINESS_SETUP_KEYS = [
+        'business_display_name',
+        'business_phone',
+        'business_category',
+        'business_email',
+        'business_website',
+        'business_address',
+        'business_country',
+        'business_about',
+    ];
+
+    /** @var list<string> */
+    private const META_SETUP_KEYS = [
+        'phone_number_id',
+        'waba_id',
+        'access_token',
+        'app_secret',
+        'verify_token',
+        'api_version',
+    ];
+
     public function index(
         Request $request,
         WhatsAppConversationService $conversations,
         ChannelCampaignService $channels,
         ChannelTemplateService $templates,
-        PlanAccess $plans
+        PlanAccess $plans,
+        WorkspaceIntegrationService $integrations,
     ): Response {
         $workspace = $this->workspace($request);
-        $view = in_array($request->query('view'), ['conversations', 'templates', 'campaigns'], true)
+
+        $view = in_array($request->query('view'), ['conversations', 'templates', 'campaigns', 'setup'], true)
             ? $request->query('view')
             : 'conversations';
         $activeId = (int) $request->query('conversation', 0);
@@ -64,6 +91,7 @@ class WhatsAppController extends Controller
             'view' => $view,
             'provider' => $channels->provider($workspace, 'whatsapp'),
             'plan' => $plans->summary($workspace),
+            'meta_setup' => $this->metaSetupPayload($workspace, $integrations, $request->user()),
             'conversations' => $threadList,
             'activeConversation' => $active,
             'messages' => $messages,
@@ -200,11 +228,10 @@ class WhatsAppController extends Controller
                 ->first();
         }
 
-        $body = $template?->body ?? $data['body'];
         $result = $conversations->sendOutbound(
             $workspace,
             $conversation,
-            $body,
+            $template?->body ?? $data['body'],
             $request->user(),
             $template,
             $request->boolean('as_template')
@@ -236,25 +263,24 @@ class WhatsAppController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'body' => ['required', 'string', 'max:4000'],
-            'category' => ['nullable', 'in:marketing,utility,authentication'],
-            'language' => ['nullable', 'string', 'max:16'],
-            'wa_status' => ['nullable', 'in:draft,ready'],
+            'category' => ['required', 'in:utility,marketing,authentication'],
+            'language' => ['required', 'string', 'max:12'],
+            'wa_status' => ['required', 'in:draft,ready'],
         ]);
 
         ChannelMessageTemplate::query()->create([
             'workspace_id' => $workspace->id,
-            'created_by' => $request->user()->id,
-            'name' => $data['name'],
             'channel' => 'whatsapp',
-            'category' => $data['category'] ?? 'utility',
-            'language' => $data['language'] ?? 'en',
-            'wa_status' => $data['wa_status'] ?? 'draft',
+            'name' => $data['name'],
             'body' => $data['body'],
+            'category' => $data['category'],
+            'language' => $data['language'],
+            'wa_status' => $data['wa_status'],
         ]);
 
         return redirect()
             ->route('whatsapp.index', ['view' => 'templates'])
-            ->with('success', 'WhatsApp template saved.');
+            ->with('success', 'Template saved.');
     }
 
     public function updateTemplate(Request $request, ChannelMessageTemplate $template): RedirectResponse
@@ -264,16 +290,16 @@ class WhatsAppController extends Controller
         abort_unless($template->workspace_id === $workspace->id && $template->channel === 'whatsapp', 404);
 
         $data = $request->validate([
-            'name' => ['required', 'string', 'max:120'],
-            'body' => ['required', 'string', 'max:4000'],
-            'category' => ['nullable', 'in:marketing,utility,authentication'],
-            'language' => ['nullable', 'string', 'max:16'],
-            'wa_status' => ['nullable', 'in:draft,ready'],
+            'name' => ['sometimes', 'string', 'max:120'],
+            'body' => ['sometimes', 'string', 'max:4000'],
+            'category' => ['sometimes', 'in:utility,marketing,authentication'],
+            'language' => ['sometimes', 'string', 'max:12'],
+            'wa_status' => ['sometimes', 'in:draft,ready'],
         ]);
 
         $template->update([
-            'name' => $data['name'],
-            'body' => $data['body'],
+            'name' => $data['name'] ?? $template->name,
+            'body' => $data['body'] ?? $template->body,
             'category' => $data['category'] ?? $template->category,
             'language' => $data['language'] ?? $template->language,
             'wa_status' => $data['wa_status'] ?? $template->wa_status,
@@ -295,5 +321,200 @@ class WhatsAppController extends Controller
         return redirect()
             ->route('whatsapp.index', ['view' => 'templates'])
             ->with('success', 'Template removed.');
+    }
+
+    /**
+     * Client onboarding: business number + profile only.
+     * Meta Cloud API is completed later by RankwayAI (platform), not by the client.
+     */
+    public function saveSetup(
+        Request $request,
+        WorkspaceIntegrationService $integrations,
+    ): RedirectResponse {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+
+        $canManageMeta = (bool) $request->user()?->is_superadmin;
+
+        $rules = [
+            'enabled' => ['sometimes', 'boolean'],
+            'credentials' => ['required', 'array'],
+            'credentials.business_display_name' => ['required', 'string', 'max:120'],
+            'credentials.business_phone' => ['required', 'string', 'max:32'],
+            'credentials.business_category' => ['nullable', 'string', 'max:40'],
+            'credentials.business_email' => ['nullable', 'email', 'max:190'],
+            'credentials.business_website' => ['nullable', 'string', 'max:255'],
+            'credentials.business_address' => ['nullable', 'string', 'max:255'],
+            'credentials.business_country' => ['nullable', 'string', 'max:8'],
+            'credentials.business_about' => ['nullable', 'string', 'max:500'],
+        ];
+
+        if ($canManageMeta) {
+            $rules['credentials.phone_number_id'] = ['nullable', 'string', 'max:64'];
+            $rules['credentials.waba_id'] = ['nullable', 'string', 'max:64'];
+            $rules['credentials.access_token'] = ['nullable', 'string', 'max:4000'];
+            $rules['credentials.app_secret'] = ['nullable', 'string', 'max:4000'];
+            $rules['credentials.verify_token'] = ['nullable', 'string', 'max:255'];
+            $rules['credentials.api_version'] = ['nullable', 'string', 'max:16'];
+        }
+
+        $data = $request->validate($rules);
+        $input = $data['credentials'] ?? [];
+
+        $creds = [];
+        foreach (self::BUSINESS_SETUP_KEYS as $key) {
+            if (array_key_exists($key, $input)) {
+                $creds[$key] = $input[$key];
+            }
+        }
+
+        // Only platform admins may write Meta Cloud API credentials.
+        if ($canManageMeta) {
+            foreach (self::META_SETUP_KEYS as $key) {
+                if (array_key_exists($key, $input)) {
+                    $creds[$key] = $input[$key];
+                }
+            }
+        }
+
+        try {
+            $row = $integrations->upsert(
+                $workspace,
+                'whatsapp_meta',
+                $creds,
+                $canManageMeta ? $request->boolean('enabled', true) : true
+            );
+        } catch (\InvalidArgumentException $e) {
+            return back()->withInput()->with('error', $e->getMessage());
+        }
+
+        // Business submitted without full Meta API → pending (platform connects later).
+        if (! $integrations->hasWhatsappMeta($workspace)) {
+            $merged = array_merge($row->credentials ?? [], $creds, [
+                'onboarding_status' => 'pending_platform',
+                'onboarding_submitted_at' => now()->toIso8601String(),
+            ]);
+            $row->update([
+                'credentials' => $merged,
+                'status' => 'pending',
+                'enabled' => true,
+                'last_error' => null,
+            ]);
+
+            return redirect()
+                ->route('whatsapp.index', ['view' => 'setup'])
+                ->with('success', 'Details submitted. RankwayAI will connect Meta WhatsApp for this number — you do not need Developer Console access.');
+        }
+
+        $merged = array_merge($row->credentials ?? [], [
+            'onboarding_status' => 'connected',
+        ]);
+        $row->update(['credentials' => $merged]);
+
+        return redirect()
+            ->route('whatsapp.index', ['view' => 'setup'])
+            ->with('success', 'WhatsApp Business is connected and live for this workspace.');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function metaSetupPayload(
+        Workspace $workspace,
+        WorkspaceIntegrationService $integrations,
+        mixed $user,
+    ): array {
+        $def = IntegrationCatalog::find('whatsapp_meta') ?? ['fields' => []];
+        $row = $integrations->getRecord($workspace, 'whatsapp_meta');
+        $brandProfile = $this->businessDefaultsFromWorkspace($workspace);
+        $values = [];
+        $secretsSet = [];
+        $hasSavedBusiness = false;
+
+        foreach ($def['fields'] as $field) {
+            $key = $field['key'];
+            $saved = $row ? (string) ($row->credential($key) ?: '') : '';
+            if ($saved !== '' && str_starts_with($key, 'business_')) {
+                $hasSavedBusiness = true;
+            }
+
+            // WABA values: saved setup wins; otherwise seed from Brand so dual entry starts aligned.
+            $raw = $saved;
+            if ($raw === '' && isset($brandProfile[$key])) {
+                $raw = (string) $brandProfile[$key];
+            }
+
+            if (! empty($field['secret'])) {
+                $secretsSet[$key] = $row ? filled($row->credential($key)) : false;
+                $values[$key] = '';
+            } else {
+                $values[$key] = $raw;
+            }
+        }
+
+        $path = '/webhooks/meta/whatsapp/'.$workspace->id;
+        $connected = $integrations->hasWhatsappMeta($workspace);
+        $onboarding = $row ? (string) ($row->credential('onboarding_status') ?: '') : '';
+        if ($onboarding === '' && $row) {
+            $onboarding = $connected ? 'connected' : (string) $row->status;
+        }
+        if ($onboarding === '') {
+            $onboarding = 'not_started';
+        }
+
+        $canManageMeta = (bool) ($user?->is_superadmin);
+
+        return [
+            'connected' => $connected,
+            'onboarding_status' => $onboarding,
+            'can_manage_meta' => $canManageMeta,
+            'webhook_url' => rtrim((string) config('app.url'), '/').$path,
+            'webhook_path' => $path,
+            'fields' => $def['fields'],
+            'values' => $values,
+            'brand_profile' => $brandProfile,
+            'secrets_set' => $secretsSet,
+            'business_phone' => $values['business_phone'] ?? '',
+            'business_display_name' => $values['business_display_name'] ?? '',
+            'autofilled_from' => $hasSavedBusiness ? 'saved_setup' : 'workspace_brand',
+        ];
+    }
+
+    /**
+     * Prefill from Brand / workspace contact fields already on file.
+     *
+     * @return array<string, string>
+     */
+    private function businessDefaultsFromWorkspace(Workspace $workspace): array
+    {
+        $contact = $workspace->contactDetails();
+        $industry = strtolower((string) ($workspace->resolvedIndustry() ?? ''));
+        $category = match (true) {
+            str_contains($industry, 'travel') || str_contains($industry, 'tour') || str_contains($industry, 'holiday') => 'TRAVEL',
+            str_contains($industry, 'hotel') || str_contains($industry, 'hospitality') => 'HOTEL',
+            str_contains($industry, 'restaurant') || str_contains($industry, 'food') => 'RESTAURANT',
+            str_contains($industry, 'health') || str_contains($industry, 'clinic') || str_contains($industry, 'medical') => 'HEALTH',
+            str_contains($industry, 'edu') || str_contains($industry, 'school') => 'EDU',
+            str_contains($industry, 'beauty') || str_contains($industry, 'salon') => 'BEAUTY',
+            str_contains($industry, 'retail') || str_contains($industry, 'shop') => 'RETAIL',
+            str_contains($industry, 'finance') || str_contains($industry, 'bank') => 'FINANCE',
+            $industry !== '' => 'PROF_SERVICES',
+            default => '',
+        };
+
+        $city = trim((string) ($workspace->resolvedCity() ?? ''));
+
+        return array_filter([
+            'business_display_name' => trim((string) $workspace->name),
+            'business_phone' => $contact['phone'] ?? null,
+            'business_email' => $contact['email'] ?? null,
+            'business_website' => $contact['website'] ?? null,
+            'business_category' => $category !== '' ? $category : null,
+            'business_address' => $city !== '' ? $city : null,
+            'business_country' => 'IN',
+            'business_about' => trim((string) $workspace->name) !== ''
+                ? trim((string) $workspace->name)
+                : null,
+        ], fn ($v) => filled($v));
     }
 }

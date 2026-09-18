@@ -30,7 +30,7 @@ class IntegrationsController extends Controller
                 $allowed = array_column($field['options'] ?? [], 'value');
                 $rules['credentials.'.$field['key']] = ['nullable', 'string', 'in:'.implode(',', $allowed)];
             } else {
-                $rules['credentials.'.$field['key']] = ['nullable', 'string', 'max:500'];
+                $rules['credentials.'.$field['key']] = ['nullable', 'string', 'max:4000'];
             }
         }
 

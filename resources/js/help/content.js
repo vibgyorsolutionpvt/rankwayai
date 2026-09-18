@@ -305,6 +305,27 @@ export const HELP = {
             note: 'Configure the Meta webhook URL for your workspace. Sending is locked on Free.',
         },
     ),
+    whatsapp_setup: entry(
+        'WhatsApp number',
+        {
+            what: 'यहाँ जो नंबर दोगे वह WhatsApp Business API / WABA के लिए है — मोबाइल पर सामान्य WhatsApp इंस्टॉल नहीं।',
+            how: [
+                'बिज़नेस नंबर + प्रोफ़ाइल सबमिट करें। Meta RankwayAI बनाकर कनेक्ट करेगा।',
+                'Cloud API पर नंबर लगने के बाद वह आमतौर पर personal / WhatsApp Business मोबाइल ऐप पर एक साथ नहीं चलता।',
+                'ग्राहक उसी नंबर पर मैसेज करेगा; जवाब RankwayAI प्लेटफ़ॉर्म से जाएगा — फ़ोन की WhatsApp ऐप से नहीं।',
+            ],
+            note: 'फ़ॉर्म का नंबर = API के लिए बिज़नेस WhatsApp। मोबाइल OTP से सामान्य WhatsApp रजिस्टर नहीं होता।',
+        },
+        {
+            what: 'The number you enter here is for WhatsApp Business API / WABA — not a normal WhatsApp install on your phone.',
+            how: [
+                'Submit your business number and profile. RankwayAI creates and connects Meta for you.',
+                'After the number is on Cloud API, it generally cannot be used on the personal or WhatsApp Business mobile app at the same time.',
+                'Customers message that number; you reply from the RankwayAI platform — not from the phone WhatsApp app.',
+            ],
+            note: 'Form number = business WhatsApp for API. It is not OTP / normal WhatsApp registration on mobile.',
+        },
+    ),
     crm: entry(
         'CRM',
         {

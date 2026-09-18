@@ -12,6 +12,7 @@ import { Head, Link, router, useForm } from '@inertiajs/react';
 import { useMemo, useState } from 'react';
 
 const TABS = [
+    { id: 'setup', label: 'Setup' },
     { id: 'conversations', label: 'Conversations' },
     { id: 'templates', label: 'Templates' },
     { id: 'campaigns', label: 'Campaigns' },
@@ -37,6 +38,7 @@ export default function Index({
     view = 'conversations',
     provider = 'sandbox',
     plan = null,
+    meta_setup = null,
     conversations = [],
     activeConversation = null,
     messages = [],
@@ -167,6 +169,23 @@ export default function Index({
                     </div>
                 </section>
 
+                {provider === 'sandbox' ? (
+                    <section className="atlas-panel border border-amber-200 bg-amber-50/80 p-3">
+                        <p className="text-sm text-amber-900">
+                            WhatsApp is in <span className="font-semibold">test mode</span>. Open{' '}
+                            <button
+                                type="button"
+                                className="font-semibold underline"
+                                onClick={() => setView('setup')}
+                            >
+                                Setup
+                            </button>{' '}
+                            and submit your WhatsApp number + business details — RankwayAI will
+                            connect Meta for you.
+                        </p>
+                    </section>
+                ) : null}
+
                 {sendLocked ? (
                     <section className="atlas-panel border border-amber-200 bg-amber-50/80 p-3">
                         <p className="text-sm text-amber-900">
@@ -199,6 +218,10 @@ export default function Index({
                         );
                     })}
                 </section>
+
+                {view === 'setup' ? (
+                    <SetupView metaSetup={meta_setup} workspace={workspace} />
+                ) : null}
 
                 {view === 'conversations' ? (
                     <ConversationsView
@@ -733,6 +756,329 @@ function CampaignsView({ campaigns }) {
                 </ul>
             )}
         </section>
+    );
+}
+
+function SetupView({ metaSetup, workspace }) {
+    const fields = metaSetup?.fields || [];
+    const secretsSet = metaSetup?.secrets_set || {};
+    const brandProfile = metaSetup?.brand_profile || {};
+    const canManageMeta = !!metaSetup?.can_manage_meta;
+    const onboardingStatus = metaSetup?.onboarding_status || 'not_started';
+
+    const initial = useMemo(() => {
+        const credentials = { ...(metaSetup?.values || {}) };
+        for (const field of fields) {
+            if (field.secret) {
+                credentials[field.key] = '';
+            } else if (credentials[field.key] === undefined) {
+                credentials[field.key] = field.type === 'select' ? field.options?.[0]?.value || '' : '';
+            }
+        }
+        return {
+            enabled: true,
+            credentials,
+        };
+    }, [metaSetup, fields]);
+
+    const form = useForm(initial);
+
+    const businessKeys = [
+        'business_display_name',
+        'business_phone',
+        'business_category',
+        'business_email',
+        'business_website',
+        'business_address',
+        'business_country',
+        'business_about',
+    ];
+    const metaKeys = [
+        'phone_number_id',
+        'waba_id',
+        'access_token',
+        'app_secret',
+        'verify_token',
+        'api_version',
+    ];
+
+    const byKey = useMemo(() => {
+        const map = {};
+        for (const f of fields) map[f.key] = f;
+        return map;
+    }, [fields]);
+
+    const categoryLabel = (value) => {
+        const opts = byKey.business_category?.options || [];
+        return opts.find((o) => o.value === value)?.label || value || '—';
+    };
+
+    const statusLabel = metaSetup?.connected
+        ? 'Connected'
+        : onboardingStatus === 'pending_platform' || onboardingStatus === 'pending'
+          ? 'Pending RankwayAI'
+          : 'Not started';
+
+    const statusClass = metaSetup?.connected
+        ? 'bg-emerald-100 text-emerald-800'
+        : onboardingStatus === 'pending_platform' || onboardingStatus === 'pending'
+          ? 'bg-sky-100 text-sky-900'
+          : 'bg-amber-100 text-amber-900';
+
+    const setCredential = (key, value) => {
+        form.setData('credentials', {
+            ...form.data.credentials,
+            [key]: value,
+        });
+    };
+
+    const copyBrandToWaba = (key) => {
+        const brandVal = brandProfile[key];
+        if (brandVal === undefined || brandVal === null || brandVal === '') return;
+        setCredential(key, brandVal);
+    };
+
+    const copyAllBrandToWaba = () => {
+        const next = { ...form.data.credentials };
+        for (const key of businessKeys) {
+            if (brandProfile[key]) next[key] = brandProfile[key];
+        }
+        form.setData('credentials', next);
+    };
+
+    const save = (e) => {
+        e.preventDefault();
+        const payload = {
+            enabled: form.data.enabled,
+            credentials: {},
+        };
+        for (const key of businessKeys) {
+            payload.credentials[key] = form.data.credentials[key] ?? '';
+        }
+        if (canManageMeta) {
+            for (const key of metaKeys) {
+                payload.credentials[key] = form.data.credentials[key] ?? '';
+            }
+        }
+        form.transform(() => payload).put(route('whatsapp.setup'), {
+            preserveScroll: true,
+            onSuccess: () =>
+                toast.success(
+                    canManageMeta
+                        ? 'WhatsApp setup saved'
+                        : 'Details submitted — RankwayAI will connect Meta'
+                ),
+        });
+    };
+
+    const renderMetaField = (key) => {
+        const field = byKey[key];
+        if (!field) return null;
+        const err = form.errors[`credentials.${key}`];
+
+        return (
+            <div key={key}>
+                <InputLabel
+                    value={
+                        field.label +
+                        (field.secret && secretsSet[key] ? ' (saved — leave blank to keep)' : '')
+                    }
+                />
+                <TextInput
+                    className="mt-1 w-full"
+                    type={field.secret ? 'password' : 'text'}
+                    value={form.data.credentials[key] || ''}
+                    placeholder={field.placeholder || ''}
+                    autoComplete="off"
+                    onChange={(e) => setCredential(key, e.target.value)}
+                />
+                {err ? <p className="mt-1 text-xs text-rose-600">{err}</p> : null}
+            </div>
+        );
+    };
+
+    const renderDualField = (key) => {
+        const field = byKey[key];
+        if (!field) return null;
+        const err = form.errors[`credentials.${key}`];
+        const brandVal = brandProfile[key] || '';
+        const wabaVal = form.data.credentials[key] || '';
+        const differs = brandVal !== '' && wabaVal !== '' && brandVal !== wabaVal;
+        const brandDisplay =
+            key === 'business_category' ? categoryLabel(brandVal) : brandVal || 'Not set on Brand';
+
+        return (
+            <div
+                key={key}
+                className={
+                    'rounded-lg border px-3 py-3 ' +
+                    (differs ? 'border-amber-200 bg-amber-50/40' : 'border-line bg-white')
+                }
+            >
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-sm font-semibold text-ink">{field.label}</div>
+                    {differs ? (
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-900">
+                            Differs from Brand
+                        </span>
+                    ) : null}
+                </div>
+
+                {/* One row: Brand | WhatsApp — labels + controls stay aligned */}
+                <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2">
+                    <div className="min-w-0">
+                        <div className="flex h-7 items-center justify-between gap-2">
+                            <div className="text-[10px] font-bold uppercase tracking-wide text-ink-muted">
+                                Brand (RankwayAI)
+                            </div>
+                            {brandVal ? (
+                                <button
+                                    type="button"
+                                    className="shrink-0 text-[11px] font-semibold text-ink-muted underline hover:text-ink"
+                                    onClick={() => copyBrandToWaba(key)}
+                                >
+                                    Use on WhatsApp
+                                </button>
+                            ) : null}
+                        </div>
+                        <div className="flex h-10 items-center rounded-md border border-dashed border-line bg-mist/40 px-3 text-sm text-ink">
+                            <span className="truncate">{brandDisplay}</span>
+                        </div>
+                    </div>
+
+                    <div className="min-w-0">
+                        <div className="flex h-7 items-center gap-1">
+                            <div className="text-[10px] font-bold uppercase tracking-wide text-ink-muted">
+                                WhatsApp / WABA
+                            </div>
+                            {key === 'business_phone' ? (
+                                <HelpGuide help={HELP.whatsapp_setup} />
+                            ) : null}
+                        </div>
+                        {field.type === 'select' ? (
+                            <SelectMenu
+                                className="w-full"
+                                value={wabaVal}
+                                onChange={(value) => setCredential(key, value)}
+                                options={(field.options || []).map((o) => ({
+                                    value: o.value,
+                                    label: o.label,
+                                }))}
+                            />
+                        ) : (
+                            <TextInput
+                                className="h-10 w-full"
+                                type="text"
+                                value={wabaVal}
+                                placeholder={field.placeholder || ''}
+                                autoComplete="off"
+                                onChange={(e) => setCredential(key, e.target.value)}
+                            />
+                        )}
+                        {err ? <p className="mt-1 text-xs text-rose-600">{err}</p> : null}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    return (
+        <form onSubmit={save} className="space-y-3">
+            <section className="atlas-panel space-y-3 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                        <div className="flex items-center gap-1.5">
+                            <h3 className="font-display text-lg font-bold text-ink">
+                                WhatsApp Business setup
+                            </h3>
+                        </div>
+                        <p className="mt-1 text-sm text-ink-muted">
+                            {canManageMeta
+                                ? 'Platform: add Meta Cloud API credentials after the client submits their number and business profile.'
+                                : 'Brand details stay on RankwayAI. WhatsApp / WABA can use the same or different values — Meta is created by RankwayAI.'}
+                        </p>
+                    </div>
+                    <span
+                        className={
+                            'rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide ' +
+                            statusClass
+                        }
+                    >
+                        {statusLabel}
+                    </span>
+                </div>
+
+                {!metaSetup?.connected &&
+                (onboardingStatus === 'pending_platform' || onboardingStatus === 'pending') ? (
+                    <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+                        Your details are with RankwayAI. We will connect Meta WhatsApp for{' '}
+                        <strong>{metaSetup?.business_phone || 'this number'}</strong> and notify you
+                        when messaging goes live.
+                    </div>
+                ) : null}
+            </section>
+
+            <section className="atlas-panel space-y-3 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                        <h4 className="text-sm font-bold text-ink">Brand vs WhatsApp profile</h4>
+                        <p className="mt-1 text-xs text-ink-muted">
+                            Left = already stored on Brand. Right = what goes on the WhatsApp /
+                            WABA profile (can differ).
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        className="text-xs font-semibold text-ink-muted underline hover:text-ink"
+                        onClick={copyAllBrandToWaba}
+                    >
+                        Copy all Brand → WhatsApp
+                    </button>
+                </div>
+                <div className="space-y-3">{businessKeys.map(renderDualField)}</div>
+            </section>
+
+            {canManageMeta ? (
+                <>
+                    <section className="atlas-panel space-y-3 p-4">
+                        <h4 className="text-sm font-bold text-ink">Meta Cloud API (platform)</h4>
+                        <p className="text-xs text-ink-muted">
+                            RankwayAI-only: Phone number ID, WABA, access token, and webhook verify
+                            token after you create the Meta assets for this client.
+                        </p>
+                        <div className="rounded-lg border border-line bg-mist/50 px-3 py-2 text-sm">
+                            <div className="text-[10px] font-bold uppercase tracking-wide text-ink-muted">
+                                Meta webhook callback URL
+                            </div>
+                            <code className="mt-1 block break-all text-xs text-ink">
+                                {metaSetup?.webhook_url ||
+                                    `${window.location.origin}/webhooks/meta/whatsapp/${workspace.id}`}
+                            </code>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">{metaKeys.map(renderMetaField)}</div>
+                    </section>
+
+                    <section className="flex flex-wrap items-center justify-between gap-3">
+                        <label className="inline-flex items-center gap-2 text-sm font-semibold text-ink">
+                            <Toggle
+                                checked={!!form.data.enabled}
+                                onChange={(enabled) => form.setData('enabled', enabled)}
+                            />
+                            Enable WhatsApp for this workspace
+                        </label>
+                        <PrimaryButton type="submit" disabled={form.processing}>
+                            {form.processing ? 'Saving…' : 'Save Meta connection'}
+                        </PrimaryButton>
+                    </section>
+                </>
+            ) : (
+                <section className="flex justify-end">
+                    <PrimaryButton type="submit" disabled={form.processing}>
+                        {form.processing ? 'Submitting…' : 'Submit for Meta setup'}
+                    </PrimaryButton>
+                </section>
+            )}
+        </form>
     );
 }
 
