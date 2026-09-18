@@ -2244,7 +2244,9 @@ export default function Index({
                                         </div>
                                         <div className="space-y-1.5">
                                             {day.posts.slice(0, 3).map((post) => {
-                                                const platform = post.platforms?.[0] || null;
+                                                const platforms = post.platforms?.length
+                                                    ? post.platforms
+                                                    : [];
                                                 return (
                                                     <button
                                                         key={post.id}
@@ -2272,8 +2274,9 @@ export default function Index({
                                                                 <span className="rounded bg-white/70 px-1 py-px text-[9px] font-bold uppercase tracking-wide opacity-80">
                                                                     {post.status}
                                                                 </span>
-                                                                {platform ? (
+                                                                {platforms.map((platform) => (
                                                                     <span
+                                                                        key={platform}
                                                                         className={
                                                                             'rounded border px-1 py-px text-[9px] font-bold capitalize ' +
                                                                             (platformTone[platform] ||
@@ -2286,9 +2289,11 @@ export default function Index({
                                                                               ? 'FB'
                                                                               : platform === 'threads'
                                                                                 ? 'TH'
-                                                                                : platform}
+                                                                                : platformShort[
+                                                                                      platform
+                                                                                  ] || platform}
                                                                     </span>
-                                                                ) : null}
+                                                                ))}
                                                             </span>
                                                         </span>
                                                     </button>
