@@ -894,13 +894,10 @@ class SocialPublisherService
                 'access_token' => $token,
             ]);
 
-            // If transient delay or format fallback, retry with query params after brief delay
+            // If transient delay, one quick retry (avoid long sleeps that hang the HTTP request / queue worker).
             if (! $storyResponse->successful()) {
-                usleep(1_500_000);
-                $storyResponse = Http::asForm()->timeout(60)->post($url.'?'.http_build_query([
-                    'photo_id' => $photoId,
-                    'access_token' => $token,
-                ]), [
+                usleep(400_000);
+                $storyResponse = Http::asForm()->timeout(30)->post($url, [
                     'photo_id' => $photoId,
                     'access_token' => $token,
                 ]);
@@ -1076,7 +1073,7 @@ class SocialPublisherService
                     'max' => 5,
                     'track_redirects' => true,
                 ],
-            ])->timeout(20)->head($url);
+            ])->timeout(8)->connectTimeout(3)->head($url);
 
             $history = $response->header('X-Guzzle-Redirect-History');
             if (is_string($history) && $history !== '') {
@@ -1093,7 +1090,7 @@ class SocialPublisherService
                     'max' => 5,
                     'track_redirects' => true,
                 ],
-            ])->withHeaders(['Range' => 'bytes=0-0'])->timeout(20)->get($url);
+            ])->withHeaders(['Range' => 'bytes=0-0'])->timeout(8)->connectTimeout(3)->get($url);
 
             $history = $get->header('X-Guzzle-Redirect-History');
             if (is_string($history) && $history !== '') {

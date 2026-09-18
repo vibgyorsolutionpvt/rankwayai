@@ -183,6 +183,94 @@ class AiLayerTest extends TestCase
         $this->assertGreaterThanOrEqual(25, str_word_count(strip_tags($body)));
     }
 
+    public function test_compose_ai_uses_openai_title_and_body_as_returned(): void
+    {
+        Queue::fake();
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        config([
+            'ai.default' => 'openai',
+            'ai.priority' => ['openai'],
+            'ai.failover.max_attempts' => 1,
+            'ai.providers.openai.key' => 'test-key',
+            'ai.providers.openai.model' => 'gpt-4o-mini',
+            'ai.providers.openai.base_url' => 'https://api.openai.com/v1',
+            'ai.providers.groq.key' => null,
+            'ai.providers.gemini.key' => null,
+            'ai.providers.mistral.key' => null,
+            'ai.providers.cerebras.key' => null,
+            'ai.providers.openrouter.key' => null,
+        ]);
+
+        WorkspaceAiSetting::query()->where('workspace_id', $workspace->id)->update([
+            'location' => 'Noida',
+            'industry' => 'Travel agency',
+        ]);
+
+        $apiTitle = 'Delhi to Mathura Day Trip';
+        $apiBody = "Temple towns hit different when the day is already planned.\n\n✅ Delhi/Noida pickup\n✅ Mathura + Vrindavan highlights\n✅ Same-day return\n\nAtlas Demo keeps the route simple.\nBook now";
+
+        \Illuminate\Support\Facades\Http::fake([
+            'api.openai.com/*' => \Illuminate\Support\Facades\Http::response([
+                'choices' => [[
+                    'message' => [
+                        'content' => json_encode([
+                            'title' => $apiTitle,
+                            'body' => $apiBody,
+                            'platforms' => ['facebook', 'instagram'],
+                        ], JSON_UNESCAPED_UNICODE),
+                    ],
+                ]],
+                'usage' => ['total_tokens' => 120],
+            ], 200),
+        ]);
+
+        $prompt = 'delhi mathura tour ke lie content likho with bullet icon';
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('social.compose.ai'), [
+                'prompt' => $prompt,
+                'offer' => 'Book now',
+                'platforms' => ['facebook', 'instagram'],
+            ])
+            ->assertSessionHas('ai_compose');
+
+        $title = (string) session('ai_compose.title');
+        $body = (string) session('ai_compose.body');
+
+        $this->assertSame($apiTitle, $title);
+        $this->assertStringContainsString('Delhi/Noida pickup', $body);
+        $this->assertStringContainsString('Mathura + Vrindavan', $body);
+        $this->assertDoesNotMatchRegularExpression('/\b(bullet|icon|likho|content)\b/i', $title);
+        $this->assertDoesNotMatchRegularExpression('/[.!?]\h*✅/u', $body);
+
+        \Illuminate\Support\Facades\Http::assertSent(function ($request) use ($prompt, $workspace) {
+            $payload = $request->data();
+            $userMsg = (string) data_get($payload, 'messages.1.content', '');
+
+            return str_contains($userMsg, 'SAVED_DETAILS:')
+                && str_contains($userMsg, 'USER_PROMPT:')
+                && str_contains($userMsg, $prompt)
+                && str_contains($userMsg, $workspace->name)
+                && str_contains($userMsg, 'Respond with JSON only');
+        });
+    }
+
+    public function test_compose_normalizes_inline_checkmark_bullets(): void
+    {
+        $svc = app(AiContentService::class);
+        $ref = new \ReflectionClass($svc);
+        $m = $ref->getMethod('normalizeComposeBodyFormatting');
+        $m->setAccessible(true);
+
+        $raw = 'Planning a trip to Mathura from Delhi? Don’t let stress overwhelm you. ✅ Enjoy curated packages. ✅ Corporate trips.';
+        $out = $m->invoke($svc, $raw);
+
+        $this->assertDoesNotMatchRegularExpression('/[.!?]\h*✅/u', $out);
+        $this->assertMatchesRegularExpression('/^✅ Enjoy curated packages\./m', $out);
+    }
+
     public function test_budget_blocks_compose(): void
     {
         Queue::fake();

@@ -364,7 +364,7 @@ class SocialSchedulerTest extends TestCase
                 ->where('posts.current_page', 1)
                 ->where('posts.last_page', 2)
                 ->where('posts.total', 13)
-                ->where('filters.view', 'posts')
+                ->where('filters.view', 'calendar')
                 ->where('filters.counts.draft', 12)
                 ->where('filters.counts.published', 1));
 
@@ -373,6 +373,15 @@ class SocialSchedulerTest extends TestCase
             ->get(route('social.index', ['page' => 2]))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
+                ->has('posts.data', 1)
+                ->where('posts.current_page', 2));
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('social.index', ['view' => 'posts', 'page' => 2]))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('filters.view', 'posts')
                 ->has('posts.data', 1)
                 ->where('posts.current_page', 2));
 

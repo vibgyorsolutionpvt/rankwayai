@@ -44,6 +44,21 @@ function formatBytes(bytes) {
     return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** Compact stamp for image corner badge — filename below stays unchanged. */
+function formatMediaBadge(stamp) {
+    if (!stamp) return '';
+    const raw = String(stamp).trim();
+    const d = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T'));
+    if (Number.isNaN(d.getTime())) return raw;
+    return d.toLocaleString(undefined, {
+        day: '2-digit',
+        month: 'short',
+        year: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+}
+
 function UploadIcon({ size = 20, className = '' }) {
     return (
         <svg
@@ -1085,6 +1100,11 @@ export default function Index({
                                                                         </span>
                                                                     </div>
                                                                 )}
+                                                                {asset.created_at ? (
+                                                                    <span className="pointer-events-none absolute bottom-2 right-2 max-w-[calc(100%-1rem)] truncate rounded-md bg-black/80 px-2 py-1 text-[11px] font-semibold leading-none text-white shadow-md">
+                                                                        {formatMediaBadge(asset.created_at)}
+                                                                    </span>
+                                                                ) : null}
                                                                 {active ? (
                                                                     <span className="absolute left-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-sm bg-signal text-white shadow-sm">
                                                                         <svg

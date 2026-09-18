@@ -69,12 +69,15 @@ class SocialPost extends Model
         $publisher = app(\App\Services\Social\SocialPublisherService::class);
         $analytics = app(\App\Services\Social\SocialPostAnalyticsService::class);
 
-        $publishedLogs = SocialPublishLog::query()
-            ->where('social_post_id', $this->id)
-            ->where('status', 'published')
-            ->orderByDesc('id')
-            ->get()
-            ->unique('platform');
+        // Skip engagement DB hits for posts that are not live yet — keeps publish redirect snappy.
+        $publishedLogs = in_array($this->status, ['published', 'failed'], true)
+            ? SocialPublishLog::query()
+                ->where('social_post_id', $this->id)
+                ->where('status', 'published')
+                ->orderByDesc('id')
+                ->get()
+                ->unique('platform')
+            : collect();
 
         return [
             'id' => $this->id,
@@ -82,6 +85,7 @@ class SocialPost extends Model
             'body' => $this->body,
             'platforms' => $this->platforms ?? [],
             'status' => $this->status,
+            'created_at' => $this->created_at?->toDateTimeString(),
             'scheduled_at' => $this->scheduled_at?->toDateTimeString(),
             'scheduled_at_local' => $this->scheduled_at?->format('Y-m-d\TH:i'),
             'published_at' => $this->published_at?->toDateTimeString(),

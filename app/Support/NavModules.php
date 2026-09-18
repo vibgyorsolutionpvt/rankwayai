@@ -36,7 +36,7 @@ final class NavModules
             'social' => [
                 'label' => 'SMM',
                 'route' => 'social.index',
-                'params' => ['view' => 'posts'],
+                'params' => ['view' => 'calendar'],
                 'match' => 'social.*',
                 'icon' => 'social',
                 'tone' => 'fuchsia',

@@ -148,7 +148,7 @@ function NavLink({ item, onNavigate }) {
         }
 
         event.preventDefault();
-        window.location.assign(route('social.index', { view: 'posts' }));
+        window.location.assign(route('social.index', { view: 'calendar' }));
     };
 
     return (

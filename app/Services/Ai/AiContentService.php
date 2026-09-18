@@ -122,8 +122,6 @@ class AiContentService
             ? $offer
             : trim((string) ($workspace->resolveBrandKit()?->default_cta_label ?? 'Get in touch'));
         $contact = $this->contactFooter($workspace);
-        $platformList = implode(', ', $platforms);
-        $platformJsonHint = json_encode(array_values($platforms));
 
         $providerName = 'template';
         $draft = null;
@@ -143,122 +141,34 @@ class AiContentService
         ];
 
         // Compose is interactive — prefer a real LLM whenever configured (ignore template_first).
+        // Flow: append saved workspace details + user prompt → ask for title/body JSON → use API response as-is.
         if ($this->router->anyConfigured()) {
-            $toneGuide = match ($settings->tone) {
-                'hindi' => 'Body in clear Hindi (Devanagari). Professional, warm, not slangy.',
-                'english' => 'Body in polished English only. Confident B2B/local-business tone.',
-                default => 'Mostly polished English; light Hinglish only if it sounds natural for LinkedIn/Instagram India — never slangy.',
-            };
-            $topicHint = $this->extractComposeTopic($prompt);
-            $website = $workspace->resolvedWebsite() ?: 'not set';
-            $industrySpoken = $this->industrySpokenLabel($industry);
-            $offerings = $this->resolveBrandOfferings($workspace);
-            $offeringsBlock = $offerings['summary'] !== ''
-                ? $offerings['summary']
-                : 'No website summary available — only use industry "'.$industrySpoken.'" and location "'.$location.'". Do NOT invent SLAs, prices, or fake products.';
-            $servicesList = $offerings['services'] !== []
-                ? implode(', ', array_slice($offerings['services'], 0, 12))
-                : $industrySpoken;
-            $isServicesOverview = $topicHint === '' || $this->promptLooksLikeServicesOverview($prompt);
-            if ($isServicesOverview) {
-                $wordLimit = max(180, $wordLimit);
-            }
-            $vagueNote = $isServicesOverview
-                ? 'User wants a SERVICES showcase post (like a strong ChatGPT social caption). List MANY real offerings (6–10) from Brand offerings — NOT a short cloud-only paragraph.'
-                : 'Focus the post on this angle IF it matches Brand offerings: '.$topicHint.' — if it does not match, stay inside Brand offerings.';
+            [$system, $user] = $this->buildComposeApiPrompt(
+                $workspace,
+                $settings,
+                $prompt,
+                $offer,
+                $cta,
+                $industry,
+                $location,
+                $platforms,
+                $wordLimit,
+            );
 
-            $system = <<<'SYS'
-You are an elite Instagram/Facebook copywriter for Indian IT & digital agencies.
-Return ONLY valid JSON with keys title, body, platforms.
-When the user asks to mention services, write a scroll-stopping showcase post with a clear bullet list — not a vague essay.
-GROUNDING: Prefer Brand offerings. For tech/IT digital agencies you may use the listed service names. Never invent SLAs, prices, or fake metrics.
-SYS;
-            $overviewRules = $isServicesOverview
-                ? <<<OVR
-OVERVIEW / SERVICES SHOWCASE MODE (match this quality bar):
-Title: punchy, benefit-led (max ~70 chars). Example vibe: "Smart Digital Solutions for Growing Businesses"
-Body MUST use this structure (plain text with newlines, emoji bullets OK):
-1) Hook line with 1 emoji (energy, not cringe)
-2) One short intro line naming {$workspace->name}
-3) A blank line, then 6–10 service bullets like:
-✅ Website & Web Application Development
-✅ Mobile App Development
-✅ … (only from Known service names / Brand offerings)
-4) One short closing line for startups/SMEs
-5) Soft CTA: {$cta}
-FORBIDDEN: a single dense paragraph that only mentions cloud/security/marketing without a bullet list
-FORBIDDEN: inventing "48-hour SLA", "dedicated engineer", fake stats
-OVR
-                : <<<'OVR'
-SINGLE-ANGLE MODE:
-- Title + body may deep-dive ONE real offering the user asked for
-- Still stay inside Brand offerings
-OVR;
-
-            $qualityBar = $this->composeQualityStandards($industry, $location, $workspace->name, $cta, $wordLimit);
-
-            $fewShot = $isServicesOverview
-                ? <<<SHOT
-Few-shot style to imitate (replace with THIS brand's real services):
-Title: "Powering Businesses with Smart Digital Solutions"
-Body:
-"🚀 Powering businesses with smart digital solutions!
-
-At {$workspace->name}, we help teams grow and build a stronger digital presence with reliable technology.
-
-✅ Service One
-✅ Service Two
-✅ Service Three
-✅ Service Four
-✅ Service Five
-✅ Service Six
-
-Whether you're a startup or a growing enterprise, we build tech that moves you forward.
-
-{$cta}"
-SHOT
-                : '';
-
-            $user = <<<PROMPT
-Brand name: {$workspace->name}
-Website / domain: {$website}
-Industry category: {$industry}
-Speak about the industry as: {$industrySpoken}
-Location (workspace): {$location}
-Language: {$toneGuide}
-Audience: owners / managers in {$location}
-
-BRAND OFFERINGS (source of truth):
-{$offeringsBlock}
-Known service names (use these in bullets): {$servicesList}
-
-User brief (intent only — do NOT copy or quote): {$prompt}
-{$vagueNote}
-{$overviewRules}
-{$fewShot}
-Soft CTA: {$cta}
-Platforms: {$platformList}
-
-{$qualityBar}
-
-Return JSON only:
-{"title":"...","body":"...","platforms":{$platformJsonHint}}
-PROMPT;
-
-            $completion = $this->router->complete($system, $user, 1400);
+            $completion = $this->router->complete($system, $user, 700);
             $apiLog = $completion->toLog();
             if ($completion->ok) {
                 $json = $this->extractJson($completion->text);
                 $title = trim((string) ($json['title'] ?? ''));
-                $body = trim((string) ($json['body'] ?? ''));
+                $body = trim((string) ($json['body'] ?? $json['content'] ?? ''));
                 // Models often put literal newlines inside JSON strings — recover fields if decode failed.
                 if (($title === '' || $body === '') && is_string($completion->text)) {
                     $recovered = $this->extractJsonFieldsLoose($completion->text);
                     if ($title === '' && ($recovered['title'] ?? '') !== '') {
                         $title = $recovered['title'];
                     }
-                    if ($body === '' && ($recovered['body'] ?? '') !== '') {
-                        $body = $recovered['body'];
+                    if ($body === '' && ($recovered['body'] ?? $recovered['content'] ?? '') !== '') {
+                        $body = (string) ($recovered['body'] ?? $recovered['content']);
                     }
                 }
                 if ($title !== '' && $body !== '') {
@@ -266,11 +176,12 @@ PROMPT;
                         is_array($json['platforms'] ?? null) ? $json['platforms'] : $platforms,
                         $platforms,
                     );
-                    $draft = $this->sanitizeComposeDraft([
+                    // Use OpenAI title/body — do not rebuild from prompt scrapers.
+                    $draft = $this->finalizeComposeApiDraft([
                         'title' => $title,
                         'body' => $body,
                         'platforms' => $plats !== [] ? $plats : $platforms,
-                    ], $prompt, $workspace, $settings, $offer, $wordLimit);
+                    ], $workspace, $settings, $offer, $wordLimit);
                     $providerName = $completion->provider;
                     $apiLog['ok'] = true;
                 } else {
@@ -280,6 +191,10 @@ PROMPT;
                 }
             } else {
                 $liveError = $completion->error ?: 'LLM request failed';
+                $attemptCount = count($completion->attempts ?? []);
+                if ($attemptCount > 1) {
+                    $liveError = 'Failover tried '.$attemptCount.' providers — '.$liveError;
+                }
             }
         }
 
@@ -326,7 +241,16 @@ PROMPT;
                     'model' => $apiLog['model'] ?? null,
                     'http_status' => $apiLog['http_status'] ?? null,
                     'tokens' => $apiLog['tokens'] ?? 0,
+                    'ok' => $apiLog['ok'] ?? null,
+                    'error' => $apiLog['error'] ?? null,
+                    'request' => $apiLog['request'] ?? null,
+                    'response' => $apiLog['response'] ?? null,
+                    'response_text' => $apiLog['response_text'] ?? null,
                     'attempts' => $apiLog['attempts'] ?? [],
+                ],
+                'audit' => [
+                    'user_id' => $userId,
+                    'hit_at' => now()->toIso8601String(),
                 ],
             ],
             'status' => 'ready',
@@ -340,8 +264,8 @@ PROMPT;
         return [
             'ok' => true,
             'message' => $providerName === 'template'
-                ? 'Draft ready (template fallback'.($liveError ? ': '.$liveError : '').'). Check AI keys if this keeps happening.'
-                : 'Caption ready via '.$providerName.' — review tone, then save.',
+                ? 'Draft ready (template — all live AI providers failed'.($liveError ? ': '.$liveError : '').'). Fix API keys/models in Settings → Providers.'
+                : 'Caption ready via '.$providerName.(count($apiLog['attempts'] ?? []) > 1 ? ' (failover)' : '').' — review tone, then save.',
             'draft' => [
                 'title' => $draft['title'],
                 'body' => $draft['body'],
@@ -357,6 +281,208 @@ PROMPT;
                 'has_contact' => $contact !== '',
             ],
         ];
+    }
+
+    /**
+     * Build the exact OpenAI request: saved workspace details + user prompt + required response shape.
+     *
+     * @param  list<string>  $platforms
+     * @return array{0:string,1:string} [system, user]
+     */
+    private function buildComposeApiPrompt(
+        Workspace $workspace,
+        WorkspaceAiSetting $settings,
+        string $prompt,
+        string $offer,
+        string $cta,
+        string $industry,
+        string $location,
+        array $platforms,
+        int $wordLimit,
+    ): array {
+        $toneGuide = match ($settings->tone) {
+            'hindi' => 'Write the caption body in clear Hindi (Devanagari). Professional, warm, not slangy.',
+            'english' => 'Write the caption body in polished English only.',
+            default => 'Mostly polished English; light Hinglish only if natural for Indian social audiences.',
+        };
+
+        $website = $workspace->resolvedWebsite() ?: 'not set';
+        $phone = $workspace->resolvedPhone() ?: 'not set';
+        $email = $workspace->resolvedEmail() ?: 'not set';
+        $industrySpoken = $this->industrySpokenLabel($industry !== '' ? $industry : 'business');
+        $offerings = $this->resolveBrandOfferings($workspace);
+        $allServices = $offerings['services'] !== [] ? $offerings['services'] : [];
+        $relevantServices = $this->servicesRelevantToPrompt($prompt, $allServices, $industrySpoken);
+        $servicesList = $relevantServices !== []
+            ? implode(', ', array_slice($relevantServices, 0, 6))
+            : $industrySpoken;
+        $platformList = implode(', ', $platforms);
+        $platformJson = json_encode(array_values($platforms), JSON_UNESCAPED_UNICODE);
+
+        $system = 'Return ONLY valid JSON with keys: title, body, platforms. No markdown.';
+
+        $user = <<<PROMPT
+SAVED_DETAILS:
+brand_name: {$workspace->name}
+website: {$website}
+phone: {$phone}
+email: {$email}
+industry: {$industry}
+location: {$location}
+language: {$toneGuide}
+soft_cta: {$cta}
+offer: {$offer}
+target_platforms: {$platformList}
+relevant_services_for_this_prompt: {$servicesList}
+
+USER_PROMPT:
+{$prompt}
+
+Rules:
+- Write the post ONLY about USER_PROMPT topic. Do not dump the full company service catalogue.
+- Body format (always):
+  1) One short intro paragraph of about 10–15 words (hook), then a blank line
+  2) Then ✅ bullet lines on their own lines (user does not need to ask for icons)
+  3) Then a blank line and soft_cta from SAVED_DETAILS
+- Use relevant_services_for_this_prompt only if they match the prompt; otherwise stay on the prompt topic.
+- Do not put phone/email/website/hashtags in body.
+
+Respond with JSON only:
+{"title":"...","body":"...","platforms":{$platformJson}}
+PROMPT;
+
+        return [$system, $user];
+    }
+
+    /**
+     * Pick services that match the user prompt so we don't send the whole website catalogue.
+     *
+     * @param  list<string>  $services
+     * @return list<string>
+     */
+    private function servicesRelevantToPrompt(string $prompt, array $services, string $fallback): array
+    {
+        $p = mb_strtolower($prompt);
+        if ($services === []) {
+            return $fallback !== '' ? [$fallback] : [];
+        }
+
+        $keywordGroups = [
+            'social|smm|instagram|facebook|linkedin|content marketing|social media' => [
+                'social media', 'smm', 'instagram', 'facebook', 'content', 'whatsapp', 'seo', 'digital marketing', 'marketing',
+            ],
+            'seo|search engine|google' => ['seo', 'search', 'listing', 'digital marketing'],
+            'website|web app|web development' => ['website', 'web app', 'web application', 'e-commerce', 'ecommerce'],
+            'mobile|android|ios|app development' => ['mobile', 'android', 'ios', 'app'],
+            'ai|automation|chatbot' => ['ai', 'automation', 'chatbot'],
+            'cloud|hosting|server' => ['cloud', 'hosting', 'server'],
+            'cyber|security|secure' => ['cyber', 'security'],
+            'crm|custom software|erp' => ['crm', 'custom', 'software', 'erp'],
+        ];
+
+        $matchedNeedles = [];
+        foreach ($keywordGroups as $promptPattern => $needles) {
+            if (preg_match('/\b(?:'.$promptPattern.')\b/iu', $p)) {
+                $matchedNeedles = array_merge($matchedNeedles, $needles);
+            }
+        }
+
+        if ($matchedNeedles === []) {
+            // Vague prompt ("create content") → only top few services, not all 11
+            return array_slice($services, 0, 4);
+        }
+
+        $matchedNeedles = array_values(array_unique($matchedNeedles));
+        $picked = [];
+        foreach ($services as $service) {
+            $s = mb_strtolower($service);
+            foreach ($matchedNeedles as $needle) {
+                if (str_contains($s, $needle)) {
+                    $picked[] = $service;
+                    break;
+                }
+            }
+        }
+
+        return $picked !== [] ? array_values(array_unique($picked)) : array_slice($services, 0, 4);
+    }
+
+    /**
+     * Light post-process for live API drafts: keep OpenAI title/body, only append CTA/hashtags.
+     *
+     * @param  array{title:string,body:string,platforms:list<string>}  $draft
+     * @return array{title:string,body:string,platforms:list<string>}
+     */
+    private function finalizeComposeApiDraft(
+        array $draft,
+        Workspace $workspace,
+        WorkspaceAiSetting $settings,
+        string $offer,
+        int $wordLimit,
+    ): array {
+        $title = trim(preg_replace('/\s+/u', ' ', (string) ($draft['title'] ?? '')) ?? '');
+        $body = $this->normalizeComposeBodyFormatting((string) ($draft['body'] ?? ''));
+
+        return $this->enforceVariantWordLimit([
+            'title' => Str::limit($title, 70, ''),
+            'body' => $body,
+            'platforms' => $draft['platforms'] ?? [],
+        ], $wordLimit, $workspace, $settings, $offer, null);
+    }
+
+    /**
+     * Fix common LLM formatting mistakes so captions look postable (✅ never mid-sentence).
+     */
+    private function normalizeComposeBodyFormatting(string $body): string
+    {
+        $body = trim(str_replace(["\r\n", "\r"], "\n", $body));
+        if ($body === '') {
+            return '';
+        }
+
+        // "sentence. ✅ Next" or "you.✅ Next" → break before checkmark bullets
+        $body = preg_replace('/([.!?…])\s*([✅☑•])/u', "$1\n\n$2", $body) ?? $body;
+        $body = preg_replace('/(\S)\s+(✅|☑|•)\s+/u', "$1\n\n$2 ", $body) ?? $body;
+
+        // Ensure each ✅ starts its own line
+        $lines = [];
+        foreach (preg_split("/\n/", $body) ?: [] as $line) {
+            $line = trim($line);
+            if ($line === '') {
+                $lines[] = '';
+                continue;
+            }
+            // Split accidental "text ✅ item ✅ item" on one line
+            if (preg_match_all('/✅\s+[^\n✅]+/u', $line, $hits) && count($hits[0]) > 1) {
+                $prefix = trim(preg_replace('/✅\s+[^\n✅]+/u', '', $line) ?? '');
+                if ($prefix !== '') {
+                    $lines[] = $prefix;
+                    $lines[] = '';
+                }
+                foreach ($hits[0] as $bullet) {
+                    $lines[] = trim($bullet);
+                }
+                continue;
+            }
+            $lines[] = $line;
+        }
+
+        // Collapse 3+ blank lines → 1 blank
+        $out = [];
+        $blank = 0;
+        foreach ($lines as $line) {
+            if ($line === '') {
+                $blank++;
+                if ($blank <= 1) {
+                    $out[] = '';
+                }
+                continue;
+            }
+            $blank = 0;
+            $out[] = $line;
+        }
+
+        return trim(implode("\n", $out));
     }
 
     /**
@@ -419,6 +545,7 @@ HARD BANS:
 - "looking for reliable…?", "your success is our priority", "feel free to reach out"
 - Invented SLAs / headcount / prices (e.g. "48-hour SLA", "dedicated engineer") unless in Brand offerings
 - Quoting the user brief; phone/email/website/hashtags in body
+- Title must NEVER contain format instructions: "bullet", "icon", "emoji", "with bullets", "likho", "content"
 
 Stay 100% inside "{$industry}" AND Brand offerings.
 STD;
@@ -660,38 +787,255 @@ STD;
 
     private function extractComposeTopic(string $prompt): string
     {
-        $t = mb_strtolower(trim($prompt));
+        $t = mb_strtolower(trim($this->stripComposeChannelNoise($prompt)));
         if ($t === '') {
             return '';
         }
 
+        // Keep "2 days" / "3 nights" as tour duration tokens before wiping instruction words
+        $duration = '';
+        if (preg_match('/\b(\d+)\s*(days?|nights?|din|raat(?:ein)?)\b/iu', $t, $dm)) {
+            $n = (int) $dm[1];
+            $unit = str_contains(mb_strtolower($dm[2]), 'night') || str_contains(mb_strtolower($dm[2]), 'raat')
+                ? ($n === 1 ? 'Night' : 'Nights')
+                : ($n === 1 ? 'Day' : 'Days');
+            $duration = $n.' '.$unit;
+        }
+
+        // Peel write/likho/with-bullets shells BEFORE token cleanup — users type anything.
+        $t = $this->stripComposeInstructionShell($t);
+        $t = $this->stripComposeFormatNoise($t);
         $t = preg_replace(
-            '/\b(please|pls|kindly|write|likho|likhna|likh|banao|banaye|generate|create|make|draft|caption|content|post|posts|social\s*media|ke\s+lie|ke\s+liye|ke\s+liye|for\s+(a\s+|the\s+)?post|about|regarding|on\s+the\s+topic\s+of|topic|offer|announce|promotion)\b/iu',
+            '/\b(please|pls|kindly|write|likho|likhna|likh|banao|banaye|generate|create|make|draft|caption|content|contnent|contents?|post|posts|form|forms|social\s*media|ke\s+lie|ke\s+liye|for\s+(a\s+|the\s+)?post|about|regarding|on\s+the\s+topic\s+of|topic|offer|announce|promotion|jisme|jis\s*me|jismein|hoga|hogi|honge|wala|wali|include|using|use|add)\b/iu',
             ' ',
             $t,
         ) ?? $t;
+        // Drop bare duration words after we captured them (keep the number elsewhere if needed)
+        $t = preg_replace('/\b\d+\s*(days?|nights?|din|raat(?:ein)?)\b/iu', ' ', $t) ?? $t;
         $t = preg_replace('/[^\p{L}\p{N}\s\-]/u', ' ', $t) ?? $t;
         $t = preg_replace('/\s+/u', ' ', trim($t)) ?? '';
 
-        // Drop leftover filler words
-        $stop = [
+        // Drop leftover filler / instruction vocabulary — never allow these into topic/title.
+        $stop = array_merge($this->composeInstructionLexicon(), [
             'a', 'an', 'the', 'and', 'or', 'to', 'for', 'with', 'from', 'our', 'my', 'your',
             'ki', 'ke', 'ka', 'ko', 'se', 'me', 'mein', 'par', 'aur', 'ek', 'ye', 'woh',
             'sath', 'saath', 'wala', 'wali', 'wale', 'hai', 'hain', 'kar', 'karke',
-        ];
+            'bhi', 'karo', 'karna', 'do', 'also',
+        ]);
         $words = array_values(array_filter(
             preg_split('/\s+/u', $t) ?: [],
-            fn (string $w) => $w !== '' && ! in_array($w, $stop, true) && mb_strlen($w) > 2,
+            fn (string $w) => $w !== '' && ! in_array(mb_strtolower($w), $stop, true) && mb_strlen($w) > 2,
         ));
 
-        if (count($words) < 2) {
+        if (count($words) < 2 && $duration === '') {
             return '';
         }
 
         $phrase = implode(' ', array_slice($words, 0, 6));
+        if ($duration !== '') {
+            $phrase = trim($phrase.' '.$duration);
+        }
         $phrase = Str::limit($phrase, 48, '');
+        $phrase = trim($this->stripComposeChannelNoise($phrase));
+        $phrase = trim($this->stripComposeFormatNoise($phrase));
+        $phrase = trim($this->stripComposeInstructionShell($phrase));
 
-        return $this->composeTopicIsUseless($phrase) ? '' : $phrase;
+        return $this->composeTopicIsUseless($phrase) || $this->titleHasInstructionResidue($phrase)
+            ? ''
+            : $phrase;
+    }
+
+    /**
+     * Words that are user-brief instructions / formatting — never publish in a title.
+     *
+     * @return list<string>
+     */
+    private function composeInstructionLexicon(): array
+    {
+        return [
+            'please', 'pls', 'kindly', 'write', 'likho', 'likhna', 'likh', 'banao', 'banaye',
+            'generate', 'create', 'make', 'draft', 'caption', 'content', 'contnent', 'contents',
+            'post', 'posts', 'form', 'forms', 'meta', 'platform', 'platforms', 'channel', 'channels',
+            'bullet', 'bullets', 'icon', 'icons', 'emoji', 'emojis', 'point', 'points',
+            'format', 'formatting', 'list', 'lists', 'hashtag', 'hashtags', 'tag', 'tags',
+            'facebook', 'instagram', 'threads', 'linkedin', 'twitter', 'jisme', 'jismen',
+            'hoga', 'hogi', 'honge', 'include', 'using', 'add',
+        ];
+    }
+
+    /**
+     * Subset banned from published titles (keeps marketing verbs like "create/make" usable).
+     *
+     * @return list<string>
+     */
+    private function composeTitleForbiddenLexicon(): array
+    {
+        return [
+            'please', 'pls', 'kindly', 'write', 'likho', 'likhna', 'likh', 'banao', 'banaye',
+            'generate', 'draft', 'caption', 'content', 'contnent', 'contents',
+            'form', 'forms', 'meta', 'platform', 'platforms', 'channel', 'channels',
+            'bullet', 'bullets', 'icon', 'icons', 'emoji', 'emojis',
+            'format', 'formatting', 'hashtag', 'hashtags',
+            'facebook', 'instagram', 'threads', 'linkedin', 'twitter', 'jisme', 'jismen',
+            'hoga', 'hogi', 'honge',
+        ];
+    }
+
+    /**
+     * Peel "write/likho/… with bullets" shells so only the subject remains.
+     */
+    private function stripComposeInstructionShell(string $text): string
+    {
+        $t = trim($text);
+        if ($t === '') {
+            return '';
+        }
+
+        // "… jisme delhi agra mathura 2 days hoga" → keep the jisme subject (topic lives here)
+        if (preg_match('/\b(?:jisme|jismen|jis\s*me|jismein)\s+(.+)$/iu', $t, $m)) {
+            $inner = trim($m[1]);
+            $inner = preg_replace('/\b(hoga|hogi|honge)\b.*$/iu', ' ', $inner) ?? $inner;
+            $inner = preg_replace('/\s+/u', ' ', trim($inner)) ?? '';
+            if (mb_strlen($inner) >= 6) {
+                $t = $inner;
+            }
+        }
+
+        // Leading "write a post about…" / "ek content likho…"
+        $t = preg_replace(
+            '/^(please\s+|pls\s+|kindly\s+)?(ek\s+|a\s+|an\s+|the\s+)?(write|generate|create|make|draft|likho|likhna|banao|banaye)\s+(a\s+|an\s+|ek\s+|the\s+)?(post|caption|content|contnent|blog|article)?\s*(about|on|for|par|pe|ke\s+lie|ke\s+liye)?\s*/iu',
+            '',
+            $t,
+        ) ?? $t;
+
+        // "delhi mathura tour ke lie content likho…" → keep text before ke lie + content/post
+        if (preg_match('/^(.+?)\s+(?:ke\s+lie|ke\s+liye)\s+(?:content|contnent|caption|post|draft|form)\b.*$/iu', $t, $m)) {
+            $t = trim($m[1]);
+        }
+
+        // Cut trailing "content likho with…" / "write with…" without eating the subject before it
+        $t = preg_replace(
+            '/\b(content|contnent|caption|post|draft|blog|article)\s*(likho|likhna|likh|write|generate|create|banao|banaye)\b.*$/iu',
+            ' ',
+            $t,
+        ) ?? $t;
+        $t = preg_replace(
+            '/\b(likho|likhna|write|generate|create|banao|banaye)\b.*$/iu',
+            ' ',
+            $t,
+        ) ?? $t;
+
+        // Trailing "about/on …" already handled by leading strip; drop leftover "par post" crumbs
+        $t = preg_replace('/\bpar\s+(post|form|content|contnent)\b/iu', ' ', $t) ?? $t;
+
+        return preg_replace('/\s+/u', ' ', trim($t)) ?? '';
+    }
+
+    /**
+     * Formatting asked in the brief — applied to body only, never title.
+     */
+    private function extractComposeStyleHints(string $prompt): string
+    {
+        $p = mb_strtolower($prompt);
+        $hints = [];
+
+        if (preg_match('/\b(bullet|bullets|bullet\s*points?|bullet\s*icons?|emoji|checkmark|✅)\b/iu', $p)) {
+            $hints[] = 'use ✅ bullet lines for places/inclusions/services';
+        }
+        if (preg_match('/\b(hashtag|hashtags|#)\b/iu', $p)) {
+            $hints[] = 'hashtags are appended by the system — do not invent them in body';
+        }
+
+        return implode('; ', $hints);
+    }
+
+    /**
+     * Remove distribution / channel instructions so they never become the topic or headline.
+     */
+    private function stripComposeChannelNoise(string $text): string
+    {
+        $t = trim($text);
+        if ($t === '') {
+            return '';
+        }
+
+        $patterns = [
+            '/\bmeta\s+forms?\b/iu',
+            '/\b(for|on|to|via|across|ke\s+lie|ke\s+liye|par)\s+(the\s+)?(meta(\s+(platforms?|forms?))?|facebook|instagram|threads|linkedin|twitter|x(\s*\(?twitter\)?)?|social(\s+media)?(\s+platforms?)?)\b/iu',
+            '/\b(meta(\s+(platforms?|forms?))?|facebook|instagram|threads|linkedin|twitter)\s+(platforms?|forms?|channels?|stories?|reels?|posts?|captions?|content|contnent)\b/iu',
+            '/\b(platforms?|channels?|forms?)\s*(:|-)?\s*(meta|facebook|instagram|threads|linkedin|twitter|x)(\s*(,|\/|&|and|aur)\s*(meta|facebook|instagram|threads|linkedin|twitter|x))*\b/iu',
+            '/\b(meta(\s+(platforms?|forms?))?|facebook|instagram|threads|linkedin|twitter)\b/iu',
+        ];
+
+        foreach ($patterns as $pattern) {
+            $t = preg_replace($pattern, ' ', $t) ?? $t;
+        }
+
+        $t = preg_replace('/\s+/u', ' ', trim($t)) ?? '';
+
+        return $t;
+    }
+
+    /**
+     * Formatting instructions ("with bullet icon", "emoji list") must never become the topic/title.
+     */
+    private function stripComposeFormatNoise(string $text): string
+    {
+        $t = trim($text);
+        if ($t === '') {
+            return '';
+        }
+
+        $patterns = [
+            '/\b(with|using|use|add|include|jisme|jis\s*me)?\s*(bullet(\s*points?)?(\s*icons?)?|bullet\s*icons?|emoji(\s*bullets?)?|icons?|checkmark\s*bullets?)\b/iu',
+            '/\b(bullet(\s*points?)?(\s*icons?)?|bullet\s*icons?|emoji(\s*bullets?)?)\b/iu',
+            '/\b(in\s+)?(bullet|list|point)\s+form(at)?\b/iu',
+            '/\b(as\s+a\s+)?(bullet\s+)?list\b/iu',
+        ];
+
+        foreach ($patterns as $pattern) {
+            $t = preg_replace($pattern, ' ', $t) ?? $t;
+        }
+
+        return preg_replace('/\s+/u', ' ', trim($t)) ?? '';
+    }
+
+    private function titleHasChannelLeak(string $title): bool
+    {
+        return (bool) preg_match(
+            '/\b(meta(\s+platforms?)?|facebook|instagram|threads|linkedin|twitter)\b/iu',
+            $title,
+        );
+    }
+
+    private function titleHasFormatLeak(string $title): bool
+    {
+        return (bool) preg_match(
+            '/\b(bullet(\s*(points?|icons?))?|emoji|icons?|checkmark)\b/iu',
+            $title,
+        );
+    }
+
+    /**
+     * Any instruction/format vocabulary in a title = unsafe to publish.
+     */
+    private function titleHasInstructionResidue(string $title): bool
+    {
+        $title = trim($title);
+        if ($title === '') {
+            return false;
+        }
+
+        if ($this->titleHasChannelLeak($title) || $this->titleHasFormatLeak($title)) {
+            return true;
+        }
+
+        $pattern = '/\b('.implode('|', array_map(
+            static fn (string $w) => preg_quote($w, '/'),
+            $this->composeTitleForbiddenLexicon(),
+        )).')\b/iu';
+
+        return (bool) preg_match($pattern, $title);
     }
 
     /**
@@ -712,9 +1056,10 @@ STD;
             'company service', 'company services', 'business service', 'business services',
             'our service', 'our services', 'service company', 'services company',
             'social media', 'marketing post', 'growth', 'business growth',
+            'meta platform', 'meta platforms', 'facebook', 'instagram', 'threads',
         ];
 
-        return in_array($t, $banned, true);
+        return in_array($t, $banned, true) || $this->titleHasChannelLeak($t);
     }
 
     /**
@@ -810,8 +1155,26 @@ STD;
 
         $title = $pool[$angle % count($pool)] ?? ("{$brand}: Clear {$industrySpoken} in {$city}");
 
-        // Offer may flavour the title once — never become the whole title.
-        if ($offer !== '' && ! $this->promptLooksLikeInstruction($offer) && mb_strlen($offer) <= 28) {
+        // Real topic from the user brief always wins over random generic pool titles
+        if ($topicTitle !== '') {
+            $title = match ($family) {
+                'travel' => "{$topicTitle} from {$city}",
+                'food', 'realty' => "{$topicTitle} in {$city}",
+                'health' => "{$topicTitle} — Patient-First Care",
+                'edu' => "{$topicTitle} for Ambitious Learners",
+                'tech' => "{$topicTitle} for {$city} Teams",
+                default => "{$topicTitle} — Done Properly",
+            };
+        }
+
+        // Offer may flavour the title once — never replace a real topic, never use CTA buttons as titles
+        if (
+            $offer !== ''
+            && $topicTitle === ''
+            && ! $this->promptLooksLikeInstruction($offer)
+            && ! $this->offerLooksLikeCta($offer)
+            && mb_strlen($offer) <= 28
+        ) {
             $offerTopic = $this->extractComposeTopic($offer);
             $offerTitle = $offerTopic !== '' ? $this->titleCasePhrase($offerTopic) : '';
             if ($offerTitle !== '' && ! $this->composeTopicIsUseless($offerTitle) && $angle % 2 === 0) {
@@ -820,6 +1183,14 @@ STD;
         }
 
         return $this->polishComposeTitle($title, $prompt, $workspace, $settings, $offer);
+    }
+
+    private function offerLooksLikeCta(string $offer): bool
+    {
+        return (bool) preg_match(
+            '/\b(book(\s+now)?|call(\s+now)?|get\s+started|contact(\s+us)?|enquire|inquire|dm\s+us|whatsapp|order\s+now|buy\s+now|sign\s*up)\b/iu',
+            $offer,
+        );
     }
 
     private function industryFamily(string $industry): string
@@ -840,7 +1211,7 @@ STD;
     private function promptLooksLikeInstruction(string $prompt): bool
     {
         return (bool) preg_match(
-            '/\b(likho|likhna|likh\s|write|banao|banaye|generate|caption|content|post\s+karo|ke\s+lie\s+post|for\s+(a\s+)?post)\b/iu',
+            '/\b(likho|likhna|likh\s|write|banao|banaye|generate|create|make|draft|caption|content|contnent|post\s+karo|ke\s+lie|ke\s+liye|for\s+(a\s+)?post|with\s+bullet|bullet\s*icon|emoji\s*bullet|please\s+write|pls\s+write)\b/iu',
             $prompt,
         );
     }
@@ -874,26 +1245,48 @@ STD;
         string $offer = '',
     ): string {
         $title = trim(preg_replace('/\s+/u', ' ', $title) ?? $title);
+        $title = $this->stripComposeChannelNoise($title);
+        $title = $this->stripComposeFormatNoise($title);
         $title = Str::limit($title, 70, '');
 
         if ($this->composeTitleIsWeak($title, $prompt, $workspace, $settings, $offer)) {
             $industrySpoken = $this->industrySpokenLabel((string) ($settings->industry ?: 'business'));
             $city = $this->primaryLocation($settings->location);
             $brand = $workspace->name;
+            $family = $this->industryFamily((string) ($settings->industry ?: ''));
             $topic = $this->titleCasePhrase($this->extractComposeTopic($prompt));
             $title = $topic !== ''
-                ? Str::limit("{$topic} for {$city} Teams", 70, '')
+                ? Str::limit(match ($family) {
+                    'travel' => "{$topic} from {$city}",
+                    'food', 'realty' => "{$topic} in {$city}",
+                    'health' => "{$topic} — Patient-First Care",
+                    'edu' => "{$topic} for Ambitious Learners",
+                    'tech' => "{$topic} for {$city} Teams",
+                    default => "{$topic} — Done Properly",
+                }, 70, '')
                 : Str::limit("{$brand}: Clear {$industrySpoken} in {$city}", 70, '');
         }
 
-        // Final guard — never ship "Company Service…" titles
-        if ($this->composeTopicIsUseless($title) || preg_match('/\bcompany\s+services?\b/iu', $title)) {
+        // Final guard — never ship "Company Service…" / instruction-leak titles
+        if (
+            $this->composeTopicIsUseless($title)
+            || preg_match('/\bcompany\s+services?\b/iu', $title)
+            || $this->titleHasInstructionResidue($title)
+        ) {
             $industrySpoken = $this->industrySpokenLabel((string) ($settings->industry ?: 'business'));
             $city = $this->primaryLocation($settings->location);
-            $title = Str::limit("{$workspace->name}: Clear {$industrySpoken} in {$city}", 70, '');
+            $topic = $this->titleCasePhrase($this->extractComposeTopic($prompt));
+            $family = $this->industryFamily((string) ($settings->industry ?: ''));
+            $title = $topic !== ''
+                ? Str::limit(match ($family) {
+                    'travel' => "{$topic} from {$city}",
+                    'food', 'realty' => "{$topic} in {$city}",
+                    default => "{$topic} — Done Properly",
+                }, 70, '')
+                : Str::limit("{$workspace->name}: Clear {$industrySpoken} in {$city}", 70, '');
         }
 
-        return $title;
+        return $this->stripComposeFormatNoise($this->stripComposeChannelNoise($title));
     }
 
     private function composeTitleIsWeak(
@@ -922,6 +1315,18 @@ STD;
             return true;
         }
 
+        if ($this->titleHasInstructionResidue($title)) {
+            return true;
+        }
+
+        // Prompt residue / Hindi instruction leftovers must never ship as the headline
+        if (preg_match('/\b(jisme|jis\s*me|contnent|likho|likhna|banao|banaye|ke\s+lie|ke\s+liye|hoga|hogi)\b/iu', $title)) {
+            return true;
+        }
+        if (preg_match('/\bform\s+(content|contnent|post)\b/iu', $title)) {
+            return true;
+        }
+
         // Weak templates we used to emit
         if ($industry !== '' && preg_match('/^'.preg_quote($industry, '/').'\s+with\s+/iu', $title)) {
             return true;
@@ -947,10 +1352,52 @@ STD;
             return true;
         }
 
+        if ($this->offerLooksLikeCta($title) && preg_match('/·|—|-/', $title)) {
+            return true;
+        }
+
+        if ($this->titleMissesComposeTopic($title, $prompt)) {
+            return true;
+        }
+
         // Prefer multi-word headlines
         $words = preg_split('/\s+/u', $title) ?: [];
 
         return count($words) < 3;
+    }
+
+    /**
+     * When the user named a clear subject (e.g. Delhi Agra Mathura), the headline must keep it.
+     */
+    private function titleMissesComposeTopic(string $title, string $prompt): bool
+    {
+        $topic = $this->extractComposeTopic($prompt);
+        if ($topic === '' || mb_strlen($topic) < 8) {
+            return false;
+        }
+
+        $stop = ['days', 'day', 'nights', 'night', 'tour', 'package', 'trip'];
+        $words = array_values(array_filter(
+            preg_split('/\s+/u', mb_strtolower($topic)) ?: [],
+            fn (string $w) => $w !== ''
+                && mb_strlen($w) > 2
+                && ! preg_match('/^\d+$/u', $w)
+                && ! in_array($w, $stop, true),
+        ));
+
+        if (count($words) < 2) {
+            return false;
+        }
+
+        $titleLower = mb_strtolower($title);
+        $hits = 0;
+        foreach ($words as $word) {
+            if (str_contains($titleLower, $word)) {
+                $hits++;
+            }
+        }
+
+        return $hits < 2;
     }
 
     /**
@@ -981,8 +1428,8 @@ STD;
         $website = $workspace->resolvedWebsite();
         $siteLine = $website ? " Learn more at {$website}." : '';
 
-        // If user named a real service in the prompt, prefer that
-        $focus = $serviceList;
+        // If user named a real angle in the prompt, prefer that over a service dump
+        $focus = $topic !== '' ? $this->titleCasePhrase($topic) : $serviceList;
         if ($topic !== '') {
             foreach ($services as $service) {
                 if (str_contains(mb_strtolower($topic), mb_strtolower($service))) {
@@ -992,35 +1439,104 @@ STD;
             }
         }
 
-        // Vague "services" brief → ChatGPT-style showcase with emoji bullets
+        $family = $this->industryFamily($industry);
+
+        // Vague "services" brief → showcase with emoji bullets (voice matches industry)
         if ($this->promptLooksLikeServicesOverview($prompt) && count($services) >= 2) {
             $named = array_slice($services, 0, 10);
             $bullets = implode("\n", array_map(fn (string $s) => '✅ '.$s, $named));
-            $main = "🚀 Powering businesses with smart digital solutions!\n\n"
-                ."At {$brand}, we help teams grow, automate, and build a stronger digital presence with reliable technology.\n\n"
-                ."{$bullets}\n\n"
-                ."Whether you're a startup, small business, or growing enterprise — we build tech that moves you forward.{$siteLine}";
+            $main = match ($family) {
+                'travel' => "✈️ Ready for your next getaway?\n\n"
+                    ."At {$brand}, we plan trips that feel easy — clear itineraries, solid stays, and no last-minute chaos.\n\n"
+                    ."{$bullets}\n\n"
+                    ."Whether it's a weekend escape or a full family holiday from {$loc}, we've got you covered.{$siteLine}",
+                'health' => "🩺 Care that feels clear and calm.\n\n"
+                    ."At {$brand}, we keep visits simple and advice honest for families in {$loc}.\n\n"
+                    ."{$bullets}\n\n"
+                    ."Book when you're ready — no hard sell.{$siteLine}",
+                'food' => "🍽️ Fresh favourites, made properly.\n\n"
+                    ."At {$brand}, we keep it flavour-first for {$loc}.\n\n"
+                    ."{$bullets}\n\n"
+                    ."Come hungry. Leave happy.{$siteLine}",
+                default => "🚀 Powering businesses with smart digital solutions!\n\n"
+                    ."At {$brand}, we help teams grow, automate, and build a stronger digital presence with reliable technology.\n\n"
+                    ."{$bullets}\n\n"
+                    ."Whether you're a startup, small business, or growing enterprise — we build tech that moves you forward.{$siteLine}",
+            };
 
             return $this->trimToWordLimit($main, max(180, $wordLimit));
         }
 
-        $hooks = [
-            "{$loc} businesses don’t need generic IT talk — they need clear {$focus}.",
-            "When {$focus} is fuzzy, teams in {$loc} waste weeks on the wrong tools.",
-            "{$brand} builds around real offerings: {$serviceList}.",
-        ];
-
-        $values = [
-            "{$brand} delivers {$serviceList} for teams across {$loc}. Scope stays written, delivery stays practical, and the work matches what we publish on our site — not invented promises.{$siteLine}",
-            "From {$serviceList}, {$brand} helps {$loc} companies ship cleaner outcomes: clearer ownership, fewer fire drills, and tech that supports growth.{$siteLine}",
-            "Pick the service you need — {$serviceList} — and {$brand} maps the next steps for your stack and market in {$loc}.{$siteLine}",
-        ];
-
-        $closers = [
-            "{$cta} — ask about {$focus}.",
-            "If {$focus} is on your plate this month: {$cta}.",
-            "Want a no-fluff next step on {$focus}? {$cta}.",
-        ];
+        [$hooks, $values, $closers] = match ($family) {
+            'travel' => [
+                [
+                    "Planning {$focus} from {$loc}? Skip the WhatsApp chaos.",
+                    "{$focus} hits different when hotels, transfers, and timing are already sorted.",
+                    "{$brand} builds trips people actually enjoy — starting with {$focus}.",
+                ],
+                [
+                    "{$brand} handles {$focus} with clear day plans, vetted stays, and local support from {$loc}. No mystery add-ons.{$siteLine}",
+                    "From {$serviceList}, {$brand} keeps {$loc} travellers covered — itinerary locked, stays confirmed, stress low.{$siteLine}",
+                    "Tell us dates and group size for {$focus}. {$brand} maps the route, stays, and pacing that fit your trip.{$siteLine}",
+                ],
+                [
+                    "{$cta} — ask about {$focus}.",
+                    "Dates ready for {$focus}? {$cta}.",
+                    "Want a clean quote on {$focus}? {$cta}.",
+                ],
+            ],
+            'health' => [
+                [
+                    "{$loc} families want clear care — not confusing jargon around {$focus}.",
+                    "When {$focus} feels rushed, trust drops fast.",
+                    "{$brand} keeps {$focus} simple and patient-first.",
+                ],
+                [
+                    "{$brand} offers {$serviceList} in {$loc} with clear next steps and calm visits.{$siteLine}",
+                    "From {$serviceList}, {$brand} helps you understand options without pressure.{$siteLine}",
+                    "Ask about {$focus} — {$brand} explains what matters before you decide.{$siteLine}",
+                ],
+                [
+                    "{$cta} — ask about {$focus}.",
+                    "Need clarity on {$focus}? {$cta}.",
+                    "Ready for a calm consult on {$focus}? {$cta}.",
+                ],
+            ],
+            'food' => [
+                [
+                    "{$loc} is craving {$focus} — made fresh, served right.",
+                    "When {$focus} is done properly, people come back.",
+                    "{$brand} keeps {$focus} simple and flavour-first.",
+                ],
+                [
+                    "{$brand} serves {$serviceList} for {$loc} — consistent taste, no shortcuts.{$siteLine}",
+                    "From {$serviceList}, {$brand} is the easy pick when you want {$focus}.{$siteLine}",
+                    "Come for {$focus}. Stay for the favourites.{$siteLine}",
+                ],
+                [
+                    "{$cta} — try {$focus}.",
+                    "Hungry for {$focus}? {$cta}.",
+                    "Order or visit for {$focus}: {$cta}.",
+                ],
+            ],
+            default => [
+                [
+                    "{$loc} businesses don’t need generic IT talk — they need clear {$focus}.",
+                    "When {$focus} is fuzzy, teams in {$loc} waste weeks on the wrong tools.",
+                    "{$brand} builds around real offerings: {$serviceList}.",
+                ],
+                [
+                    "{$brand} delivers {$serviceList} for teams across {$loc}. Scope stays written, delivery stays practical, and the work matches what we publish on our site — not invented promises.{$siteLine}",
+                    "From {$serviceList}, {$brand} helps {$loc} companies ship cleaner outcomes: clearer ownership, fewer fire drills, and tech that supports growth.{$siteLine}",
+                    "Pick the service you need — {$serviceList} — and {$brand} maps the next steps for your stack and market in {$loc}.{$siteLine}",
+                ],
+                [
+                    "{$cta} — ask about {$focus}.",
+                    "If {$focus} is on your plate this month: {$cta}.",
+                    "Want a no-fluff next step on {$focus}? {$cta}.",
+                ],
+            ],
+        };
 
         $paragraphs = [
             $hooks[$angle],
@@ -1048,13 +1564,22 @@ STD;
         $body = trim((string) ($draft['body'] ?? ''));
         $promptLower = mb_strtolower($prompt);
 
-        if ($prompt !== '') {
-            if ($this->composeTitleIsWeak($title, $prompt, $workspace, $settings, $offer)) {
-                $title = $this->composePostTitle($prompt, $workspace, $settings, $offer);
-            } else {
-                $title = $this->polishComposeTitle($title, $prompt, $workspace, $settings, $offer);
-            }
+        // Hard rule: messy user briefs never dictate the published headline.
+        // Instruction-shaped prompts always rebuild title from cleaned topic — no "chipak gaya" retries.
+        if (
+            $prompt !== ''
+            && (
+                $this->promptLooksLikeInstruction($prompt)
+                || $this->titleHasInstructionResidue($title)
+                || $this->composeTitleIsWeak($title, $prompt, $workspace, $settings, $offer)
+            )
+        ) {
+            $title = $this->composePostTitle($prompt, $workspace, $settings, $offer);
+        } elseif ($prompt !== '') {
+            $title = $this->polishComposeTitle($title, $prompt, $workspace, $settings, $offer);
+        }
 
+        if ($prompt !== '') {
             if ($body !== '' && str_starts_with(mb_strtolower($body), $promptLower)) {
                 $body = trim(mb_substr($body, mb_strlen($prompt)));
                 $body = ltrim($body, " \n\r\t:-–—|");
@@ -1067,7 +1592,11 @@ STD;
             }
         }
 
-        if ($title === '' || $this->composeTitleIsWeak($title, $prompt, $workspace, $settings, $offer)) {
+        if (
+            $title === ''
+            || $this->composeTitleIsWeak($title, $prompt, $workspace, $settings, $offer)
+            || $this->titleHasInstructionResidue($title)
+        ) {
             $title = $this->composePostTitle($prompt, $workspace, $settings, $offer);
         }
 
@@ -1076,6 +1605,8 @@ STD;
         } elseif ($this->wordCount($body) < 25) {
             // Too thin — expand from brand template, don't keep a stub
             $body = $this->buildComposeMain($prompt, $workspace, $settings, $offer, $wordLimit);
+        } elseif ($this->composeBodyMismatchesIndustry($body, (string) ($settings->industry ?: ''))) {
+            $body = $this->buildComposeMain($prompt, $workspace, $settings, $offer, $wordLimit);
         }
 
         // Services showcase MUST include a visible bullet list — never keep a vague paragraph.
@@ -1083,8 +1614,21 @@ STD;
             $body = $this->buildComposeMain($prompt, $workspace, $settings, $offer, max(180, $wordLimit));
         }
 
-        // Never keep an LLM/template title that is basically "Company Service…"
-        if (preg_match('/\bcompany\s+services?\b/iu', $title) || $this->composeTopicIsUseless($title)) {
+        // Never keep an LLM/template title that is basically "Company Service…" or leaks channel/format noise
+        if (
+            preg_match('/\bcompany\s+services?\b/iu', $title)
+            || $this->composeTopicIsUseless($title)
+            || $this->titleHasInstructionResidue($title)
+        ) {
+            $title = $this->composePostTitle($prompt, $workspace, $settings, $offer);
+        }
+
+        $title = $this->stripComposeFormatNoise($this->stripComposeChannelNoise($title));
+        if (
+            $title === ''
+            || $this->composeTitleIsWeak($title, $prompt, $workspace, $settings, $offer)
+            || $this->titleHasInstructionResidue($title)
+        ) {
             $title = $this->composePostTitle($prompt, $workspace, $settings, $offer);
         }
 
@@ -1116,6 +1660,22 @@ STD;
         }
 
         return $hits >= 3;
+    }
+
+    private function composeBodyMismatchesIndustry(string $body, string $industry): bool
+    {
+        $family = $this->industryFamily($industry);
+        if ($family === 'tech' || $family === 'generic') {
+            return false;
+        }
+
+        $lower = mb_strtolower($body);
+
+        // Travel/food/health captions must not ship IT agency boilerplate
+        return (bool) preg_match(
+            '/\b(generic it talk|wrong tools|fire drills|digital presence|stack and market|devops|cybersecurity|cloud chaos)\b/iu',
+            $lower,
+        );
     }
 
     private function composeBodyIsWeak(string $body): bool

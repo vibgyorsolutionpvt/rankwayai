@@ -62,7 +62,7 @@ function htmlToPlainCaption(html) {
 
 const platformOptions = ['facebook', 'instagram', 'threads', 'linkedin', 'x'];
 
-const SOCIAL_VIEWS = ['posts', 'calendar', 'accounts', 'compose'];
+const SOCIAL_VIEWS = ['calendar', 'posts', 'accounts', 'compose'];
 
 function parseSocialView(url) {
     try {
@@ -75,7 +75,7 @@ function parseSocialView(url) {
         /* ignore */
     }
 
-    return 'posts';
+    return 'calendar';
 }
 
 const platformLabels = {
@@ -193,19 +193,29 @@ function parsePostDate(value) {
     return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function formatPostWhen(post) {
-    const d = parsePostDate(post.scheduled_at || post.published_at);
+function formatDateTimeStamp(value) {
+    const d = parsePostDate(value);
     if (!d) {
         return '—';
     }
-    const today = new Date();
-    const isToday = d.toDateString() === today.toDateString();
     const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
     const date = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-    if (isToday) {
-        return `Today · ${time}`;
-    }
     return `${date} · ${time}`;
+}
+
+function PostWhenStack({ post }) {
+    return (
+        <div className="flex flex-col gap-0.5 text-[11px] leading-snug text-ink-muted">
+            <div>
+                <span className="font-semibold text-ink">Post</span>{' '}
+                {formatDateTimeStamp(post.created_at)}
+            </div>
+            <div>
+                <span className="font-semibold text-ink">Schedule</span>{' '}
+                {formatDateTimeStamp(post.scheduled_at)}
+            </div>
+        </div>
+    );
 }
 
 function isScheduledToday(post) {
@@ -717,7 +727,7 @@ function TrashIcon() {
 
 function socialQuery(filters = {}, extra = {}) {
     const params = {
-        view: filters.view || 'posts',
+        view: filters.view || 'calendar',
         status: filters.status || 'all',
         platform: filters.platform || 'all',
         q: filters.q || '',
@@ -1120,10 +1130,12 @@ export default function Index({
 
     const runPostAction = (url, data = {}) => {
         setOpenActionsId(null);
+        // Queue publish returns immediately — don't chain a second full reload (that was the long loader).
         router.post(url, data, {
             preserveScroll: true,
-            onSuccess: () => {
-                router.reload({ only: ['posts', 'filters'], preserveScroll: true });
+            only: ['posts', 'filters'],
+            onError: () => {
+                toast.error('Action failed — refresh and try again.');
             },
         });
     };
@@ -1282,8 +1294,8 @@ export default function Index({
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     }, []);
     const navItems = [
-        { id: 'posts', label: 'Posts', hint: filters.counts.all || 0 },
         { id: 'calendar', label: 'Calendar' },
+        { id: 'posts', label: 'Posts', hint: filters.counts.all || 0 },
         { id: 'accounts', label: 'Accounts', hint: connectedCount },
         { id: 'compose', label: editingPostId ? 'Edit' : 'Compose' },
     ];
@@ -1331,12 +1343,22 @@ export default function Index({
 
         const opts = {
             preserveScroll: true,
+            only: ['posts', 'filters'],
             onSuccess: () => {
                 setEditingPostId(null);
                 postForm.setData(blankPost());
                 setCaptionHtml('');
                 setPickedMedia(null);
-                visitView('posts');
+                // Light switch to Posts — avoid reloading heavy calendar payload after queue publish.
+                router.get(
+                    route('social.index'),
+                    socialQuery({ ...filters, view: 'posts' }),
+                    {
+                        preserveScroll: true,
+                        replace: true,
+                        only: ['posts', 'filters'],
+                    },
+                );
             },
         };
 
@@ -1767,11 +1789,11 @@ export default function Index({
                             ) : null}
                         </div>
 
-                        <div className="hidden border-b border-line bg-mist/40 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-ink-muted md:grid md:grid-cols-[minmax(0,1.4fr)_minmax(140px,0.85fr)_minmax(140px,0.9fr)_130px_44px] md:gap-3">
+                        <div className="hidden border-b border-line bg-mist/40 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-ink-muted md:grid md:grid-cols-[minmax(0,1.4fr)_minmax(140px,0.85fr)_minmax(140px,0.9fr)_minmax(150px,0.95fr)_44px] md:gap-3">
                             <div>Post</div>
                             <div>Total</div>
                             <div>Status</div>
-                            <div>When</div>
+                            <div>Dates</div>
                             <div />
                         </div>
 
@@ -1791,7 +1813,7 @@ export default function Index({
                                     <li
                                         key={post.id}
                                         className={
-                                            'grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,1.4fr)_minmax(140px,0.85fr)_minmax(140px,0.9fr)_130px_44px] md:items-center md:gap-3 ' +
+                                            'grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,1.4fr)_minmax(140px,0.85fr)_minmax(140px,0.9fr)_minmax(150px,0.95fr)_44px] md:items-center md:gap-3 ' +
                                             (openActionsId === post.id ? 'relative z-30' : '')
                                         }
                                     >
@@ -1900,13 +1922,13 @@ export default function Index({
                                             </div>
                                         </div>
                                         <div className="text-xs text-ink-muted">
-                                            <div className="flex flex-wrap items-center gap-1.5">
+                                            <div className="flex flex-col gap-1">
                                                 {isScheduledToday(post) ? (
-                                                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-900">
+                                                    <span className="w-fit rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-900">
                                                         Today
                                                     </span>
                                                 ) : null}
-                                                <span>{formatPostWhen(post)}</span>
+                                                <PostWhenStack post={post} />
                                             </div>
                                         </div>
                                         <div className="relative z-10 justify-self-end">
@@ -2735,6 +2757,20 @@ export default function Index({
                                                         row.model
                                                             ? `Model: ${row.model}`
                                                             : null,
+                                                        Array.isArray(row.attempts) &&
+                                                        row.attempts.length > 1
+                                                            ? `Failover: ${row.attempts
+                                                                  .map(
+                                                                      (a) =>
+                                                                          `${a.provider || '?'}${
+                                                                              a.http_status
+                                                                                  ? ` HTTP ${a.http_status}`
+                                                                                  : ''
+                                                                          }${a.ok ? ' ✓' : ' ✗'}`,
+                                                                  )
+                                                                  .join(' → ')}`
+                                                            : null,
+                                                        row.error || null,
                                                     ]
                                                         .filter(Boolean)
                                                         .join('\n')}
@@ -2751,6 +2787,12 @@ export default function Index({
                                                         {row.provider ? (
                                                             <span className="font-semibold text-ink">
                                                                 {row.provider}
+                                                            </span>
+                                                        ) : null}
+                                                        {Array.isArray(row.attempts) &&
+                                                        row.attempts.length > 1 ? (
+                                                            <span className="font-semibold text-amber-700">
+                                                                failover ×{row.attempts.length}
                                                             </span>
                                                         ) : null}
                                                         {row.model ? (

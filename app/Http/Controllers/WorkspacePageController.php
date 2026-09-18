@@ -147,7 +147,7 @@ class WorkspacePageController extends Controller
             'seo' => redirect()->route('seo.index'),
             'today' => redirect()->route('today'),
             'billing' => redirect()->route('billing.index'),
-            'social' => redirect()->route('social.index', ['view' => 'posts']),
+            'social' => redirect()->route('social.index', ['view' => 'calendar']),
             'ai' => redirect()->route('social.index', ['view' => 'compose']),
             'settings' => redirect()->route('settings.index', ['tab' => 'workspace']),
             'back' => back(),

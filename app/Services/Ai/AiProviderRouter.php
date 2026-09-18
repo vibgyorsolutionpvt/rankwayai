@@ -5,6 +5,7 @@ namespace App\Services\Ai;
 use App\Services\Ai\Contracts\AiProvider;
 use App\Services\Ai\Providers\GeminiProvider;
 use App\Services\Ai\Providers\OpenAiCompatibleProvider;
+use Illuminate\Support\Facades\Cache;
 
 class AiProviderRouter
 {
@@ -71,6 +72,23 @@ class AiProviderRouter
             return $provider->configured() ? $provider : null;
         }
 
+        // Prefer last successful provider when healthy (saves free-tier quota)
+        $sticky = Cache::get($this->stickyKey());
+        if (is_string($sticky) && isset($this->providers[$sticky]) && ! $this->isCoolingDown($sticky)) {
+            $provider = $this->providers[$sticky];
+            if ($provider->configured()) {
+                return $provider;
+            }
+        }
+
+        foreach ($this->priority() as $id) {
+            $provider = $this->providers[$id] ?? null;
+            if ($provider?->configured() && ! $this->isCoolingDown($id)) {
+                return $provider;
+            }
+        }
+
+        // All cooling — still return first configured so complete() can retry
         foreach ($this->priority() as $id) {
             $provider = $this->providers[$id] ?? null;
             if ($provider?->configured()) {
@@ -83,32 +101,171 @@ class AiProviderRouter
 
     public function complete(string $system, string $user, int $maxTokens = 600): AiCompletion
     {
-        $provider = $this->resolve();
-        if (! $provider) {
+        $queue = $this->buildAttemptQueue();
+        if ($queue === []) {
             return AiCompletion::failed('template', 'No live AI provider configured');
         }
 
+        $maxAttempts = max(1, (int) config('ai.failover.max_attempts', 3));
         $attempts = [];
-        $result = $provider->complete($system, $user, $maxTokens);
-        $attempts[] = $this->attemptSnapshot($result);
+        $lastFailure = null;
 
-        if ($result->ok) {
-            return $this->withAttempts($result, $attempts);
+        foreach (array_slice($queue, 0, $maxAttempts) as $provider) {
+            $result = $provider->complete($system, $user, $maxTokens);
+            $attempts[] = $this->attemptSnapshot($result);
+
+            if ($result->ok) {
+                $this->rememberSuccess($provider->name());
+
+                return $this->withAttempts($result, $attempts);
+            }
+
+            $this->tripBreaker($result);
+            $lastFailure = $result;
         }
 
+        $tried = implode(' → ', array_map(
+            fn (array $a) => ($a['provider'] ?? '?').(isset($a['http_status']) ? ' HTTP '.$a['http_status'] : ''),
+            $attempts,
+        ));
+
+        $error = ($lastFailure?->error ?: 'All AI providers failed').' | tried: '.$tried;
+
+        return $this->withAttempts(
+            AiCompletion::failed(
+                $lastFailure?->provider ?? 'template',
+                $error,
+                $lastFailure?->apiUrl,
+                $lastFailure?->httpStatus,
+                $lastFailure?->requestPayload,
+                $lastFailure?->rawResponse,
+                $lastFailure?->model,
+            ),
+            $attempts,
+        );
+    }
+
+    /**
+     * Sticky winner first, then config priority order (skip cooling). Caps applied in complete().
+     *
+     * @return list<AiProvider>
+     */
+    private function buildAttemptQueue(): array
+    {
+        $queue = [];
+        $seen = [];
+
+        $push = function (?AiProvider $provider) use (&$queue, &$seen): void {
+            if (! $provider || ! $provider->configured()) {
+                return;
+            }
+            $id = $provider->name();
+            if (isset($seen[$id]) || $this->isCoolingDown($id)) {
+                return;
+            }
+            $seen[$id] = true;
+            $queue[] = $provider;
+        };
+
+        $push($this->resolve());
+
+        foreach ($this->configuredInPriorityOrder() as $provider) {
+            $push($provider);
+        }
+
+        // Everything cooling — allow one retry of preferred / first configured
+        if ($queue === []) {
+            $push($this->providers[$this->priority()[0] ?? ''] ?? null);
+            foreach ($this->configuredInPriorityOrder() as $provider) {
+                if ($queue !== []) {
+                    break;
+                }
+                $id = $provider->name();
+                if (isset($seen[$id])) {
+                    continue;
+                }
+                $seen[$id] = true;
+                $queue[] = $provider;
+            }
+        }
+
+        return $queue;
+    }
+
+    private function isCoolingDown(string $id): bool
+    {
+        return Cache::has($this->cooldownKey($id));
+    }
+
+    private function tripBreaker(AiCompletion $result): void
+    {
+        $status = $result->httpStatus;
+        $error = mb_strtolower((string) ($result->error ?? ''));
+        $shouldTrip = in_array($status, [401, 403, 404, 429, 503], true)
+            || str_contains($error, 'rate')
+            || str_contains($error, 'quota')
+            || str_contains($error, 'high demand')
+            || str_contains($error, 'no longer available')
+            || str_contains($error, 'does not exist')
+            || str_contains($error, 'no credits');
+
+        if (! $shouldTrip) {
+            return;
+        }
+
+        $seconds = (int) config('ai.failover.cooldown_seconds', 900);
+        // Rate limits / overload — shorter pause; auth/model gone — longer
+        if (in_array($status, [401, 403, 404], true) || str_contains($error, 'does not exist') || str_contains($error, 'no credits')) {
+            $seconds = max($seconds, 3600);
+        }
+
+        Cache::put($this->cooldownKey($result->provider), true, now()->addSeconds($seconds));
+    }
+
+    private function rememberSuccess(string $id): void
+    {
+        Cache::put(
+            $this->stickyKey(),
+            $id,
+            now()->addSeconds((int) config('ai.failover.sticky_ttl_seconds', 3600)),
+        );
+        Cache::forget($this->cooldownKey($id));
+    }
+
+    private function stickyKey(): string
+    {
+        return 'ai:last_success_provider';
+    }
+
+    private function cooldownKey(string $id): string
+    {
+        return 'ai:cooldown:'.$id;
+    }
+
+    /**
+     * @return list<AiProvider>
+     */
+    private function configuredInPriorityOrder(): array
+    {
+        $out = [];
         foreach ($this->priority() as $id) {
-            $fallback = $this->providers[$id] ?? null;
-            if (! $fallback || $fallback->name() === $provider->name() || ! $fallback->configured()) {
+            $provider = $this->providers[$id] ?? null;
+            if ($provider?->configured()) {
+                $out[] = $provider;
+            }
+        }
+
+        foreach ($this->providers as $id => $provider) {
+            if (! $provider->configured()) {
                 continue;
             }
-            $retry = $fallback->complete($system, $user, $maxTokens);
-            $attempts[] = $this->attemptSnapshot($retry);
-            if ($retry->ok) {
-                return $this->withAttempts($retry, $attempts);
+            if (collect($out)->contains(fn (AiProvider $p) => $p->name() === $id)) {
+                continue;
             }
+            $out[] = $provider;
         }
 
-        return $this->withAttempts($result, $attempts);
+        return $out;
     }
 
     /**
