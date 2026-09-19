@@ -210,7 +210,7 @@ class WhatsAppController extends Controller
         abort_unless($conversation->workspace_id === $workspace->id, 404);
 
         $data = $request->validate([
-            'body' => ['required', 'string', 'max:4000'],
+            'body' => ['nullable', 'string', 'max:4000'],
             'template_id' => ['nullable', 'integer'],
             'as_template' => ['sometimes', 'boolean'],
         ]);
@@ -228,13 +228,19 @@ class WhatsAppController extends Controller
                 ->first();
         }
 
+        $asTemplate = $request->boolean('as_template');
+        $body = trim((string) ($data['body'] ?? ''));
+        if ($body === '' && ! ($asTemplate && $template)) {
+            return back()->with('error', 'Message body is required (or select a template with Send as template ON).');
+        }
+
         $result = $conversations->sendOutbound(
             $workspace,
             $conversation,
-            $template?->body ?? $data['body'],
+            $body !== '' ? $body : (string) ($template?->body ?? ''),
             $request->user(),
             $template,
-            $request->boolean('as_template')
+            $asTemplate
         );
 
         if (! $result['ok']) {
@@ -255,7 +261,7 @@ class WhatsAppController extends Controller
         return back()->with('success', 'Conversation closed.');
     }
 
-    public function storeTemplate(Request $request): RedirectResponse
+    public function storeTemplate(Request $request, \App\Services\WhatsApp\MetaWhatsAppCloudService $meta): RedirectResponse
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
@@ -265,22 +271,89 @@ class WhatsAppController extends Controller
             'body' => ['required', 'string', 'max:4000'],
             'category' => ['required', 'in:utility,marketing,authentication'],
             'language' => ['required', 'string', 'max:12'],
-            'wa_status' => ['required', 'in:draft,ready'],
+            'wa_status' => ['required', 'in:draft,ready,pending'],
+            'submit_to_meta' => ['sometimes', 'boolean'],
         ]);
 
-        ChannelMessageTemplate::query()->create([
+        $name = $meta->normalizeTemplateName($data['name']);
+
+        $template = ChannelMessageTemplate::query()->create([
             'workspace_id' => $workspace->id,
             'channel' => 'whatsapp',
-            'name' => $data['name'],
+            'name' => $name,
             'body' => $data['body'],
             'category' => $data['category'],
             'language' => $data['language'],
             'wa_status' => $data['wa_status'],
         ]);
 
+        if ($request->boolean('submit_to_meta')) {
+            $result = $meta->createMessageTemplate(
+                $workspace,
+                $name,
+                $data['body'],
+                $data['category'],
+                $data['language'],
+            );
+
+            if (! $result['ok']) {
+                return redirect()
+                    ->route('whatsapp.index', ['view' => 'templates'])
+                    ->with('error', 'Saved locally, but Meta submit failed: '.($result['error'] ?: 'unknown error'));
+            }
+
+            $template->update([
+                'wa_status' => strtolower((string) ($result['status'] ?: 'pending')),
+                'subject' => $result['id'] ? 'meta:'.$result['id'] : $template->subject,
+            ]);
+
+            return redirect()
+                ->route('whatsapp.index', ['view' => 'templates'])
+                ->with('success', 'Template submitted to Meta (status: '.($result['status'] ?: 'PENDING').').');
+        }
+
         return redirect()
             ->route('whatsapp.index', ['view' => 'templates'])
             ->with('success', 'Template saved.');
+    }
+
+    public function syncTemplateStatus(
+        Request $request,
+        ChannelMessageTemplate $template,
+        \App\Services\WhatsApp\MetaWhatsAppCloudService $meta,
+    ): RedirectResponse {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+        abort_unless($template->workspace_id === $workspace->id && $template->channel === 'whatsapp', 404);
+
+        $metaId = null;
+        if (is_string($template->subject) && str_starts_with($template->subject, 'meta:')) {
+            $metaId = substr($template->subject, 5);
+        }
+
+        if (blank($metaId)) {
+            return back()->with('error', 'Is template pe Meta ID nahi hai. Pehle Submit to Meta karo.');
+        }
+
+        $result = $meta->retrieveTemplateStatus($workspace, $metaId);
+        if (! $result['ok']) {
+            return back()->with('error', 'Meta status fetch failed: '.($result['error'] ?: 'unknown'));
+        }
+
+        $status = strtolower((string) ($result['status'] ?: 'pending'));
+        $template->update(['wa_status' => $status]);
+
+        $label = strtoupper((string) $result['status']);
+        $msg = match ($status) {
+            'approved' => "Meta status: APPROVED — ab send kar sakte ho ({$template->name}).",
+            'rejected' => "Meta status: REJECTED — template reject ho gaya ({$template->name}).",
+            'pending' => "Meta status: PENDING — abhi review mein hai ({$template->name}).",
+            default => "Meta status: {$label} ({$template->name}).",
+        };
+
+        return redirect()
+            ->route('whatsapp.index', ['view' => 'templates'])
+            ->with($status === 'rejected' ? 'error' : 'success', $msg);
     }
 
     public function updateTemplate(Request $request, ChannelMessageTemplate $template): RedirectResponse
