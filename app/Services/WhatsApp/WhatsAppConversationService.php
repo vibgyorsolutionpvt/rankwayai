@@ -92,12 +92,25 @@ class WhatsAppConversationService
         bool $asTemplate = false
     ): array {
         $body = trim($body);
-        if ($body === '') {
+        if ($body === '' && ! ($asTemplate && $template)) {
             return ['ok' => false, 'message' => null, 'error' => 'Message body is required.', 'conversation' => $conversation];
         }
 
         $lead = $conversation->lead;
-        $rendered = $this->templates->render($body, $workspace, $lead);
+        $sourceBody = ($asTemplate && $template) ? (string) $template->body : $body;
+        if ($sourceBody === '') {
+            $sourceBody = $body;
+        }
+        $rendered = $this->templates->render($sourceBody !== '' ? $sourceBody : ' ', $workspace, $lead);
+        $tokenMap = $this->templates->tokens($workspace, null, $lead);
+        if (filled($conversation->contact_name)) {
+            $tokenMap['name'] = (string) $conversation->contact_name;
+        }
+
+        $bodyParams = [];
+        if ($asTemplate && $template) {
+            $bodyParams = $this->meta->resolveBodyParamValues((string) $template->body, $tokenMap);
+        }
 
         $provider = $this->integrations->whatsappProvider($workspace);
 
@@ -108,7 +121,14 @@ class WhatsAppConversationService
                 'error' => null,
                 'conversation_id' => null,
             ],
-            'meta' => $this->meta->sendText($workspace, $conversation->phone, $rendered, $template, $asTemplate),
+            'meta' => $this->meta->sendText(
+                $workspace,
+                $conversation->phone,
+                $rendered,
+                $template,
+                $asTemplate,
+                $bodyParams
+            ),
             default => $this->deliverViaZavu($workspace, $conversation->phone, $rendered, $template, $asTemplate),
         };
 
@@ -120,11 +140,12 @@ class WhatsAppConversationService
             'status' => $delivery['ok'] ? 'sent' : 'failed',
             'provider_message_id' => $delivery['id'],
             'template_name' => $template?->name,
-            'meta' => [
+            'meta' => array_filter([
                 'provider' => $provider,
                 'as_template' => $asTemplate,
                 'external_conversation_id' => $delivery['conversation_id'] ?? null,
-            ],
+                'error' => $delivery['error_meta'] ?? null,
+            ], fn ($v) => $v !== null),
             'error_message' => $delivery['error'],
             'sent_at' => now(),
         ]);

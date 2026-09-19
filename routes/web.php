@@ -287,6 +287,9 @@ Route::middleware(['auth', 'verified', 'workspace.setup', 'module'])->group(func
     Route::post('/whatsapp/templates', [WhatsAppController::class, 'storeTemplate'])
         ->middleware('throttle:30,1')
         ->name('whatsapp.templates.store');
+    Route::post('/whatsapp/templates/{template}/sync-meta', [WhatsAppController::class, 'syncTemplateStatus'])
+        ->middleware('throttle:30,1')
+        ->name('whatsapp.templates.sync-meta');
     Route::patch('/whatsapp/templates/{template}', [WhatsAppController::class, 'updateTemplate'])
         ->name('whatsapp.templates.update');
     Route::delete('/whatsapp/templates/{template}', [WhatsAppController::class, 'destroyTemplate'])

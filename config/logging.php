@@ -127,6 +127,18 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
+        /*
+        | WhatsApp / Meta Cloud API — daily files (not mixed into laravel.log).
+        | storage/logs/whatsapp-YYYY-MM-DD.log
+        */
+        'whatsapp' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/whatsapp.log'),
+            'level' => env('LOG_LEVEL', 'debug'),
+            'days' => env('LOG_WHATSAPP_DAYS', 30),
+            'replace_placeholders' => true,
+        ],
+
     ],
 
 ];

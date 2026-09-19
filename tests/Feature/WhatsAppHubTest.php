@@ -170,6 +170,53 @@ class WhatsAppHubTest extends TestCase
         $this->assertSame('whatsapp', $tpl->channel);
         $this->assertSame('utility', $tpl->category);
         $this->assertSame('ready', $tpl->wa_status);
+        $this->assertSame('welcome_hi', $tpl->name);
+    }
+
+    public function test_can_submit_whatsapp_template_to_meta(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        app(\App\Services\Integrations\WorkspaceIntegrationService::class)->upsert($workspace, 'whatsapp_meta', [
+            'phone_number_id' => '123',
+            'waba_id' => 'waba-99',
+            'access_token' => 'token',
+            'verify_token' => 'verify',
+            'api_version' => 'v25.0',
+        ]);
+
+        \Illuminate\Support\Facades\Http::fake([
+            'graph.facebook.com/*' => \Illuminate\Support\Facades\Http::response([
+                'id' => 'tpl_meta_1',
+                'status' => 'PENDING',
+                'category' => 'UTILITY',
+            ], 200),
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('whatsapp.templates.store'), [
+                'name' => 'Rankway Hello',
+                'body' => 'Hi {{name}}, welcome to {{brand}}.',
+                'category' => 'utility',
+                'language' => 'en_US',
+                'wa_status' => 'draft',
+                'submit_to_meta' => true,
+            ])
+            ->assertRedirect(route('whatsapp.index', ['view' => 'templates']))
+            ->assertSessionHas('success');
+
+        $tpl = ChannelMessageTemplate::query()->first();
+        $this->assertSame('rankway_hello', $tpl->name);
+        $this->assertSame('pending', $tpl->wa_status);
+        $this->assertSame('meta:tpl_meta_1', $tpl->subject);
+
+        \Illuminate\Support\Facades\Http::assertSent(function ($request) {
+            return str_contains($request->url(), 'graph.facebook.com/v25.0/waba-99/message_templates')
+                && $request['name'] === 'rankway_hello'
+                && $request['category'] === 'UTILITY'
+                && $request['components'][0]['type'] === 'BODY';
+        });
     }
 
     public function test_can_start_conversation_in_sandbox(): void

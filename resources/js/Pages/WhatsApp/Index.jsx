@@ -65,8 +65,9 @@ export default function Index({
         name: '',
         body: '',
         category: 'utility',
-        language: 'en',
+        language: 'en_US',
         wa_status: 'draft',
+        submit_to_meta: true,
     });
 
     const leadOptions = useMemo(
@@ -83,10 +84,21 @@ export default function Index({
     const templateOptions = useMemo(
         () => [
             { value: '', label: 'Free-form reply' },
-            ...templates.map((t) => ({
-                value: String(t.id),
-                label: `${t.name}${t.wa_status === 'ready' ? '' : ' (draft)'}`,
-            })),
+            ...templates.map((t) => {
+                const status = String(t.wa_status || 'draft').toLowerCase();
+                const suffix =
+                    status === 'approved' || status === 'ready'
+                        ? ''
+                        : status === 'pending'
+                          ? ' (pending Meta)'
+                          : status === 'rejected'
+                            ? ' (rejected)'
+                            : ' (draft)';
+                return {
+                    value: String(t.id),
+                    label: `${t.name}${suffix}`,
+                };
+            }),
         ],
         [templates],
     );
@@ -118,8 +130,9 @@ export default function Index({
             name: '',
             body: '',
             category: 'utility',
-            language: 'en',
+            language: 'en_US',
             wa_status: 'draft',
+            submit_to_meta: true,
         });
         templateForm.clearErrors();
     };
@@ -239,6 +252,7 @@ export default function Index({
                         placeholders={placeholders}
                         sendLocked={sendLocked}
                         applyTemplateToReply={applyTemplateToReply}
+                        provider={provider}
                     />
                 ) : null}
 
@@ -250,6 +264,7 @@ export default function Index({
                         setEditingTemplateId={setEditingTemplateId}
                         resetTemplateForm={resetTemplateForm}
                         placeholders={placeholders}
+                        provider={provider}
                     />
                 ) : null}
 
@@ -285,6 +300,7 @@ function ConversationsView({
     placeholders,
     sendLocked,
     applyTemplateToReply,
+    provider = 'sandbox',
 }) {
     return (
         <section className="grid gap-3 lg:grid-cols-[280px_1fr]">
@@ -533,11 +549,20 @@ function ConversationsView({
                                 onChange={(e) => replyForm.setData('body', e.target.value)}
                             />
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                                <Toggle
-                                    checked={!!replyForm.data.as_template}
-                                    onChange={(v) => replyForm.setData('as_template', v)}
-                                    label="Send as template"
-                                />
+                                <div>
+                                    <Toggle
+                                        checked={!!replyForm.data.as_template}
+                                        onChange={(v) => replyForm.setData('as_template', v)}
+                                        label="Send as template"
+                                    />
+                                    {provider === 'meta' ? (
+                                        <p className="mt-1 max-w-xs text-[11px] leading-snug text-ink-muted">
+                                            Meta: pehla / cold message ke liye ON rakho. Template
+                                            select na ho to <code>hello_world</code> jayega. Free
+                                            text sirf 24h window ke andar deliver hota hai.
+                                        </p>
+                                    ) : null}
+                                </div>
                                 <PrimaryButton processing={replyForm.processing}>
                                     Send reply
                                 </PrimaryButton>
@@ -557,6 +582,7 @@ function TemplatesView({
     setEditingTemplateId,
     resetTemplateForm,
     placeholders,
+    provider = 'sandbox',
 }) {
     return (
         <section className="grid gap-3 lg:grid-cols-2">
@@ -582,8 +608,9 @@ function TemplatesView({
                     {editingTemplateId ? `Edit template #${editingTemplateId}` : 'WhatsApp template'}
                 </div>
                 <p className="text-sm text-ink-muted">
-                    Save reusable WhatsApp copy. Mark Ready when approved for live sends. Use
-                    templates to start chats outside the 24h window.
+                    {provider === 'meta'
+                        ? 'Create a template and submit it to Meta (WABA) for App Review / live sends. Name must be lowercase_with_underscores.'
+                        : 'Save reusable WhatsApp copy. Connect Meta to submit templates to WhatsApp Business.'}
                 </p>
                 <div>
                     <InputLabel value="Name" />
@@ -611,11 +638,11 @@ function TemplatesView({
                             className="mt-1 w-full"
                             value={templateForm.data.language}
                             onChange={(e) => templateForm.setData('language', e.target.value)}
-                            placeholder="en"
+                            placeholder="en_US"
                         />
                     </div>
                     <div>
-                        <InputLabel value="Status" />
+                        <InputLabel value="Local status" />
                         <div className="mt-1">
                             <SelectMenu
                                 value={templateForm.data.wa_status}
@@ -632,6 +659,7 @@ function TemplatesView({
                         rows={6}
                         value={templateForm.data.body}
                         onChange={(e) => templateForm.setData('body', e.target.value)}
+                        placeholder="Hi {{name}}, thanks for contacting {{brand}}."
                     />
                     <PlaceholderRow
                         placeholders={placeholders}
@@ -643,9 +671,20 @@ function TemplatesView({
                         }
                     />
                 </div>
+                {!editingTemplateId && provider === 'meta' ? (
+                    <Toggle
+                        checked={!!templateForm.data.submit_to_meta}
+                        onChange={(v) => templateForm.setData('submit_to_meta', v)}
+                        label="Submit to Meta (WABA) now"
+                    />
+                ) : null}
                 <div className="flex flex-wrap gap-2">
                     <PrimaryButton processing={templateForm.processing}>
-                        {editingTemplateId ? 'Update template' : 'Save template'}
+                        {editingTemplateId
+                            ? 'Update template'
+                            : templateForm.data.submit_to_meta && provider === 'meta'
+                              ? 'Save & submit to Meta'
+                              : 'Save template'}
                     </PrimaryButton>
                     {editingTemplateId ? (
                         <SecondaryButton type="button" onClick={resetTemplateForm}>
@@ -667,13 +706,55 @@ function TemplatesView({
                         >
                             <div className="flex items-start justify-between gap-2">
                                 <div>
-                                    <div className="font-semibold text-ink">{tpl.name}</div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <div className="font-semibold text-ink">{tpl.name}</div>
+                                        <span
+                                            className={
+                                                'rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ' +
+                                                (tpl.wa_status === 'approved'
+                                                    ? 'bg-emerald-100 text-emerald-800'
+                                                    : tpl.wa_status === 'pending'
+                                                      ? 'bg-amber-100 text-amber-900'
+                                                      : tpl.wa_status === 'rejected'
+                                                        ? 'bg-rose-100 text-rose-800'
+                                                        : 'bg-mist text-ink-muted')
+                                            }
+                                        >
+                                            {tpl.wa_status === 'approved'
+                                                ? 'Meta APPROVED'
+                                                : tpl.wa_status === 'pending'
+                                                  ? 'Meta PENDING'
+                                                  : tpl.wa_status === 'rejected'
+                                                    ? 'Meta REJECTED'
+                                                    : tpl.wa_status === 'ready'
+                                                      ? 'Local ready (not Meta)'
+                                                      : tpl.wa_status || 'draft'}
+                                        </span>
+                                    </div>
                                     <div className="text-xs text-ink-muted">
                                         {(tpl.category || 'utility').toUpperCase()} ·{' '}
-                                        {tpl.language || 'en'} · {tpl.wa_status || 'draft'}
+                                        {tpl.language || 'en'}
+                                        {tpl.subject?.startsWith('meta:')
+                                            ? ` · Meta ID ${tpl.subject.replace('meta:', '')}`
+                                            : ''}
                                     </div>
                                 </div>
-                                <div className="flex gap-2">
+                                <div className="flex flex-wrap gap-2">
+                                    {tpl.subject?.startsWith('meta:') ? (
+                                        <button
+                                            type="button"
+                                            className="text-sm font-semibold text-ink"
+                                            onClick={() =>
+                                                router.post(
+                                                    route('whatsapp.templates.sync-meta', tpl.id),
+                                                    {},
+                                                    { preserveScroll: true },
+                                                )
+                                            }
+                                        >
+                                            Refresh Meta status
+                                        </button>
+                                    ) : null}
                                     <button
                                         type="button"
                                         className="text-sm font-semibold text-signal"
@@ -683,8 +764,9 @@ function TemplatesView({
                                                 name: tpl.name,
                                                 body: tpl.body,
                                                 category: tpl.category || 'utility',
-                                                language: tpl.language || 'en',
+                                                language: tpl.language || 'en_US',
                                                 wa_status: tpl.wa_status || 'draft',
+                                                submit_to_meta: false,
                                             });
                                         }}
                                     >

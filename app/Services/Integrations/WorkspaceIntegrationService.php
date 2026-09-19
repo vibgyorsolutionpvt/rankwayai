@@ -198,7 +198,10 @@ class WorkspaceIntegrationService
     {
         $row = $this->get($workspace, 'whatsapp_meta');
         if (! $row) {
-            // Platform env fallback for single-tenant / shared Meta app
+            // Platform env fallback for single-tenant / shared Meta app (not in PHPUnit).
+            if (app()->runningUnitTests()) {
+                return null;
+            }
             $phoneId = config('services.meta.whatsapp_phone_number_id');
             $token = config('services.meta.whatsapp_access_token');
             $verify = config('services.meta.whatsapp_verify_token');
