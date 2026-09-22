@@ -195,6 +195,14 @@ Health check: `https://DOMAIN/up` → should return OK.
 
 ## F. Cron jobs (Hostinger → Advanced → Cron Jobs)
 
+Prod `.env` must include India timezone (otherwise schedule times look wrong vs IST):
+
+```env
+APP_TIMEZONE=Asia/Kolkata
+```
+
+After changing: `php artisan config:clear`
+
 ### Cron 1 — Laravel scheduler (ACTIVE — keep this)
 
 ```

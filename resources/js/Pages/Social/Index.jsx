@@ -204,15 +204,27 @@ function formatDateTimeStamp(value) {
 }
 
 function PostWhenStack({ post }) {
+    const executedAt = post.published_at || (post.status === 'published' ? post.created_at : null);
+
     return (
-        <div className="flex flex-col gap-0.5 text-[11px] leading-snug text-ink-muted">
-            <div>
-                <span className="font-semibold text-ink">Post</span>{' '}
-                {formatDateTimeStamp(post.created_at)}
+        <div className="flex flex-col gap-1 text-[11px] leading-snug">
+            <div className="flex flex-wrap items-baseline gap-x-1.5">
+                <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-sky-800">
+                    Created
+                </span>
+                <span className="text-ink-muted">{formatDateTimeStamp(post.created_at)}</span>
             </div>
-            <div>
-                <span className="font-semibold text-ink">Schedule</span>{' '}
-                {formatDateTimeStamp(post.scheduled_at)}
+            <div className="flex flex-wrap items-baseline gap-x-1.5">
+                <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-800">
+                    Schedule
+                </span>
+                <span className="text-ink-muted">{formatDateTimeStamp(post.scheduled_at)}</span>
+            </div>
+            <div className="flex flex-wrap items-baseline gap-x-1.5">
+                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-800">
+                    Executed
+                </span>
+                <span className="text-ink-muted">{formatDateTimeStamp(executedAt)}</span>
             </div>
         </div>
     );
