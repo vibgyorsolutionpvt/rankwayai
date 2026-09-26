@@ -60,7 +60,11 @@ class BusinessCardService
             'has_custom_logo' => filled($card->logo_path),
             'styles' => $styles,
             'share_url' => $card->publicUrl(),
-            'qr_url' => $this->qrImageUrl($card->publicUrl()),
+            'qr_url' => route('studio.cards.public.qr', $card->share_token),
+            'qr_download_url' => route('studio.cards.public.qr', [
+                'token' => $card->share_token,
+                'download' => 1,
+            ]),
             'is_public' => $card->is_public,
             'updated_at' => $card->updated_at?->timezone(config('app.timezone'))->format('d M Y, g:i A'),
         ];
@@ -108,19 +112,29 @@ class BusinessCardService
     public function pdf(BusinessCard $card): Response
     {
         $data = $this->present($card, false);
+        $template = $card->template_key === 'bold' ? 'classic' : ($card->template_key ?: 'classic');
+
+        // DomPDF cannot reliably load /storage URLs — embed local images as data URIs.
+        $kit = $card->resolveBrandKit();
+        $data['logo_url'] = $this->dataUri($card->logo_path) ?: $this->dataUri($kit?->logo_path);
+        $data['person_photo_url'] = $this->dataUri($card->person_photo_path);
+        $data['cover_image_url'] = $this->dataUri($card->cover_image_path);
+
         $pdf = Pdf::loadView('studio.business-card-pdf', [
             'card' => $data,
-            'template' => $card->template_key,
-        ])->setPaper([0, 0, 252, 144], 'landscape');
+            'template' => $template,
+        ]);
+
+        // Points: landscape 3.5×2" card, or tall digital handout.
+        if ($template === 'digital') {
+            $pdf->setPaper([0, 0, 260, 460], 'portrait');
+        } else {
+            $pdf->setPaper([0, 0, 252, 144], 'landscape');
+        }
 
         $filename = Str::slug($card->title ?: 'business-card').'.pdf';
 
         return $pdf->download($filename);
-    }
-
-    public function qrImageUrl(string $url): string
-    {
-        return 'https://api.qrserver.com/v1/create-qr-code/?size=240x240&data='.urlencode($url);
     }
 
     private function publicUrl(?string $path): ?string
@@ -130,5 +144,24 @@ class BusinessCardService
         }
 
         return Storage::disk('public')->url($path);
+    }
+
+    private function dataUri(?string $path): ?string
+    {
+        if (! $path || ! Storage::disk('public')->exists($path)) {
+            return null;
+        }
+
+        $binary = Storage::disk('public')->get($path);
+        if ($binary === null || $binary === '') {
+            return null;
+        }
+
+        $mime = Storage::disk('public')->mimeType($path) ?: 'image/png';
+        if (! str_starts_with((string) $mime, 'image/')) {
+            $mime = 'image/png';
+        }
+
+        return 'data:'.$mime.';base64,'.base64_encode($binary);
     }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Brochure;
 use App\Services\Studio\BrochureService;
+use App\Services\Studio\QrCodeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -28,6 +29,19 @@ class PublicBrochureController extends Controller
             'track_url' => route('studio.brochures.public.track', $token),
             'pdf_url' => route('studio.brochures.public.pdf', $token),
         ]);
+    }
+
+    public function qr(string $token, QrCodeService $qr): SymfonyResponse
+    {
+        $brochure = Brochure::query()
+            ->where('share_token', $token)
+            ->firstOrFail();
+
+        return $qr->response(
+            $brochure->publicUrl(),
+            ($brochure->title ?: 'brochure').'-qr',
+            false,
+        );
     }
 
     public function track(string $token, Request $request, BrochureService $brochures): JsonResponse

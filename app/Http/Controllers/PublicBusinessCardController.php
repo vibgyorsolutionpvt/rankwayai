@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\BusinessCard;
 use App\Services\Studio\BusinessCardService;
+use App\Services\Studio\QrCodeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class PublicBusinessCardController extends Controller
 {
@@ -26,6 +28,21 @@ class PublicBusinessCardController extends Controller
             'card' => $cards->present($card->fresh(), false),
             'track_url' => route('studio.cards.public.track', $token),
         ]);
+    }
+
+    public function qr(string $token, Request $request, QrCodeService $qr): SymfonyResponse
+    {
+        $card = BusinessCard::query()
+            ->where('share_token', $token)
+            ->firstOrFail();
+
+        $download = $request->boolean('download');
+
+        return $qr->response(
+            $card->publicUrl(),
+            ($card->title ?: 'business-card').'-qr',
+            $download,
+        );
     }
 
     public function track(string $token, Request $request, BusinessCardService $cards): JsonResponse

@@ -122,6 +122,36 @@ export default function Edit({ workspace, card, templates = [], brandKits = [] }
         }
     };
 
+    const shareCard = async () => {
+        if (typeof navigator !== 'undefined' && navigator.share) {
+            try {
+                await navigator.share({
+                    title: card.title || 'Business card',
+                    text: card.person_name || card.company_name || card.title || 'Business card',
+                    url: card.share_url,
+                });
+                return;
+            } catch (e) {
+                if (e?.name === 'AbortError') return;
+            }
+        }
+        await copyLink();
+    };
+
+    const downloadQr = () => {
+        const url = card.qr_download_url || card.qr_url;
+        if (!url) {
+            toast.error('QR not available');
+            return;
+        }
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${(card.title || 'business-card').replace(/\s+/g, '-')}-qr.png`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    };
+
     const shareDrawer =
         shareOpen && typeof document !== 'undefined'
             ? createPortal(
@@ -172,7 +202,7 @@ export default function Edit({ workspace, card, templates = [], brandKits = [] }
                                   </svg>
                               </button>
                           </div>
-                          <div className="flex-1 space-y-4 overflow-y-auto p-4">
+                          <div className="flex-1 space-y-5 overflow-y-auto p-4">
                               <div>
                                   <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
                                       Public link
@@ -182,6 +212,13 @@ export default function Edit({ workspace, card, templates = [], brandKits = [] }
                                   </div>
                               </div>
                               <div className="flex flex-wrap gap-2">
+                                  <button
+                                      type="button"
+                                      onClick={shareCard}
+                                      className="rounded-md bg-ink px-3 py-1.5 text-xs font-semibold text-white hover:bg-ink/90"
+                                  >
+                                      Share
+                                  </button>
                                   <button
                                       type="button"
                                       onClick={copyLink}
@@ -204,18 +241,31 @@ export default function Edit({ workspace, card, templates = [], brandKits = [] }
                                       Download PDF
                                   </a>
                               </div>
-                              {card.qr_url ? (
-                                  <div>
-                                      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
-                                          QR code
-                                      </div>
-                                      <img
-                                          src={card.qr_url}
-                                          alt="QR"
-                                          className="h-40 w-40 rounded-md border border-line bg-white p-2"
-                                      />
+                              <div>
+                                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                                      QR code
                                   </div>
-                              ) : null}
+                                  {card.qr_url ? (
+                                      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-end">
+                                          <img
+                                              src={card.qr_url}
+                                              alt="QR code"
+                                              className="h-40 w-40 rounded-xl border border-line bg-white p-2 shadow-sm"
+                                          />
+                                          <button
+                                              type="button"
+                                              onClick={downloadQr}
+                                              className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold hover:bg-mist"
+                                          >
+                                              Download QR
+                                          </button>
+                                      </div>
+                                  ) : (
+                                      <div className="rounded-xl border border-dashed border-line px-4 py-6 text-sm text-ink-muted">
+                                          QR not available yet. Save the card first.
+                                      </div>
+                                  )}
+                              </div>
                               <div>
                                   <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
                                       Analytics
@@ -602,7 +652,7 @@ export default function Edit({ workspace, card, templates = [], brandKits = [] }
                             <circle cx="18" cy="19" r="2.5" />
                             <path d="m8.2 10.8 5.6-3.6M8.2 13.2l5.6 3.6" />
                         </svg>
-                        Share, QR & analytics
+                        Share & export
                     </button>
                 </div>
             </div>

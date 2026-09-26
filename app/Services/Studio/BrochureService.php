@@ -44,7 +44,7 @@ class BrochureService
             'styles' => $styles,
             'company_name' => $brochure->workspace?->name,
             'share_url' => $brochure->publicUrl(),
-            'qr_url' => 'https://api.qrserver.com/v1/create-qr-code/?size=240x240&data='.urlencode($brochure->publicUrl()),
+            'qr_url' => route('studio.brochures.public.qr', $brochure->share_token),
             'is_public' => $brochure->is_public,
             'updated_at' => $brochure->updated_at?->timezone(config('app.timezone'))->format('d M Y, g:i A'),
         ];
