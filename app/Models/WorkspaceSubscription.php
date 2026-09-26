@@ -67,7 +67,7 @@ class WorkspaceSubscription extends Model
                     'seo_audit' => true,
                     'seo_apis' => false,
                     'seo_metrics' => false,
-                    'modules' => ['seo', 'billing', 'settings'],
+                    'modules' => ['seo', 'billing', 'settings', 'business'],
                 ],
             ],
             'growth' => [

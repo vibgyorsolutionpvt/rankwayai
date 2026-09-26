@@ -10,6 +10,11 @@ export const MODULE_TONES = {
         chip: 'bg-rose-100 text-rose-800',
         off: 'border-rose-100 bg-rose-50/40 opacity-70',
     },
+    violet: {
+        card: 'border-violet-200 bg-gradient-to-br from-violet-50 to-white',
+        chip: 'bg-violet-100 text-violet-800',
+        off: 'border-violet-100 bg-violet-50/40 opacity-70',
+    },
     sky: {
         card: 'border-sky-200 bg-gradient-to-br from-sky-50 to-white',
         chip: 'bg-sky-100 text-sky-800',
@@ -54,6 +59,8 @@ export function moduleTone(keyOrTone) {
 const KEY_TONES = {
     today: 'amber',
     brand: 'rose',
+    business: 'signal',
+    studio: 'emerald',
     media: 'sky',
     social: 'fuchsia',
     seo: 'emerald',
@@ -61,6 +68,7 @@ const KEY_TONES = {
     channels: 'sky',
     whatsapp: 'emerald',
     crm: 'amber',
+    analytics: 'emerald',
     funnels: 'fuchsia',
     billing: 'emerald',
     settings: 'signal',

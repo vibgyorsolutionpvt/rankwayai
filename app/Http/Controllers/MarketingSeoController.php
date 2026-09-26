@@ -14,6 +14,7 @@ class MarketingSeoController extends Controller
             'User-agent: *',
             'Allow: /',
             'Disallow: /home',
+            'Disallow: /dashboard',
             'Disallow: /today',
             'Disallow: /seo',
             'Disallow: /settings',

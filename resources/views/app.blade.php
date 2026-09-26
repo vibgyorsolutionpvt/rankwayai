@@ -6,9 +6,12 @@
 
         <title inertia>{{ config('app.name', 'rankwayAI') }}</title>
         <meta name="application-name" content="{{ config('app.name', 'rankwayAI') }}">
-        <meta name="theme-color" content="#0B1F2A">
-        <link rel="icon" href="/img/rankwayai-logo.png" type="image/png">
-        <link rel="apple-touch-icon" href="/img/rankwayai-logo.png">
+        <meta name="theme-color" content="#000521">
+        <link rel="icon" href="/img/rankwayai-icon.png?v=3" type="image/png" sizes="any">
+        <link rel="icon" href="/favicon-32.png?v=3" type="image/png" sizes="32x32">
+        <link rel="icon" href="/favicon-16.png?v=3" type="image/png" sizes="16x16">
+        <link rel="apple-touch-icon" href="/img/rankwayai-apple-touch.png?v=3">
+        <link rel="shortcut icon" href="/favicon.ico?v=3">
 
         <link rel="preconnect" href="https://fonts.bunny.net">
         <link href="https://fonts.bunny.net/css?family=outfit:500,600,700,800|plus-jakarta-sans:400,500,600,700,800&display=swap" rel="stylesheet" />

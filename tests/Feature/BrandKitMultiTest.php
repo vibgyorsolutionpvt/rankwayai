@@ -57,4 +57,39 @@ class BrandKitMultiTest extends TestCase
         $this->assertTrue((bool) $first->fresh()->is_active);
         $this->assertFalse((bool) $festival->fresh()->is_active);
     }
+
+    public function test_brand_kit_saves_extended_style_fields(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('brand.edit'))
+            ->assertOk();
+
+        $kit = BrandKit::query()->where('workspace_id', $workspace->id)->firstOrFail();
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('brand.update', $kit), [
+                'name' => 'Default',
+                'primary_color' => '#0E9F90',
+                'secondary_color' => '#0B1220',
+                'accent_color' => '#F59E0B',
+                'font_family' => 'Plus Jakarta Sans',
+                'heading_font' => 'Playfair Display',
+                'brand_tone' => 'luxury',
+                'default_header' => 'Vibgyor Holidays',
+                'default_footer' => 'Terms apply.',
+                'default_cta_label' => 'Book now',
+            ])
+            ->assertRedirect();
+
+        $kit->refresh();
+        $this->assertSame('#F59E0B', $kit->accent_color);
+        $this->assertSame('Playfair Display', $kit->heading_font);
+        $this->assertSame('luxury', $kit->brand_tone);
+        $this->assertSame('Vibgyor Holidays', $kit->default_header);
+        $this->assertSame('Playfair Display', $kit->styleTokens()['heading_font']);
+    }
 }

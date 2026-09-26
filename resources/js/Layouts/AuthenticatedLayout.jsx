@@ -1,11 +1,182 @@
+import BrandLogo from '@/Components/BrandLogo';
 import ApplicationLogo from '@/Components/ApplicationLogo';
-import BrandName from '@/Components/BrandName';
 import CreateWorkspaceModal from '@/Components/CreateWorkspaceModal';
 import Dropdown from '@/Components/Dropdown';
 import SocialConnectionAlertModal from '@/Components/SocialConnectionAlertModal';
 import { AppFeedback } from '@/Components/ToastProvider';
 import { Link, router, usePage } from '@inertiajs/react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+
+const SIDEBAR_SECTIONS = [
+    {
+        title: 'Dashboard',
+        icon: 'today',
+        items: [{ label: 'Dashboard', key: 'today', icon: 'today', tone: 'amber' }],
+    },
+    {
+        title: 'Business',
+        icon: 'platform',
+        items: [
+            {
+                label: 'Business Profile',
+                key: 'business',
+                icon: 'platform',
+                tone: 'signal',
+            },
+            { label: 'Brand Kit', key: 'brand', icon: 'brand', tone: 'rose' },
+        ],
+    },
+    {
+        title: 'Marketing',
+        icon: 'social',
+        items: [
+            { label: 'Social Media', key: 'social', icon: 'social', tone: 'fuchsia' },
+            { label: 'SEO', key: 'seo', icon: 'seo', tone: 'emerald' },
+            { label: 'WhatsApp', key: 'whatsapp', icon: 'whatsapp', tone: 'emerald' },
+            { label: 'Email', icon: 'channels', tone: 'sky', comingSoon: true },
+            { label: 'SMS', icon: 'channels', tone: 'sky', comingSoon: true },
+        ],
+    },
+    {
+        title: 'Leads',
+        icon: 'funnels',
+        items: [
+            { label: 'Lead Forms', icon: 'funnels', tone: 'fuchsia', comingSoon: true },
+            { label: 'Landing Pages', key: 'funnels', icon: 'funnels', tone: 'fuchsia' },
+            { label: 'Leads', key: 'crm', icon: 'crm', tone: 'amber', match: 'crm.*' },
+            { label: 'Automations', icon: 'crm', tone: 'fuchsia', comingSoon: true },
+        ],
+    },
+    {
+        title: 'Sales',
+        icon: 'crm',
+        items: [
+            { label: 'Customers', icon: 'crm', tone: 'sky', comingSoon: true },
+            {
+                label: 'Quotations',
+                key: 'studio',
+                routeName: 'studio.quotations.index',
+                match: 'studio.quotations.*',
+                icon: 'studio',
+                tone: 'violet',
+            },
+            { label: 'Proposals', icon: 'studio', tone: 'fuchsia', comingSoon: true },
+            { label: 'Bookings', icon: 'crm', tone: 'amber', comingSoon: true },
+            { label: 'Payments', icon: 'platform', tone: 'emerald', comingSoon: true },
+        ],
+    },
+    {
+        title: 'Business Studio',
+        icon: 'studio',
+        items: [
+            {
+                label: 'Business Card',
+                key: 'studio',
+                routeName: 'studio.cards.index',
+                match: 'studio.cards.*',
+                icon: 'studio',
+                tone: 'violet',
+            },
+            {
+                label: 'Brochure',
+                key: 'studio',
+                routeName: 'studio.brochures.index',
+                match: 'studio.brochures.*',
+                icon: 'media',
+                tone: 'sky',
+            },
+            { label: 'Catalogue', icon: 'blog', tone: 'fuchsia', comingSoon: true },
+            {
+                label: 'Itinerary',
+                key: 'studio',
+                routeName: 'studio.itineraries.index',
+                match: 'studio.itineraries.*',
+                icon: 'today',
+                tone: 'emerald',
+            },
+            { label: 'Document Studio', icon: 'studio', tone: 'rose', comingSoon: true },
+        ],
+    },
+    {
+        title: 'Analytics',
+        icon: 'analytics',
+        items: [
+            { label: 'Overview', key: 'analytics', icon: 'analytics', tone: 'emerald' },
+            { label: 'Marketing', key: 'analytics', icon: 'social', tone: 'emerald', noHighlight: true },
+            { label: 'Leads', key: 'analytics', icon: 'crm', tone: 'emerald', noHighlight: true },
+            { label: 'Sales & Revenue', key: 'analytics', icon: 'analytics', tone: 'emerald', noHighlight: true },
+            { label: 'Documents', key: 'analytics', icon: 'studio', tone: 'emerald', noHighlight: true },
+        ],
+    },
+    {
+        title: 'Workspace',
+        icon: 'workspace',
+        items: [
+            {
+                label: 'Team',
+                key: 'settings',
+                routeName: 'settings.index',
+                routeParams: { tab: 'workspace' },
+                match: 'settings.*',
+                icon: 'workspace',
+                tone: 'signal',
+                tabKey: 'workspace',
+            },
+            {
+                label: 'Integrations',
+                key: 'settings',
+                routeName: 'settings.index',
+                routeParams: { tab: 'providers' },
+                match: 'settings.*',
+                icon: 'platform',
+                tone: 'signal',
+                tabKey: 'providers',
+            },
+            {
+                label: 'Settings',
+                key: 'settings',
+                routeName: 'settings.index',
+                routeParams: { tab: 'account' },
+                match: 'settings.*',
+                icon: 'platform',
+                tone: 'signal',
+                tabKey: 'account',
+            },
+        ],
+    },
+];
+
+const MODULE_DEFAULTS = {
+    today: { routeName: 'dashboard', match: 'dashboard' },
+    business: { routeName: 'business.edit', match: 'business.*' },
+    brand: { routeName: 'brand.edit', match: 'brand.*' },
+    social: { routeName: 'social.index', match: 'social.*', routeParams: { view: 'calendar' } },
+    seo: { routeName: 'seo.index', match: 'seo.*' },
+    whatsapp: { routeName: 'whatsapp.index', match: 'whatsapp.*' },
+    funnels: { routeName: 'funnels.index', match: 'funnels.*' },
+    crm: { routeName: 'crm.index', match: 'crm.*' },
+    studio: { routeName: 'studio.cards.index', match: 'studio.*' },
+    analytics: { routeName: 'analytics.index', match: 'analytics.*' },
+    settings: { routeName: 'settings.index', match: 'settings.*' },
+};
+
+function RestrictedIcon({ className = 'h-3.5 w-3.5' }) {
+    return (
+        <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={className}
+            aria-hidden
+        >
+            <circle cx="12" cy="12" r="9" />
+            <path d="M8 8l8 8M16 8l-8 8" />
+        </svg>
+    );
+}
 
 function NavIcon({ name, className = 'h-4 w-4' }) {
     const common = {
@@ -32,6 +203,14 @@ function NavIcon({ name, className = 'h-4 w-4' }) {
                 <svg {...common}>
                     <circle cx="12" cy="12" r="8" />
                     <circle cx="12" cy="12" r="3" />
+                </svg>
+            );
+        case 'studio':
+            return (
+                <svg {...common}>
+                    <rect x="3" y="6" width="18" height="12" rx="2" />
+                    <path d="M8 10h8M8 14h5" />
+                    <circle cx="17" cy="14" r="1.5" fill="currentColor" stroke="none" />
                 </svg>
             );
         case 'media':
@@ -65,6 +244,42 @@ function NavIcon({ name, className = 'h-4 w-4' }) {
                     <path d="M8 8h8M8 12h8M8 16h5" />
                 </svg>
             );
+        case 'channels':
+            return (
+                <svg {...common}>
+                    <path d="M4 7h7v10H4zM13 7h7v10h-7z" />
+                    <path d="M7.5 10.5h0M7.5 13.5h0M16.5 10.5h0M16.5 13.5h0" />
+                </svg>
+            );
+        case 'funnels':
+            return (
+                <svg {...common}>
+                    <path d="M4 5h16l-5 7v5l-6 2v-7L4 5z" />
+                </svg>
+            );
+        case 'whatsapp':
+            return (
+                <svg {...common}>
+                    <path d="M7 18.5 4.5 20l.7-3.2A7.5 7.5 0 1 1 12 19.5a7.4 7.4 0 0 1-3.4-.9L7 18.5z" />
+                    <path d="M9.2 10.8c.3-.5.6-.5.8-.5h.3c.2 0 .4 0 .5.4l.7 1.7c.1.2 0 .4-.1.5l-.4.4c-.1.1-.2.3 0 .5.3.5 1.1 1.4 2.2 1.9.4.2.6.1.8 0l.5-.6c.1-.2.3-.2.5-.1l1.7.7c.3.1.4.3.4.5v.3c0 .2 0 .5-.5.8-.5.3-1.4.5-2.3.3-2.2-.4-4.6-2.2-5.7-4.4-.4-.8-.5-1.6-.3-2.2.2-.5.5-.7.8-.9z" />
+                </svg>
+            );
+        case 'crm':
+            return (
+                <svg {...common}>
+                    <circle cx="9" cy="8" r="3" />
+                    <circle cx="17" cy="9" r="2.5" />
+                    <path d="M3.5 18c.8-3 2.8-4.5 5.5-4.5S13.7 15 14.5 18" />
+                    <path d="M14 14.2c1.5-.5 3-.3 4.5.8.7.5 1.2 1.3 1.5 3" />
+                </svg>
+            );
+        case 'analytics':
+            return (
+                <svg {...common}>
+                    <path d="M4 19V5M4 19h16" />
+                    <path d="M8 16V11M12 16V8M16 16v-5" />
+                </svg>
+            );
         case 'workspace':
             return (
                 <svg {...common}>
@@ -88,65 +303,87 @@ function NavIcon({ name, className = 'h-4 w-4' }) {
     }
 }
 
-const toneStyles = {
-    amber: {
-        idle: 'text-amber-700 bg-amber-100',
-        active: 'bg-amber-500 text-white',
-        row: 'hover:bg-amber-50',
-        activeRow: 'bg-amber-500 text-white shadow-sm shadow-amber-500/25',
+const SECTION_TONES = {
+    Dashboard: {
+        btn: 'bg-sky-100 text-sky-900 hover:bg-sky-200/80',
+        active: 'bg-sky-200 text-sky-950 border-sky-400',
+        subActive: 'bg-sky-200/90 text-sky-950',
+        rail: 'border-sky-200',
     },
-    rose: {
-        idle: 'text-rose-700 bg-rose-100',
-        active: 'bg-rose-500 text-white',
-        row: 'hover:bg-rose-50',
-        activeRow: 'bg-rose-500 text-white shadow-sm shadow-rose-500/25',
+    Business: {
+        btn: 'bg-rose-50 text-rose-800 hover:bg-rose-100',
+        active: 'bg-rose-100 text-rose-950 border-rose-300',
+        subActive: 'bg-rose-200/80 text-rose-950',
+        rail: 'border-rose-200',
     },
-    sky: {
-        idle: 'text-sky-700 bg-sky-100',
-        active: 'bg-sky-500 text-white',
-        row: 'hover:bg-sky-50',
-        activeRow: 'bg-sky-500 text-white shadow-sm shadow-sky-500/25',
+    Marketing: {
+        btn: 'bg-fuchsia-50 text-fuchsia-800 hover:bg-fuchsia-100',
+        active: 'bg-fuchsia-100 text-fuchsia-950 border-fuchsia-300',
+        subActive: 'bg-fuchsia-200/80 text-fuchsia-950',
+        rail: 'border-fuchsia-200',
     },
-    fuchsia: {
-        idle: 'text-fuchsia-700 bg-fuchsia-100',
-        active: 'bg-fuchsia-500 text-white',
-        row: 'hover:bg-fuchsia-50',
-        activeRow: 'bg-fuchsia-500 text-white shadow-sm shadow-fuchsia-500/25',
+    Leads: {
+        btn: 'bg-amber-50 text-amber-900 hover:bg-amber-100',
+        active: 'bg-amber-100 text-amber-950 border-amber-300',
+        subActive: 'bg-amber-200/90 text-amber-950',
+        rail: 'border-amber-200',
     },
-    emerald: {
-        idle: 'text-emerald-700 bg-emerald-100',
-        active: 'bg-emerald-500 text-white',
-        row: 'hover:bg-emerald-50',
-        activeRow: 'bg-emerald-500 text-white shadow-sm shadow-emerald-500/25',
+    Sales: {
+        btn: 'bg-violet-50 text-violet-800 hover:bg-violet-100',
+        active: 'bg-violet-100 text-violet-950 border-violet-300',
+        subActive: 'bg-violet-200/80 text-violet-950',
+        rail: 'border-violet-200',
     },
-    signal: {
-        idle: 'text-signal-strong bg-signal-soft',
-        active: 'bg-signal text-white',
-        row: 'hover:bg-signal-soft/70',
-        activeRow: 'bg-signal text-white shadow-sm shadow-signal/30',
+    'Business Studio': {
+        btn: 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100',
+        active: 'bg-emerald-100 text-emerald-950 border-emerald-300',
+        subActive: 'bg-emerald-200/80 text-emerald-950',
+        rail: 'border-emerald-200',
     },
-    ink: {
-        idle: 'text-ink bg-mist-deep',
-        active: 'bg-ink text-white',
-        row: 'hover:bg-mist',
-        activeRow: 'bg-ink text-white shadow-sm shadow-ink/20',
+    Analytics: {
+        btn: 'bg-teal-50 text-teal-800 hover:bg-teal-100',
+        active: 'bg-teal-100 text-teal-950 border-teal-300',
+        subActive: 'bg-teal-200/80 text-teal-950',
+        rail: 'border-teal-200',
+    },
+    Workspace: {
+        btn: 'bg-slate-100 text-slate-800 hover:bg-slate-200/80',
+        active: 'bg-slate-200 text-slate-950 border-slate-400',
+        subActive: 'bg-slate-200/90 text-slate-950',
+        rail: 'border-slate-200',
     },
 };
 
-function NavLink({ item, onNavigate }) {
-    const active = route().current(item.match);
-    const tone = toneStyles[item.tone] || toneStyles.signal;
+function itemIsActive(item, currentTab) {
+    if (item.comingSoon || item.noHighlight || !item.match) return false;
+    if (!route().current(item.match)) return false;
+    if (item.tabKey) return currentTab === item.tabKey;
+    return true;
+}
+
+function SubLink({ item, currentTab, onNavigate, tone }) {
+    const active = itemIsActive(item, currentTab);
     const locked = Boolean(item.locked);
-    const href = route(item.routeName, item.routeParams || {});
+    const restricted = Boolean(item.restricted);
+    const blocked = locked || restricted;
+    const href = item.routeName && !item.comingSoon && !blocked ? route(item.routeName, item.routeParams || {}) : '#';
+    const isDisabled = Boolean(item.comingSoon || !item.routeName || blocked);
+    const tip = item.comingSoon
+        ? 'Coming soon'
+        : restricted
+          ? 'Please enable this'
+          : locked
+            ? 'Paid plan required'
+            : undefined;
 
     const handleClick = (event) => {
-        onNavigate?.();
-
-        const isSocial = item.key === 'social' || item.routeName === 'social.index';
-        if (!isSocial || locked) {
+        if (isDisabled) {
+            event.preventDefault();
             return;
         }
-
+        onNavigate?.();
+        const isSocial = item.key === 'social' || item.routeName === 'social.index';
+        if (!isSocial || locked) return;
         event.preventDefault();
         window.location.assign(route('social.index', { view: 'calendar' }));
     };
@@ -156,42 +393,241 @@ function NavLink({ item, onNavigate }) {
             href={href}
             preserveState={item.key === 'social' ? false : undefined}
             onClick={handleClick}
-            title={locked ? 'Paid plan required' : undefined}
+            title={tip}
+            aria-disabled={isDisabled || undefined}
             className={
-                'group flex items-center gap-2.5 rounded-md px-2 py-2 text-sm font-semibold transition duration-150 ' +
-                (active
-                    ? tone.activeRow
-                    : locked
-                      ? 'text-ink-muted/70 hover:bg-mist hover:text-ink-muted'
-                      : `text-ink-muted ${tone.row} hover:text-ink`)
+                'block rounded-md px-2.5 py-2 text-[14px] transition ' +
+                (active && !blocked
+                    ? `font-semibold ${tone.subActive}`
+                    : isDisabled
+                      ? 'cursor-not-allowed text-ink-muted/55'
+                      : 'font-medium text-ink-muted hover:bg-black/[0.04] hover:text-ink')
             }
         >
-            <span
-                className={
-                    'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition ' +
-                    (active ? 'bg-white/20 text-white' : locked ? 'bg-mist text-ink-muted' : tone.idle)
-                }
-            >
-                <NavIcon name={item.icon} className="h-[15px] w-[15px]" />
-            </span>
-            <span className="min-w-0 flex-1 truncate">{item.label}</span>
-            {locked ? (
-                <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-ink-muted">
-                    Pro
+            <span className="flex items-center justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-2">
+                    <NavIcon name={item.icon} className="h-4 w-4 shrink-0 opacity-80" />
+                    <span className="truncate">{item.label}</span>
                 </span>
+                {item.comingSoon ? (
+                    <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide text-ink-muted/70">
+                        Soon
+                    </span>
+                ) : blocked ? (
+                    <span
+                        className="inline-flex shrink-0 items-center gap-1 text-ink-muted/70"
+                        title={tip}
+                    >
+                        <RestrictedIcon />
+                    </span>
+                ) : null}
+            </span>
+        </Link>
+    );
+}
+
+function TopLink({ item, currentTab, onNavigate, tone, collapsed = false }) {
+    const active = itemIsActive(item, currentTab);
+    const locked = Boolean(item.locked);
+    const restricted = Boolean(item.restricted);
+    const blocked = locked || restricted;
+    const href = item.routeName && !item.comingSoon && !blocked ? route(item.routeName, item.routeParams || {}) : '#';
+    const isDisabled = Boolean(item.comingSoon || !item.routeName || blocked);
+    const tip = restricted
+        ? 'Please enable this'
+        : locked
+          ? 'Paid plan required'
+          : item.label;
+
+    const handleClick = (event) => {
+        if (isDisabled) {
+            event.preventDefault();
+            return;
+        }
+        onNavigate?.();
+    };
+
+    return (
+        <Link
+            href={href}
+            onClick={handleClick}
+            title={tip}
+            aria-label={item.label}
+            aria-disabled={isDisabled || undefined}
+            className={
+                'flex w-full items-center rounded-lg border transition ' +
+                (collapsed ? 'justify-center px-2 py-2.5 ' : 'gap-2 px-3 py-2.5 text-[15px] font-semibold ') +
+                (active && !blocked
+                    ? tone.active
+                    : isDisabled
+                      ? 'cursor-not-allowed border-transparent text-ink-muted/55'
+                      : 'border-transparent text-ink-muted hover:bg-black/[0.04] hover:text-ink')
+            }
+        >
+            {blocked ? (
+                <RestrictedIcon className="h-4 w-4 shrink-0" />
+            ) : (
+                <NavIcon name={item.icon} className="h-4 w-4 shrink-0" />
+            )}
+            {!collapsed ? (
+                <>
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    {blocked ? (
+                        <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide text-ink-muted/70">
+                            {locked ? 'Pro' : 'Off'}
+                        </span>
+                    ) : null}
+                </>
             ) : null}
         </Link>
     );
 }
 
+function NavGroups({
+    sections,
+    openSections,
+    onToggleSection,
+    currentTab,
+    onNavigate,
+    collapsed = false,
+    onExpandSection,
+}) {
+    return (
+        <nav className="space-y-2">
+            {sections.map((group) => {
+                const tone = SECTION_TONES[group.title] || SECTION_TONES.Workspace;
+                const isSingle = group.items.length === 1;
+                const isOpen = Boolean(openSections[group.title]);
+
+                if (isSingle) {
+                    return (
+                        <TopLink
+                            key={group.title}
+                            item={group.items[0]}
+                            currentTab={currentTab}
+                            onNavigate={onNavigate}
+                            tone={tone}
+                            collapsed={collapsed}
+                        />
+                    );
+                }
+
+                return (
+                    <div
+                        key={group.title}
+                        className={
+                            'overflow-hidden rounded-lg border transition ' +
+                            (isOpen && !collapsed
+                                ? 'border-line bg-white'
+                                : 'border-transparent bg-transparent')
+                        }
+                    >
+                        <button
+                            type="button"
+                            title={group.title}
+                            aria-label={group.title}
+                            onClick={() => {
+                                if (collapsed) {
+                                    onExpandSection?.(group.title);
+                                    return;
+                                }
+                                onToggleSection(group.title);
+                            }}
+                            className={
+                                'flex w-full items-center transition ' +
+                                (collapsed
+                                    ? 'justify-center rounded-lg px-2 py-2.5 '
+                                    : 'justify-between gap-2 px-3 py-2.5 text-left text-[13px] font-bold uppercase tracking-[0.06em] ') +
+                                (isOpen && !collapsed
+                                    ? `rounded-t-lg ${tone.active}`
+                                    : `rounded-lg ${tone.btn}`)
+                            }
+                        >
+                            <span
+                                className={
+                                    'flex items-center ' +
+                                    (collapsed ? '' : 'min-w-0 gap-2')
+                                }
+                            >
+                                <NavIcon name={group.icon} className="h-4 w-4 shrink-0" />
+                                {!collapsed ? (
+                                    <span className="truncate">{group.title}</span>
+                                ) : null}
+                            </span>
+                            {!collapsed ? (
+                                <svg
+                                    viewBox="0 0 20 20"
+                                    fill="currentColor"
+                                    className={
+                                        'h-5 w-5 shrink-0 opacity-80 transition ' +
+                                        (isOpen ? 'rotate-180' : '')
+                                    }
+                                    aria-hidden
+                                >
+                                    <path
+                                        fillRule="evenodd"
+                                        d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+                                        clipRule="evenodd"
+                                    />
+                                </svg>
+                            ) : null}
+                        </button>
+                        {isOpen && !collapsed ? (
+                            <div
+                                className={`mx-2.5 mb-2 mt-1 space-y-0.5 border-l-2 bg-white py-0.5 pl-2.5 ${tone.rail}`}
+                            >
+                                {group.items.map((item) => (
+                                    <SubLink
+                                        key={`${group.title}-${item.label}`}
+                                        item={item}
+                                        currentTab={currentTab}
+                                        onNavigate={onNavigate}
+                                        tone={tone}
+                                    />
+                                ))}
+                            </div>
+                        ) : null}
+                    </div>
+                );
+            })}
+        </nav>
+    );
+}
+
 export default function AuthenticatedLayout({ header, children }) {
     const page = usePage().props;
+    const currentUrl = usePage().url || '';
     const user = page.auth.user;
     const workspaces = page.workspaces || [];
     const canCreateWorkspace = !!page.can_create_workspace;
     const activeWorkspace = page.activeWorkspace || null;
     const plan = page.plan || null;
     const [mobileOpen, setMobileOpen] = useState(false);
+    const [sidebarOpen, setSidebarOpen] = useState(() => {
+        if (typeof window === 'undefined') return true;
+        try {
+            return window.localStorage.getItem('rankway.sidebarCollapsed') !== '1';
+        } catch {
+            return true;
+        }
+    });
+    const [openSections, setOpenSections] = useState({});
+
+    const toggleDesktopSidebar = () => {
+        setSidebarOpen((open) => {
+            const next = !open;
+            try {
+                window.localStorage.setItem('rankway.sidebarCollapsed', next ? '0' : '1');
+            } catch {
+                // ignore
+            }
+            return next;
+        });
+    };
+    const currentTab = useMemo(() => {
+        const query = currentUrl.split('?')[1] || '';
+        return new URLSearchParams(query).get('tab');
+    }, [currentUrl]);
 
     const navItems = useMemo(() => {
         const allowed = plan?.modules || null;
@@ -216,6 +652,8 @@ export default function AuthenticatedLayout({ header, children }) {
                     match: item.match,
                     icon: item.icon,
                     tone: item.tone,
+                    group: item.group || 'Work',
+                    tabKey: item.tabKey || null,
                 }),
             );
         }
@@ -223,67 +661,166 @@ export default function AuthenticatedLayout({ header, children }) {
         return [];
     }, [page.navigation, plan, user?.is_superadmin]);
 
+    const sidebarSections = useMemo(() => {
+        const byKey = new Map(navItems.map((item) => [item.key, item]));
+
+        return SIDEBAR_SECTIONS.map((section) => ({
+            title: section.title,
+            icon: section.icon || 'platform',
+            items: section.items.map((spec) => {
+                const base = spec.key ? byKey.get(spec.key) : null;
+                const defaults = spec.key ? MODULE_DEFAULTS[spec.key] : null;
+                const icon = spec.icon || base?.icon || 'platform';
+                const tone = spec.tone || base?.tone || 'signal';
+                const locked = Boolean(base?.locked);
+                const comingSoon = Boolean(spec.comingSoon);
+                const restricted = Boolean(spec.key && !comingSoon && !base);
+
+                return {
+                    key: spec.key || `${section.title}-${spec.label}`,
+                    label: spec.label,
+                    routeName: spec.routeName || base?.routeName || defaults?.routeName,
+                    routeParams: spec.routeParams || base?.routeParams || defaults?.routeParams,
+                    match: comingSoon ? spec.match : (spec.match || base?.match || defaults?.match),
+                    icon,
+                    tone,
+                    locked,
+                    restricted,
+                    comingSoon,
+                    noHighlight: Boolean(spec.noHighlight),
+                    tabKey: spec.tabKey || base?.tabKey || null,
+                };
+            }),
+        })).filter((section) => section.items.length > 0);
+    }, [navItems]);
+
+    useEffect(() => {
+        const activeTitle = sidebarSections.find((section) =>
+            section.items.some((item) => itemIsActive(item, currentTab)),
+        )?.title;
+
+        if (!activeTitle || activeTitle === 'Dashboard') return;
+
+        setOpenSections((prev) => {
+            if (prev[activeTitle]) return prev;
+            return { [activeTitle]: true };
+        });
+    }, [sidebarSections, currentTab, currentUrl]);
+
+    const toggleSection = (title) => {
+        setOpenSections((prev) => {
+            if (prev[title]) return {};
+            return { [title]: true };
+        });
+    };
+
+    const expandSidebarSection = (title) => {
+        setSidebarOpen(true);
+        try {
+            window.localStorage.setItem('rankway.sidebarCollapsed', '0');
+        } catch {
+            // ignore
+        }
+        setOpenSections({ [title]: true });
+    };
+
     const homeHref = navItems[0] ? route(navItems[0].routeName) : route('profile.edit');
     const impersonating = Boolean(page.impersonating);
     const simulatingUser = Boolean(page.simulatingUser);
     const impersonator = page.impersonator;
+    const sidebarCollapsed = !sidebarOpen;
+
+    const sidebarBody = (
+        <>
+            <div className="flex-1 overflow-y-auto overflow-x-hidden pr-0.5">
+                <NavGroups
+                    sections={sidebarSections}
+                    openSections={openSections}
+                    onToggleSection={toggleSection}
+                    currentTab={currentTab}
+                    onNavigate={() => setMobileOpen(false)}
+                    collapsed={sidebarCollapsed}
+                    onExpandSection={expandSidebarSection}
+                />
+            </div>
+
+            {sidebarCollapsed ? (
+                <div
+                    className="mt-3 flex h-10 w-10 items-center justify-center self-center rounded-xl border border-line/80 bg-white/90 text-sm font-bold text-ink shadow-sm"
+                    title={user?.name || 'Signed in'}
+                >
+                    {(user?.name || 'U').charAt(0).toUpperCase()}
+                </div>
+            ) : (
+                <div className="mt-3 rounded-xl border border-line/80 bg-white/90 p-3 shadow-sm shadow-ink/5">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
+                        {simulatingUser
+                            ? 'Simulating'
+                            : user?.is_superadmin
+                              ? impersonating
+                                  ? 'Viewing as'
+                                  : 'Admin'
+                              : 'Signed in'}
+                    </div>
+                    <div className="mt-1 truncate text-sm font-semibold text-ink">{user?.name}</div>
+                    <div className="truncate text-xs text-ink-muted">{user?.email}</div>
+                    {simulatingUser ? (
+                        <button
+                            type="button"
+                            onClick={() => router.post(route('admin.leave-simulation'))}
+                            className="mt-2 w-full rounded-md bg-amber-600 px-2 py-1.5 text-xs font-semibold text-white"
+                        >
+                            Exit simulation
+                        </button>
+                    ) : impersonating ? (
+                        <button
+                            type="button"
+                            onClick={() => router.post(route('admin.leave-workspace'))}
+                            className="mt-2 w-full rounded-md bg-ink px-2 py-1.5 text-xs font-semibold text-white"
+                        >
+                            Exit workspace
+                        </button>
+                    ) : null}
+                </div>
+            )}
+        </>
+    );
 
     return (
-        <div className="min-h-screen lg:grid lg:grid-cols-[220px_1fr]">
+        <div className="flex min-h-screen">
             <AppFeedback />
             <SocialConnectionAlertModal />
-            <aside className="sticky top-0 z-30 hidden h-svh self-start overflow-y-auto border-r border-line bg-gradient-to-b from-white via-white to-signal-soft/30 lg:flex lg:flex-col">
-                <div className="flex min-h-full flex-col px-2.5 py-4">
-                    <Link href={homeHref} className="flex items-center gap-2 px-1.5">
-                        <ApplicationLogo className="h-8 w-8 shrink-0" />
-                        <div className="min-w-0">
-                            <BrandName className="text-base leading-none text-ink" />
-                            <div className="mt-1 truncate text-[10px] font-medium tracking-wide text-ink-muted">
-                                Rank · Reach · Convert
-                            </div>
-                        </div>
+            <aside
+                className={
+                    'sticky top-0 z-30 hidden h-svh shrink-0 self-start flex-col border-r border-line bg-gradient-to-b from-[#fcfcfe] via-white to-[#f5f8fb] transition-[width] duration-200 ease-out lg:flex ' +
+                    (sidebarCollapsed ? 'w-[4.75rem]' : 'w-[248px]')
+                }
+            >
+                <div
+                    className={
+                        'flex h-[4.75rem] shrink-0 items-center border-b border-line/70 ' +
+                        (sidebarCollapsed ? 'justify-center px-2' : 'px-3')
+                    }
+                >
+                    <Link href={homeHref} className="flex items-center justify-center">
+                        {sidebarCollapsed ? (
+                            <ApplicationLogo className="h-12 w-12" alt="RankwayAI" />
+                        ) : (
+                            <BrandLogo className="h-12 w-auto max-w-[210px]" />
+                        )}
                     </Link>
-
-                    <nav className="mt-6 space-y-1">
-                        {navItems.map((item) => (
-                            <NavLink key={item.routeName} item={item} />
-                        ))}
-                    </nav>
-
-                    <div className="mt-auto rounded-md border border-line bg-white/80 p-2.5">
-                        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-muted">
-                            {simulatingUser
-                                ? 'Simulating'
-                                : user?.is_superadmin
-                                  ? impersonating
-                                      ? 'Viewing as'
-                                      : 'Admin'
-                                  : 'Signed in'}
-                        </div>
-                        <div className="mt-1 truncate text-sm font-semibold text-ink">{user?.name}</div>
-                        <div className="truncate text-xs text-ink-muted">{user?.email}</div>
-                        {simulatingUser ? (
-                            <button
-                                type="button"
-                                onClick={() => router.post(route('admin.leave-simulation'))}
-                                className="mt-2 w-full rounded-md bg-amber-600 px-2 py-1.5 text-xs font-semibold text-white"
-                            >
-                                Exit simulation
-                            </button>
-                        ) : impersonating ? (
-                            <button
-                                type="button"
-                                onClick={() => router.post(route('admin.leave-workspace'))}
-                                className="mt-2 w-full rounded-md bg-ink px-2 py-1.5 text-xs font-semibold text-white"
-                            >
-                                Exit workspace
-                            </button>
-                        ) : null}
-                    </div>
+                </div>
+                <div
+                    className={
+                        'flex min-h-0 flex-1 flex-col py-3 ' +
+                        (sidebarCollapsed ? 'items-stretch px-2' : 'px-3')
+                    }
+                >
+                    {sidebarBody}
                 </div>
             </aside>
 
-            <div className="flex min-h-screen min-w-0 flex-col">
+            <div className="flex min-h-screen min-w-0 flex-1 flex-col">
                 {simulatingUser ? (
                     <div className="flex items-center justify-between gap-3 bg-amber-600 px-4 py-2 text-xs font-semibold text-white sm:px-6">
                         <span>
@@ -300,9 +837,7 @@ export default function AuthenticatedLayout({ header, children }) {
                     </div>
                 ) : impersonating ? (
                     <div className="flex items-center justify-between gap-3 bg-ink px-4 py-2 text-xs font-semibold text-white sm:px-6">
-                        <span>
-                            Super admin view · {activeWorkspace?.name || 'Workspace'}
-                        </span>
+                        <span>Super admin view · {activeWorkspace?.name || 'Workspace'}</span>
                         <button
                             type="button"
                             onClick={() => router.post(route('admin.leave-workspace'))}
@@ -313,24 +848,71 @@ export default function AuthenticatedLayout({ header, children }) {
                     </div>
                 ) : null}
                 <header className="sticky top-0 z-20 border-b border-line/70 bg-white/85 backdrop-blur-md">
-                    <div className="flex min-h-[4.75rem] items-center justify-between gap-3 px-4 py-3.5 sm:gap-4 sm:px-6 lg:min-h-[5.5rem] lg:py-4">
-                        <div className="flex min-w-0 items-center gap-2 lg:hidden">
+                    <div className="flex h-[4.75rem] items-center justify-between gap-3 px-4 sm:gap-4 sm:px-6">
+                        <div className="flex min-w-0 items-center gap-2">
                             <button
                                 type="button"
                                 onClick={() => setMobileOpen((v) => !v)}
-                                className="shrink-0 rounded-md border border-line px-2.5 py-1.5 text-sm font-semibold text-ink"
+                                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-line text-ink transition hover:bg-mist lg:hidden"
+                                aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+                                aria-expanded={mobileOpen}
                             >
-                                Menu
+                                <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="1.8"
+                                    className="h-4 w-4"
+                                    aria-hidden
+                                >
+                                    {mobileOpen ? (
+                                        <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+                                    ) : (
+                                        <path strokeLinecap="round" d="M4 6h16M4 12h16M4 18h16" />
+                                    )}
+                                </svg>
                             </button>
-                            <Link href={homeHref} className="flex min-w-0 items-center gap-2">
-                                <ApplicationLogo className="h-7 w-7 shrink-0" />
-                                <BrandName className="truncate text-base text-ink" />
+                            <button
+                                type="button"
+                                onClick={toggleDesktopSidebar}
+                                className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-md border border-line text-ink transition hover:bg-mist lg:inline-flex"
+                                aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+                                aria-expanded={sidebarOpen}
+                                title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+                            >
+                                <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="1.8"
+                                    className="h-4 w-4"
+                                    aria-hidden
+                                >
+                                    <rect x="3" y="4" width="18" height="16" rx="2" />
+                                    <path strokeLinecap="round" d="M9 4v16" />
+                                    {sidebarOpen ? (
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M14 9l-3 3 3 3"
+                                        />
+                                    ) : (
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M12 9l3 3-3 3"
+                                        />
+                                    )}
+                                </svg>
+                            </button>
+                            <Link href={homeHref} className="flex min-w-0 items-center lg:hidden">
+                                <BrandLogo className="h-10 w-auto max-w-[180px]" />
                             </Link>
                         </div>
 
-                        <div className="hidden min-w-0 flex-1 lg:block">{header}</div>
+                        <div className="hidden min-w-0 flex-1 items-center lg:flex">{header}</div>
 
-                        <div className="ml-auto flex shrink-0 items-center gap-2 self-center">
+                        <div className="ml-auto flex shrink-0 items-center gap-2">
                             {canCreateWorkspace ? (
                                 <CreateWorkspaceModal
                                     buttonLabel="Create workspace"
@@ -363,7 +945,10 @@ export default function AuthenticatedLayout({ header, children }) {
                                             </svg>
                                         </button>
                                     </Dropdown.Trigger>
-                                    <Dropdown.Content width="48" contentClasses="py-1 bg-white max-h-72 overflow-y-auto">
+                                    <Dropdown.Content
+                                        width="48"
+                                        contentClasses="py-1 bg-white max-h-72 overflow-y-auto"
+                                    >
                                         <div className="border-b border-line px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
                                             Workspaces
                                         </div>
@@ -401,7 +986,9 @@ export default function AuthenticatedLayout({ header, children }) {
                                             );
                                         })}
                                         <div className="border-t border-line px-1 py-1">
-                                            <Dropdown.Link href={route('settings.index', { tab: 'workspace' })}>
+                                            <Dropdown.Link
+                                                href={route('settings.index', { tab: 'workspace' })}
+                                            >
                                                 Manage workspaces…
                                             </Dropdown.Link>
                                         </div>
@@ -540,14 +1127,14 @@ export default function AuthenticatedLayout({ header, children }) {
                     </div>
 
                     {mobileOpen ? (
-                        <div className="space-y-1 border-t border-line bg-white px-2 py-2 lg:hidden">
-                            {navItems.map((item) => (
-                                <NavLink
-                                    key={item.routeName}
-                                    item={item}
-                                    onNavigate={() => setMobileOpen(false)}
-                                />
-                            ))}
+                        <div className="max-h-[70vh] space-y-1 overflow-y-auto border-t border-line bg-[#f7f8fb] px-3 py-3 lg:hidden">
+                            <NavGroups
+                                sections={sidebarSections}
+                                openSections={openSections}
+                                onToggleSection={toggleSection}
+                                currentTab={currentTab}
+                                onNavigate={() => setMobileOpen(false)}
+                            />
                         </div>
                     ) : null}
                 </header>

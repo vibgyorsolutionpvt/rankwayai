@@ -178,7 +178,7 @@ export const SEO_HELP = {
 
 export const HELP = {
     today: entry(
-        'Today',
+        'Dashboard',
         {
             what: 'आपका डेली होम — SEO टास्क, सोशल पोस्ट, ब्रांड और रैंक एक जगह।',
             how: [

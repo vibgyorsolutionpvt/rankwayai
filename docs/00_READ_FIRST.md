@@ -19,13 +19,14 @@
 
 ## How to work in this repo
 
-1. Read `EXECUTION_PLAN.md` once for the big picture.
-2. Open **only** the current sprint folder under `sprints/`.
-3. Follow `TASK.md` + `ACCEPTANCE.md`.
-4. Do not invent V2 features.
-5. Do not hardcode any client brand, domain, or niche calendar.
-6. After acceptance passes, stop and wait for the next sprint unlock.
-7. **One Laravel app at the repo root** (Inertia + React). Docs live in `docs/` + `sprints/`.
+1. Read `docs/MASTER_SPEC_TASK_LIST.md` — **your** master-spec checklist + UI map (verify here).
+2. Read `EXECUTION_PLAN.md` once for the big picture (if present).
+3. Open **only** the current sprint folder under `sprints/` when using sprint packs.
+4. Follow `TASK.md` + `ACCEPTANCE.md` for sprints.
+5. Do not invent V2 features outside the active checklist item.
+6. Do not hardcode any client brand, domain, or niche calendar.
+7. After acceptance passes, stop and wait for the next sprint unlock.
+8. **One Laravel app at the repo root** (Inertia + React). Docs live in `docs/` + `sprints/`.
 
 
 ## Current priority order

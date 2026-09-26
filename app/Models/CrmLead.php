@@ -19,13 +19,24 @@ class CrmLead extends Model
         'value_cents',
         'notes',
         'last_contacted_at',
+        'score',
+        'score_band',
+        'score_reason',
+        'score_source',
+        'scored_at',
+        'next_action',
+        'follow_up_suggestion',
+        'follow_up_due_at',
     ];
 
     protected function casts(): array
     {
         return [
             'last_contacted_at' => 'datetime',
+            'scored_at' => 'datetime',
+            'follow_up_due_at' => 'datetime',
             'value_cents' => 'integer',
+            'score' => 'integer',
         ];
     }
 
@@ -42,6 +53,11 @@ class CrmLead extends Model
     public function quotations(): HasMany
     {
         return $this->hasMany(CrmQuotation::class)->latest();
+    }
+
+    public function studioQuotations(): HasMany
+    {
+        return $this->hasMany(Quotation::class)->latest();
     }
 
     public function attachments(): HasMany
@@ -94,6 +110,14 @@ class CrmLead extends Model
             'notes' => $this->notes,
             'last_contacted_at' => $this->last_contacted_at?->timezone(config('app.timezone'))->format('d M Y, g:i A'),
             'created_at' => $this->created_at?->timezone(config('app.timezone'))->format('d M Y'),
+            'score' => $this->score,
+            'score_band' => $this->score_band,
+            'score_reason' => $this->score_reason,
+            'score_source' => $this->score_source,
+            'scored_at' => $this->scored_at?->timezone(config('app.timezone'))->format('d M Y, g:i A'),
+            'next_action' => $this->next_action,
+            'follow_up_suggestion' => $this->follow_up_suggestion,
+            'follow_up_due_at' => $this->follow_up_due_at?->timezone(config('app.timezone'))->format('d M Y, g:i A'),
         ];
     }
 }

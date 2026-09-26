@@ -98,7 +98,7 @@ class ModuleAccessTest extends TestCase
 
         $this->actingAs($editor)
             ->withSession(['active_workspace_id' => $workspace->id])
-            ->get(route('today'))
+            ->get(route('dashboard'))
             ->assertRedirect();
     }
 

@@ -581,7 +581,7 @@ class AiLayerTest extends TestCase
 
         $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])
-            ->get(route('today'))
+            ->get(route('dashboard'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page->component('Today/Index'));
     }

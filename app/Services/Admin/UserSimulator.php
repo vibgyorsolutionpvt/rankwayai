@@ -62,7 +62,7 @@ class UserSimulator
         ]);
 
         return redirect()
-            ->route($workspace ? 'today' : 'workspaces.index')
+            ->route($workspace ? 'dashboard' : 'workspaces.index')
             ->with('success', 'Simulating '.$target->name.' — actions are logged.');
     }
 

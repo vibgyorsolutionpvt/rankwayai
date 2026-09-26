@@ -47,7 +47,7 @@ class TeamMonitoringTest extends TestCase
 
         $this->actingAs($admin)
             ->post(route('admin.users.simulate', $client))
-            ->assertRedirect(route('today'));
+            ->assertRedirect(route('dashboard'));
 
         $this->assertAuthenticatedAs($client);
         $this->assertSame($admin->id, session('impersonator_id'));

@@ -19,11 +19,24 @@ class Workspace extends Model
     protected $fillable = [
         'name',
         'slug',
+        'business_type',
         'industry',
         'city',
+        'state',
+        'country',
+        'postal_code',
+        'address',
         'phone',
+        'whatsapp',
         'email',
         'website',
+        'tagline',
+        'description',
+        'services',
+        'products',
+        'target_audience',
+        'working_hours',
+        'social_links',
         'enabled_modules',
         'enabled_social_platforms',
     ];
@@ -33,6 +46,9 @@ class Workspace extends Model
         return [
             'enabled_modules' => 'array',
             'enabled_social_platforms' => 'array',
+            'services' => 'array',
+            'products' => 'array',
+            'social_links' => 'array',
         ];
     }
 
@@ -74,6 +90,26 @@ class Workspace extends Model
     public function brandKits(): HasMany
     {
         return $this->hasMany(BrandKit::class);
+    }
+
+    public function businessCards(): HasMany
+    {
+        return $this->hasMany(BusinessCard::class);
+    }
+
+    public function brochures(): HasMany
+    {
+        return $this->hasMany(Brochure::class);
+    }
+
+    public function itineraries(): HasMany
+    {
+        return $this->hasMany(Itinerary::class);
+    }
+
+    public function quotations(): HasMany
+    {
+        return $this->hasMany(Quotation::class);
     }
 
     /**
@@ -180,7 +216,13 @@ class Workspace extends Model
     {
         $value = trim((string) ($this->industry ?? ''));
 
-        return $value !== '' && $value !== 'local business' ? $value : null;
+        if ($value !== '' && $value !== 'local business') {
+            return $value;
+        }
+
+        $fromType = \App\Support\BusinessTypes::label($this->business_type);
+
+        return $fromType;
     }
 
     public function resolvedCity(): ?string
@@ -206,6 +248,16 @@ class Workspace extends Model
         $fromKit = trim((string) ($this->resolveBrandKit()?->phone ?? ''));
 
         return $fromKit !== '' ? $fromKit : null;
+    }
+
+    public function resolvedWhatsapp(): ?string
+    {
+        $value = trim((string) ($this->whatsapp ?? ''));
+        if ($value !== '') {
+            return $value;
+        }
+
+        return $this->resolvedPhone();
     }
 
     public function resolvedEmail(): ?string
@@ -235,12 +287,44 @@ class Workspace extends Model
     }
 
     /**
-     * @return array{phone:?string,email:?string,website:?string}
+     * Full business profile payload for Settings / documents / AI.
+     *
+     * @return array<string, mixed>
+     */
+    public function businessProfile(): array
+    {
+        return [
+            'business_name' => $this->name,
+            'business_type' => $this->business_type,
+            'business_type_label' => \App\Support\BusinessTypes::label($this->business_type),
+            'industry' => $this->resolvedIndustry(),
+            'tagline' => $this->tagline,
+            'description' => $this->description,
+            'phone' => $this->resolvedPhone(),
+            'whatsapp' => $this->resolvedWhatsapp(),
+            'email' => $this->resolvedEmail(),
+            'website' => $this->resolvedWebsite(),
+            'address' => $this->address,
+            'city' => $this->resolvedCity(),
+            'state' => $this->state,
+            'country' => $this->country,
+            'postal_code' => $this->postal_code,
+            'services' => array_values(array_filter($this->services ?? [])),
+            'products' => array_values(array_filter($this->products ?? [])),
+            'target_audience' => $this->target_audience,
+            'working_hours' => $this->working_hours,
+            'social_links' => $this->social_links ?? [],
+        ];
+    }
+
+    /**
+     * @return array{phone:?string,email:?string,website:?string,whatsapp:?string}
      */
     public function contactDetails(): array
     {
         return [
             'phone' => $this->resolvedPhone(),
+            'whatsapp' => $this->resolvedWhatsapp(),
             'email' => $this->resolvedEmail(),
             'website' => $this->resolvedWebsite(),
         ];
@@ -251,6 +335,7 @@ class Workspace extends Model
         $contact = $this->contactDetails();
 
         return ($contact['phone'] ?? null) !== null
+            || ($contact['whatsapp'] ?? null) !== null
             || ($contact['email'] ?? null) !== null
             || ($contact['website'] ?? null) !== null;
     }

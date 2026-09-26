@@ -228,7 +228,7 @@ class PlatformAdminController extends Controller
         ]);
 
         return redirect()
-            ->route('today')
+            ->route('dashboard')
             ->with('success', 'Viewing workspace: '.$workspace->name);
     }
 
@@ -560,12 +560,12 @@ class PlatformAdminController extends Controller
         UserSimulator $simulator
     ): RedirectResponse {
         if ($simulator->isSimulating($request)) {
-            return redirect()->route('today');
+            return redirect()->route('dashboard');
         }
 
         if ($request->user()?->is_superadmin) {
             if ($request->session()->get('impersonate_workspace_id')) {
-                return redirect()->route('today');
+                return redirect()->route('dashboard');
             }
 
             return redirect()->route('admin.dashboard');

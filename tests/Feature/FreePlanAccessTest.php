@@ -27,7 +27,7 @@ class FreePlanAccessTest extends TestCase
         $plans = app(PlanAccess::class);
         $this->assertFalse($plans->isPaid($workspace->subscription));
         $this->assertSame(
-            ['seo', 'billing', 'settings'],
+            ['seo', 'billing', 'settings', 'business'],
             $plans->modulesFor($workspace)
         );
         $this->assertTrue($plans->allows($workspace, 'seo_audit'));
@@ -166,7 +166,7 @@ class FreePlanAccessTest extends TestCase
 
         $this->actingAs($member)
             ->withSession(['active_workspace_id' => $workspace->id])
-            ->get(route('today'))
+            ->get(route('dashboard'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page->component('Today/Index'));
     }

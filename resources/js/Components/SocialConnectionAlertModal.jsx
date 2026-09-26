@@ -75,15 +75,14 @@ function safeRoute(name, params, fallback) {
 function isDashboardPage() {
     if (typeof window === 'undefined') return false;
     const pathname = (window.location.pathname || '').replace(/\/+$/, '') || '/';
-    if (pathname === '/today' || pathname === '/admin' || pathname === '/dashboard' || pathname === '/home') {
+    if (pathname === '/admin' || pathname === '/dashboard' || pathname === '/home') {
         return true;
     }
     try {
         if (typeof route === 'function') {
             if (
-                route().current('today') ||
-                route().current('admin.dashboard') ||
                 route().current('dashboard') ||
+                route().current('admin.dashboard') ||
                 route().current('home')
             ) {
                 return true;

@@ -1,5 +1,5 @@
 import { Head, Link } from '@inertiajs/react';
-import ApplicationLogo from '@/Components/ApplicationLogo';
+import BrandLogo from '@/Components/BrandLogo';
 import BrandName from '@/Components/BrandName';
 import ContactChannels from '@/Components/Marketing/ContactChannels';
 
@@ -158,9 +158,8 @@ export default function Welcome({ auth, canLogin, canRegister, seo }) {
             <div className="bg-mist text-ink">
                 <header className="sticky top-0 z-50 border-b border-line/70 bg-mist/90 backdrop-blur-sm">
                     <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-5">
-                        <Link href="/" className="flex items-center gap-3" aria-label="RankwayAI home">
-                            <ApplicationLogo className="h-11 w-11 sm:h-12 sm:w-12" />
-                            <BrandName className="text-xl text-ink sm:text-2xl" />
+                        <Link href="/" className="flex items-center" aria-label="RankwayAI home">
+                            <BrandLogo className="h-9 w-auto sm:h-10" />
                         </Link>
                         <nav className="hidden items-center gap-1 md:flex" aria-label="Marketing">
                             <Link
@@ -406,13 +405,8 @@ export default function Welcome({ auth, canLogin, canRegister, seo }) {
                 <footer className="border-t border-line bg-white/80">
                     <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                         <div className="flex items-center gap-2.5">
-                            <ApplicationLogo className="h-8 w-8" />
-                            <div>
-                                <BrandName className="text-sm text-ink" />
-                                <p className="mt-0.5 text-xs text-ink-muted">
-                                    Marketing OS for growth teams.
-                                </p>
-                            </div>
+                            <BrandLogo className="h-8 w-auto max-w-[160px]" />
+                            <p className="text-xs text-ink-muted">Marketing OS for growth teams.</p>
                         </div>
                         <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm font-semibold text-ink-muted">
                             <Link href={route('about')} className="transition hover:text-ink">
