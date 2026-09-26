@@ -1,20 +1,29 @@
 <?php
 
 use App\Http\Controllers\AiStudioController;
+use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\BlogController;
 use App\Http\Controllers\EditorMediaController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\BillingWebhookController;
 use App\Http\Controllers\BrandKitController;
+use App\Http\Controllers\BusinessProfileController;
+use App\Http\Controllers\BrochureController;
+use App\Http\Controllers\BusinessCardController;
 use App\Http\Controllers\ChannelsController;
 use App\Http\Controllers\CrmController;
 use App\Http\Controllers\FunnelController;
 use App\Http\Controllers\IntegrationsController;
+use App\Http\Controllers\ItineraryController;
 use App\Http\Controllers\MediaLibraryController;
 use App\Http\Controllers\MarketingController;
 use App\Http\Controllers\MarketingSeoController;
 use App\Http\Controllers\PlatformAdminController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\PublicBrochureController;
+use App\Http\Controllers\PublicBusinessCardController;
+use App\Http\Controllers\PublicQuotationController;
+use App\Http\Controllers\QuotationController;
 use App\Http\Controllers\SeoController;
 use App\Http\Controllers\SeoV2Controller;
 use App\Http\Controllers\AccountTeamController;
@@ -72,6 +81,30 @@ Route::post('/f/{slug}/lead', [FunnelController::class, 'captureLead'])
     ->middleware('throttle:30,1')
     ->name('funnels.lead');
 
+Route::get('/c/{token}', [PublicBusinessCardController::class, 'show'])
+    ->name('studio.cards.public');
+Route::post('/c/{token}/track', [PublicBusinessCardController::class, 'track'])
+    ->middleware('throttle:60,1')
+    ->name('studio.cards.public.track');
+
+Route::get('/b/{token}', [PublicBrochureController::class, 'show'])
+    ->name('studio.brochures.public');
+Route::post('/b/{token}/track', [PublicBrochureController::class, 'track'])
+    ->middleware('throttle:60,1')
+    ->name('studio.brochures.public.track');
+Route::get('/b/{token}/pdf', [PublicBrochureController::class, 'pdf'])
+    ->middleware('throttle:30,1')
+    ->name('studio.brochures.public.pdf');
+
+Route::get('/q/{token}', [PublicQuotationController::class, 'show'])
+    ->name('studio.quotations.public');
+Route::post('/q/{token}/track', [PublicQuotationController::class, 'track'])
+    ->middleware('throttle:60,1')
+    ->name('studio.quotations.public.track');
+Route::get('/q/{token}/pdf', [PublicQuotationController::class, 'pdf'])
+    ->middleware('throttle:30,1')
+    ->name('studio.quotations.public.pdf');
+
 Route::post('/webhooks/stripe', [BillingWebhookController::class, 'stripe'])
     ->middleware('throttle:120,1')
     ->name('webhooks.stripe');
@@ -118,13 +151,50 @@ Route::middleware(['auth', 'verified', 'workspace.setup', 'module'])->group(func
     });
 
     // Client Marketing OS
-    Route::get('/today', TodayController::class)->name('today');
+    Route::redirect('/today', '/dashboard', 301);
+    Route::get('/dashboard', TodayController::class)->name('dashboard');
+    Route::get('/business', [BusinessProfileController::class, 'edit'])->name('business.edit');
     Route::get('/brand', [BrandKitController::class, 'edit'])->name('brand.edit');
     Route::post('/brand', [BrandKitController::class, 'store'])->name('brand.store');
     Route::post('/brand/{brand}', [BrandKitController::class, 'update'])->name('brand.update');
     Route::post('/brand/{brand}/activate', [BrandKitController::class, 'activate'])->name('brand.activate');
     Route::delete('/brand/{brand}', [BrandKitController::class, 'destroy'])->name('brand.destroy');
     Route::delete('/brand/{brand}/logo', [BrandKitController::class, 'destroyLogo'])->name('brand.logo.destroy');
+    Route::delete('/brand/{brand}/secondary-logo', [BrandKitController::class, 'destroySecondaryLogo'])->name('brand.secondary_logo.destroy');
+    Route::delete('/brand/{brand}/favicon', [BrandKitController::class, 'destroyFavicon'])->name('brand.favicon.destroy');
+
+    Route::get('/studio/cards', [BusinessCardController::class, 'index'])->name('studio.cards.index');
+    Route::post('/studio/cards', [BusinessCardController::class, 'store'])->name('studio.cards.store');
+    Route::get('/studio/cards/{card}/edit', [BusinessCardController::class, 'edit'])->name('studio.cards.edit');
+    Route::post('/studio/cards/{card}', [BusinessCardController::class, 'update'])->name('studio.cards.update');
+    Route::post('/studio/cards/{card}/duplicate', [BusinessCardController::class, 'duplicate'])->name('studio.cards.duplicate');
+    Route::get('/studio/cards/{card}/pdf', [BusinessCardController::class, 'pdf'])->name('studio.cards.pdf');
+    Route::delete('/studio/cards/{card}', [BusinessCardController::class, 'destroy'])->name('studio.cards.destroy');
+
+    Route::get('/studio/brochures', [BrochureController::class, 'index'])->name('studio.brochures.index');
+    Route::post('/studio/brochures', [BrochureController::class, 'store'])->name('studio.brochures.store');
+    Route::get('/studio/brochures/{brochure}/edit', [BrochureController::class, 'edit'])->name('studio.brochures.edit');
+    Route::post('/studio/brochures/{brochure}', [BrochureController::class, 'update'])->name('studio.brochures.update');
+    Route::post('/studio/brochures/{brochure}/duplicate', [BrochureController::class, 'duplicate'])->name('studio.brochures.duplicate');
+    Route::get('/studio/brochures/{brochure}/pdf', [BrochureController::class, 'pdf'])->name('studio.brochures.pdf');
+    Route::delete('/studio/brochures/{brochure}', [BrochureController::class, 'destroy'])->name('studio.brochures.destroy');
+
+    Route::get('/studio/itineraries', [ItineraryController::class, 'index'])->name('studio.itineraries.index');
+    Route::post('/studio/itineraries', [ItineraryController::class, 'store'])->name('studio.itineraries.store');
+    Route::get('/studio/itineraries/{itinerary}/edit', [ItineraryController::class, 'edit'])->name('studio.itineraries.edit');
+    Route::post('/studio/itineraries/{itinerary}', [ItineraryController::class, 'update'])->name('studio.itineraries.update');
+    Route::post('/studio/itineraries/{itinerary}/duplicate', [ItineraryController::class, 'duplicate'])->name('studio.itineraries.duplicate');
+    Route::post('/studio/itineraries/{itinerary}/regenerate-day', [ItineraryController::class, 'regenerateDay'])->name('studio.itineraries.regenerate-day');
+    Route::post('/studio/itineraries/{itinerary}/quotation', [QuotationController::class, 'fromItinerary'])->name('studio.itineraries.quotation');
+    Route::delete('/studio/itineraries/{itinerary}', [ItineraryController::class, 'destroy'])->name('studio.itineraries.destroy');
+
+    Route::get('/studio/quotations', [QuotationController::class, 'index'])->name('studio.quotations.index');
+    Route::post('/studio/quotations', [QuotationController::class, 'store'])->name('studio.quotations.store');
+    Route::get('/studio/quotations/{quotation}/edit', [QuotationController::class, 'edit'])->name('studio.quotations.edit');
+    Route::post('/studio/quotations/{quotation}', [QuotationController::class, 'update'])->name('studio.quotations.update');
+    Route::post('/studio/quotations/{quotation}/duplicate', [QuotationController::class, 'duplicate'])->name('studio.quotations.duplicate');
+    Route::get('/studio/quotations/{quotation}/pdf', [QuotationController::class, 'pdf'])->name('studio.quotations.pdf');
+    Route::delete('/studio/quotations/{quotation}', [QuotationController::class, 'destroy'])->name('studio.quotations.destroy');
 
     Route::get('/media', [MediaLibraryController::class, 'index'])->name('media.index');
     Route::get('/media/picker', [MediaLibraryController::class, 'picker'])->name('media.picker');
@@ -310,8 +380,12 @@ Route::middleware(['auth', 'verified', 'workspace.setup', 'module'])->group(func
     Route::delete('/crm/{lead}', [CrmController::class, 'destroy'])->name('crm.destroy');
     Route::post('/crm/{lead}/notes', [CrmController::class, 'storeNote'])->name('crm.notes.store');
     Route::post('/crm/{lead}/whatsapp', [CrmController::class, 'openWhatsApp'])->name('crm.whatsapp.open');
+    Route::post('/crm/{lead}/score', [CrmController::class, 'score'])->name('crm.score');
+    Route::post('/crm/{lead}/follow-up', [CrmController::class, 'suggestFollowUp'])->name('crm.follow-up');
     Route::get('/crm/{lead}/attachments/{attachment}/download', [CrmController::class, 'downloadAttachment'])->name('crm.attachments.download');
     Route::delete('/crm/{lead}/attachments/{attachment}', [CrmController::class, 'destroyAttachment'])->name('crm.attachments.destroy');
+
+    Route::get('/analytics', [AnalyticsController::class, 'index'])->name('analytics.index');
 
     Route::get('/billing', [BillingController::class, 'index'])->name('billing.index');
     Route::post('/billing/plan', [BillingController::class, 'updatePlan'])->name('billing.plan');

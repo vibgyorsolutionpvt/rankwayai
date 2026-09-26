@@ -23,6 +23,8 @@ const activityLabel = {
     whatsapp: 'WhatsApp',
     file: 'File',
     quotation: 'Quote',
+    score: 'Score',
+    follow_up: 'Follow-up',
 };
 
 const kindLabel = {
@@ -66,6 +68,20 @@ export default function Show({ workspace, lead, activities = [], conversations =
                         <span className="rounded border border-line px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
                             {stageLabel[lead.stage] || lead.stage}
                         </span>
+                        {lead.score_band ? (
+                            <span
+                                className={
+                                    'rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ' +
+                                    (lead.score_band === 'hot'
+                                        ? 'border-rose-200 bg-rose-50 text-rose-800'
+                                        : lead.score_band === 'warm'
+                                          ? 'border-amber-200 bg-amber-50 text-amber-900'
+                                          : 'border-line bg-mist text-ink-muted')
+                                }
+                            >
+                                {lead.score} {lead.score_band}
+                            </span>
+                        ) : null}
                     </div>
                 </div>
             }
@@ -109,6 +125,75 @@ export default function Show({ workspace, lead, activities = [], conversations =
 
                 <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
                     <aside className="space-y-4">
+                        <section className="atlas-panel p-4">
+                            <h3 className="font-display text-lg font-bold text-ink">AI score</h3>
+                            <div className="mt-3 flex flex-wrap items-center gap-2">
+                                {lead.score != null ? (
+                                    <>
+                                        <span
+                                            className={
+                                                'rounded-md px-2.5 py-1 text-sm font-bold ' +
+                                                (lead.score_band === 'hot'
+                                                    ? 'bg-rose-100 text-rose-800'
+                                                    : lead.score_band === 'warm'
+                                                      ? 'bg-amber-100 text-amber-900'
+                                                      : 'bg-slate-100 text-slate-700')
+                                            }
+                                        >
+                                            {lead.score} · {(lead.score_band || '').toUpperCase()}
+                                        </span>
+                                        <span className="text-[11px] text-ink-muted">
+                                            {lead.score_source || '—'}
+                                            {lead.scored_at ? ` · ${lead.scored_at}` : ''}
+                                        </span>
+                                    </>
+                                ) : (
+                                    <p className="text-sm text-ink-muted">Not scored yet.</p>
+                                )}
+                            </div>
+                            {lead.score_reason ? (
+                                <p className="mt-2 text-xs leading-relaxed text-ink-muted">{lead.score_reason}</p>
+                            ) : null}
+                            {lead.next_action ? (
+                                <p className="mt-2 text-sm font-semibold text-ink">Next: {lead.next_action}</p>
+                            ) : null}
+                            <div className="mt-3 flex flex-wrap gap-2">
+                                <SecondaryButton
+                                    type="button"
+                                    onClick={() => router.post(route('crm.score', lead.id))}
+                                >
+                                    Score lead
+                                </SecondaryButton>
+                                <SecondaryButton
+                                    type="button"
+                                    onClick={() => router.post(route('crm.follow-up', lead.id))}
+                                >
+                                    Suggest follow-up
+                                </SecondaryButton>
+                            </div>
+                            {lead.follow_up_suggestion ? (
+                                <div className="mt-3 rounded-lg border border-line bg-mist/40 p-3">
+                                    <div className="text-[10px] font-bold uppercase tracking-wide text-ink-muted">
+                                        Suggested message
+                                        {lead.follow_up_due_at ? ` · due ${lead.follow_up_due_at}` : ''}
+                                    </div>
+                                    <p className="mt-1 whitespace-pre-wrap text-sm text-ink">
+                                        {lead.follow_up_suggestion}
+                                    </p>
+                                    {lead.phone ? (
+                                        <a
+                                            href={`https://wa.me/${String(lead.phone).replace(/\D+/g, '')}?text=${encodeURIComponent(lead.follow_up_suggestion)}`}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="mt-2 inline-block text-xs font-semibold text-emerald-700 hover:underline"
+                                        >
+                                            Send on WhatsApp
+                                        </a>
+                                    ) : null}
+                                </div>
+                            ) : null}
+                        </section>
+
                         <section className="atlas-panel p-4">
                             <h3 className="font-display text-lg font-bold text-ink">Contact</h3>
                             <form

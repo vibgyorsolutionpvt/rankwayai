@@ -54,11 +54,11 @@ export default class ErrorBoundary extends React.Component {
                                 type="button"
                                 onClick={() => {
                                     this.setState({ hasError: false, error: null, errorInfo: null });
-                                    window.location.href = '/today';
+                                    window.location.href = '/dashboard';
                                 }}
                                 className="rounded-lg border border-line bg-white px-4 py-2 text-xs font-semibold text-ink shadow-xs hover:border-signal/50"
                             >
-                                Go to Today
+                                Go to Dashboard
                             </button>
                             <button
                                 type="button"

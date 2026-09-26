@@ -15,6 +15,7 @@ use App\Services\Integrations\IntegrationCatalog;
 use App\Services\Integrations\WorkspaceIntegrationService;
 use App\Support\NavModules;
 use App\Support\SocialPlatforms;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -30,8 +31,11 @@ class SettingsController extends Controller
         ModuleAccess $modules,
         TeamActivityService $teamActivity,
         AgencyTeamService $agencyTeam,
-    ): Response {
+    ): Response|RedirectResponse {
         $tab = $request->string('tab')->toString();
+        if ($tab === 'business') {
+            return redirect()->route('business.edit');
+        }
         if (! in_array($tab, ['providers', 'workspace', 'account', 'billing'], true)) {
             $tab = 'providers';
         }
@@ -46,17 +50,42 @@ class SettingsController extends Controller
 
         $workspaces = app(VisibleWorkspaceService::class)
             ->forUser($request->user())
-            ->map(fn (Workspace $item) => [
-                'id' => $item->id,
-                'name' => $item->name,
-                'slug' => $item->slug,
-                'role' => $item->pivot->role,
-                'industry' => $item->resolvedIndustry(),
-                'city' => $item->resolvedCity(),
-                'phone' => $item->resolvedPhone(),
-                'email' => $item->resolvedEmail(),
-                'website' => $item->resolvedWebsite(),
-            ]);
+            ->map(function (Workspace $item) {
+                $links = $item->social_links ?? [];
+
+                return [
+                    'id' => $item->id,
+                    'name' => $item->name,
+                    'slug' => $item->slug,
+                    'role' => $item->pivot->role,
+                    'business_type' => $item->business_type
+                        ?? \App\Support\BusinessTypes::inferFromIndustry($item->industry),
+                    'industry' => $item->resolvedIndustry(),
+                    'tagline' => $item->tagline,
+                    'description' => $item->description,
+                    'city' => $item->resolvedCity(),
+                    'state' => $item->state,
+                    'country' => $item->country,
+                    'postal_code' => $item->postal_code,
+                    'address' => $item->address,
+                    'phone' => $item->resolvedPhone(),
+                    'whatsapp' => $item->whatsapp ?: $item->resolvedPhone(),
+                    'email' => $item->resolvedEmail(),
+                    'website' => $item->resolvedWebsite(),
+                    'services_text' => implode("\n", $item->services ?? []),
+                    'products_text' => implode("\n", $item->products ?? []),
+                    'target_audience' => $item->target_audience,
+                    'working_hours' => $item->working_hours,
+                    'social_links' => [
+                        'facebook' => $links['facebook'] ?? '',
+                        'instagram' => $links['instagram'] ?? '',
+                        'linkedin' => $links['linkedin'] ?? '',
+                        'youtube' => $links['youtube'] ?? '',
+                        'x' => $links['x'] ?? '',
+                        'threads' => $links['threads'] ?? '',
+                    ],
+                ];
+            });
 
         $activeId = (int) $request->session()->get('active_workspace_id');
         $active = $workspaces->firstWhere('id', $activeId) ?? $workspaces->first();

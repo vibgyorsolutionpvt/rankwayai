@@ -110,4 +110,23 @@ class WorkspacePageTest extends TestCase
         $this->assertNull(session('ai_prompt'));
         $this->assertNull(session('ai_offer'));
     }
+
+    public function test_workspace_switch_from_resource_edit_redirects_to_module_index(): void
+    {
+        $user = User::factory()->create();
+        $a = Workspace::factory()->create(['name' => 'Alpha']);
+        $b = Workspace::factory()->create(['name' => 'Beta']);
+        $a->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
+        $b->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
+
+        $cardId = '2188e95a-47ce-4848-b7dc-e7a8ec7f915f';
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $a->id])
+            ->from('/studio/cards/'.$cardId.'/edit')
+            ->post(route('workspaces.switch', $b), ['redirect' => 'back'])
+            ->assertRedirect(route('studio.cards.index'));
+
+        $this->assertSame($b->id, (int) session('active_workspace_id'));
+    }
 }

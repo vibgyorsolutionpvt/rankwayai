@@ -7,17 +7,26 @@ final class NavModules
     /**
      * Client sidebar modules (key => meta).
      *
-     * @return array<string, array{label:string, route:string, match:string, icon:string, tone:string, params?:array<string, string>}>
+     * @return array<string, array{label:string, route:string, match:string, icon:string, tone:string, group:string, params?:array<string, string>}>
      */
     public static function catalog(): array
     {
         return [
             'today' => [
-                'label' => 'Today',
-                'route' => 'today',
-                'match' => 'today',
+                'label' => 'Dashboard',
+                'route' => 'dashboard',
+                'match' => 'dashboard',
                 'icon' => 'today',
                 'tone' => 'amber',
+                'group' => 'Work',
+            ],
+            'business' => [
+                'label' => 'Business Profile',
+                'route' => 'business.edit',
+                'match' => 'business.*',
+                'icon' => 'platform',
+                'tone' => 'signal',
+                'group' => 'Work',
             ],
             'brand' => [
                 'label' => 'Brand',
@@ -25,6 +34,15 @@ final class NavModules
                 'match' => 'brand.*',
                 'icon' => 'brand',
                 'tone' => 'rose',
+                'group' => 'Work',
+            ],
+            'studio' => [
+                'label' => 'Studio',
+                'route' => 'studio.cards.index',
+                'match' => 'studio.*',
+                'icon' => 'studio',
+                'tone' => 'violet',
+                'group' => 'Work',
             ],
             'media' => [
                 'label' => 'Media',
@@ -32,14 +50,16 @@ final class NavModules
                 'match' => 'media.*',
                 'icon' => 'media',
                 'tone' => 'sky',
+                'group' => 'Work',
             ],
             'social' => [
-                'label' => 'SMM',
+                'label' => 'Social',
                 'route' => 'social.index',
                 'params' => ['view' => 'calendar'],
                 'match' => 'social.*',
                 'icon' => 'social',
                 'tone' => 'fuchsia',
+                'group' => 'Grow',
             ],
             'seo' => [
                 'label' => 'SEO',
@@ -47,6 +67,7 @@ final class NavModules
                 'match' => 'seo.*',
                 'icon' => 'seo',
                 'tone' => 'emerald',
+                'group' => 'Grow',
             ],
             'blog' => [
                 'label' => 'Blog',
@@ -54,34 +75,47 @@ final class NavModules
                 'match' => 'blog.*',
                 'icon' => 'blog',
                 'tone' => 'sky',
+                'group' => 'Grow',
             ],
             'channels' => [
                 'label' => 'Channels',
                 'route' => 'channels.index',
                 'match' => 'channels.*',
-                'icon' => 'social',
+                'icon' => 'channels',
                 'tone' => 'sky',
-            ],
-            'whatsapp' => [
-                'label' => 'WhatsApp',
-                'route' => 'whatsapp.index',
-                'match' => 'whatsapp.*',
-                'icon' => 'social',
-                'tone' => 'emerald',
-            ],
-            'crm' => [
-                'label' => 'CRM',
-                'route' => 'crm.index',
-                'match' => 'crm.*',
-                'icon' => 'workspace',
-                'tone' => 'amber',
+                'group' => 'Grow',
             ],
             'funnels' => [
                 'label' => 'Funnels',
                 'route' => 'funnels.index',
                 'match' => 'funnels.*',
-                'icon' => 'media',
+                'icon' => 'funnels',
                 'tone' => 'fuchsia',
+                'group' => 'Grow',
+            ],
+            'whatsapp' => [
+                'label' => 'WhatsApp',
+                'route' => 'whatsapp.index',
+                'match' => 'whatsapp.*',
+                'icon' => 'whatsapp',
+                'tone' => 'emerald',
+                'group' => 'Sell',
+            ],
+            'crm' => [
+                'label' => 'Leads',
+                'route' => 'crm.index',
+                'match' => 'crm.*',
+                'icon' => 'crm',
+                'tone' => 'amber',
+                'group' => 'Sell',
+            ],
+            'analytics' => [
+                'label' => 'Analytics',
+                'route' => 'analytics.index',
+                'match' => 'analytics.*',
+                'icon' => 'analytics',
+                'tone' => 'emerald',
+                'group' => 'Sell',
             ],
             'billing' => [
                 'label' => 'Billing',
@@ -89,6 +123,7 @@ final class NavModules
                 'match' => 'billing.*',
                 'icon' => 'platform',
                 'tone' => 'emerald',
+                'group' => 'Account',
             ],
             'settings' => [
                 'label' => 'Settings',
@@ -96,6 +131,7 @@ final class NavModules
                 'match' => 'settings.*',
                 'icon' => 'platform',
                 'tone' => 'signal',
+                'group' => 'Account',
             ],
         ];
     }
@@ -104,6 +140,12 @@ final class NavModules
     public static function keys(): array
     {
         return array_keys(self::catalog());
+    }
+
+    /** Preferred sidebar group order. */
+    public static function groupOrder(): array
+    {
+        return ['Work', 'Grow', 'Sell', 'Account', 'Admin'];
     }
 
     public static function fromRouteName(?string $routeName): ?string

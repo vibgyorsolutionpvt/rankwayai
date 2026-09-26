@@ -15,12 +15,14 @@ use App\Services\Access\ModuleAccess;
 use App\Services\Billing\PlanAccess;
 use App\Services\Workspaces\ProvisionClientWorkspace;
 use App\Services\Workspaces\VisibleWorkspaceService;
+use App\Support\BusinessTypes;
 use App\Support\DomainNormalizer;
 use App\Support\NavModules;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -145,14 +147,77 @@ class WorkspacePageController extends Controller
 
         return match ($redirect) {
             'seo' => redirect()->route('seo.index'),
-            'today' => redirect()->route('today'),
+            'today' => redirect()->route('dashboard'),
             'billing' => redirect()->route('billing.index'),
             'social' => redirect()->route('social.index', ['view' => 'calendar']),
             'ai' => redirect()->route('social.index', ['view' => 'compose']),
             'settings' => redirect()->route('settings.index', ['tab' => 'workspace']),
-            'back' => back(),
+            'back' => $this->redirectAfterWorkspaceSwitch($request),
             default => redirect()->route('settings.index', ['tab' => 'workspace']),
         };
+    }
+
+    /**
+     * Stay on the same module when possible, but never keep a workspace-scoped
+     * resource URL (edit/show/pdf) that will 404 in the new workspace.
+     */
+    private function redirectAfterWorkspaceSwitch(Request $request): RedirectResponse
+    {
+        $previous = url()->previous();
+        $path = parse_url($previous, PHP_URL_PATH) ?: '/';
+        $query = parse_url($previous, PHP_URL_QUERY);
+        $pathWithQuery = $query ? $path.'?'.$query : $path;
+
+        $safeRoute = $this->safeRouteForWorkspaceSwitch($path);
+        if ($safeRoute !== null) {
+            return redirect()->route($safeRoute);
+        }
+
+        // Same-origin list/index pages are fine to return to.
+        $appUrl = rtrim((string) config('app.url'), '/');
+        if (str_starts_with($previous, $appUrl) || str_starts_with($previous, '/')) {
+            return redirect()->to($pathWithQuery);
+        }
+
+        return redirect()->route('dashboard');
+    }
+
+    private function safeRouteForWorkspaceSwitch(string $path): ?string
+    {
+        $map = [
+            // Studio resource deep links → module indexes
+            '#^/studio/cards/[^/]+#' => 'studio.cards.index',
+            '#^/studio/brochures/[^/]+#' => 'studio.brochures.index',
+            '#^/studio/itineraries/[^/]+#' => 'studio.itineraries.index',
+            '#^/studio/quotations/[^/]+#' => 'studio.quotations.index',
+            // CRM lead detail
+            '#^/crm/\d+#' => 'crm.index',
+            '#^/crm/[0-9a-fA-F-]{8,}#' => 'crm.index',
+            // Brand kit edit (POST-only deep paths shouldn't be returned to)
+            '#^/brand/\d+#' => 'brand.edit',
+            '#^/brand/[0-9a-fA-F-]{8,}#' => 'brand.edit',
+            // Funnels with id in path (if any deep links appear later)
+            '#^/funnels/\d+#' => 'funnels.index',
+            // WhatsApp conversation deep links
+            '#^/whatsapp/.+#' => 'whatsapp.index',
+            // Blog post / draft deep links
+            '#^/blog/.+#' => 'blog.index',
+            // Media item deep links
+            '#^/media/\d+#' => 'media.index',
+            // Admin resource deep links
+            '#^/admin/workspaces/\d+#' => 'admin.workspaces',
+            '#^/admin/users/\d+#' => 'admin.users',
+            '#^/admin/ai-logs/\d+#' => 'admin.ai-logs',
+            '#^/admin/jobs/.+#' => 'admin.jobs',
+        ];
+
+        foreach ($map as $pattern => $route) {
+            if (preg_match($pattern, $path)) {
+                return $route;
+            }
+        }
+
+        return null;
     }
 
     public function updateProfile(Request $request, Workspace $workspace): RedirectResponse
@@ -160,34 +225,102 @@ class WorkspacePageController extends Controller
         $this->authorize('update', $workspace);
 
         $data = $request->validate([
-            'industry' => ['required', 'string', 'max:80', 'not_in:local business'],
+            'business_type' => ['required', 'string', Rule::in(BusinessTypes::keys())],
+            'industry' => ['nullable', 'string', 'max:80', 'not_in:local business'],
+            'tagline' => ['nullable', 'string', 'max:160'],
+            'description' => ['nullable', 'string', 'max:5000'],
             'city' => ['required', 'string', 'max:80', 'not_in:India'],
+            'state' => ['nullable', 'string', 'max:80'],
+            'country' => ['nullable', 'string', 'max:80'],
+            'postal_code' => ['nullable', 'string', 'max:20'],
+            'address' => ['nullable', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:30'],
+            'whatsapp' => ['nullable', 'string', 'max:30'],
             'email' => ['nullable', 'email', 'max:120'],
             'website' => ['nullable', 'string', 'max:200'],
+            'services' => ['nullable', 'string', 'max:4000'],
+            'products' => ['nullable', 'string', 'max:4000'],
+            'target_audience' => ['nullable', 'string', 'max:2000'],
+            'working_hours' => ['nullable', 'string', 'max:120'],
+            'social_links' => ['nullable', 'array'],
+            'social_links.facebook' => ['nullable', 'string', 'max:255'],
+            'social_links.instagram' => ['nullable', 'string', 'max:255'],
+            'social_links.linkedin' => ['nullable', 'string', 'max:255'],
+            'social_links.youtube' => ['nullable', 'string', 'max:255'],
+            'social_links.x' => ['nullable', 'string', 'max:255'],
+            'social_links.threads' => ['nullable', 'string', 'max:255'],
         ], [
-            'industry.required' => 'Enter a business type.',
-            'industry.not_in' => 'Enter a real business type.',
+            'business_type.required' => 'Select a business type.',
             'city.required' => 'Enter a city.',
             'city.not_in' => 'Enter a real city — not just “India”.',
         ]);
 
+        $typeLabel = BusinessTypes::label($data['business_type']);
+        $industry = trim((string) ($data['industry'] ?? ''));
+        if ($data['business_type'] === 'other') {
+            if ($industry === '') {
+                return back()->withErrors([
+                    'industry' => 'Enter your business type when selecting Other.',
+                ])->withInput();
+            }
+        } else {
+            $industry = $typeLabel ?? $industry;
+        }
+
+        $social = collect($data['social_links'] ?? [])
+            ->map(fn ($v) => trim((string) $v) ?: null)
+            ->filter()
+            ->all();
+
         $workspace->update([
-            'industry' => trim($data['industry']),
+            'business_type' => $data['business_type'],
+            'industry' => $industry,
+            'tagline' => trim((string) ($data['tagline'] ?? '')) ?: null,
+            'description' => trim((string) ($data['description'] ?? '')) ?: null,
             'city' => trim($data['city']),
+            'state' => trim((string) ($data['state'] ?? '')) ?: null,
+            'country' => trim((string) ($data['country'] ?? '')) ?: null,
+            'postal_code' => trim((string) ($data['postal_code'] ?? '')) ?: null,
+            'address' => trim((string) ($data['address'] ?? '')) ?: null,
             'phone' => trim((string) ($data['phone'] ?? '')) ?: null,
+            'whatsapp' => trim((string) ($data['whatsapp'] ?? '')) ?: null,
             'email' => trim((string) ($data['email'] ?? '')) ?: null,
             'website' => trim((string) ($data['website'] ?? '')) ?: null,
+            'services' => $this->linesToList($data['services'] ?? null),
+            'products' => $this->linesToList($data['products'] ?? null),
+            'target_audience' => trim((string) ($data['target_audience'] ?? '')) ?: null,
+            'working_hours' => trim((string) ($data['working_hours'] ?? '')) ?: null,
+            'social_links' => $social !== [] ? $social : null,
         ]);
 
         app(\App\Services\Ai\AiContentService::class)->syncSettingsFromWorkspace($workspace->fresh());
 
         ActivityLog::record($workspace, $request->user(), 'workspace.profile_updated', [
+            'business_type' => $workspace->business_type,
             'industry' => $workspace->industry,
             'city' => $workspace->city,
         ]);
 
-        return back()->with('success', 'Workspace profile saved — AI posts will use it automatically.');
+        return back()->with('success', 'Business profile saved — AI and documents will use it automatically.');
+    }
+
+    /**
+     * @return list<string>|null
+     */
+    private function linesToList(mixed $raw): ?array
+    {
+        $text = trim((string) ($raw ?? ''));
+        if ($text === '') {
+            return null;
+        }
+
+        $items = preg_split('/\r\n|\r|\n|,/', $text) ?: [];
+        $items = array_values(array_filter(array_map(
+            fn ($line) => trim((string) $line),
+            $items
+        ), fn ($line) => $line !== ''));
+
+        return $items !== [] ? $items : null;
     }
 
     public function storeMember(StoreWorkspaceMemberRequest $request, Workspace $workspace): RedirectResponse

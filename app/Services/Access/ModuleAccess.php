@@ -105,6 +105,7 @@ class ModuleAccess
             $keys = array_values(array_intersect($workspaceKeys, $memberConfigured));
         }
 
+        // Owners/admins always keep settings so they can re-enable modules.
         if ($role && $role->canManageMembers() && ! in_array('settings', $keys, true) && in_array('settings', $this->globallyEnabledKeys(), true)) {
             $keys[] = 'settings';
         }
@@ -171,6 +172,7 @@ class ModuleAccess
                             'match' => $meta['match'],
                             'icon' => $meta['icon'],
                             'tone' => $meta['tone'],
+                            'group' => $meta['group'] ?? 'Work',
                             'params' => $meta['params'] ?? null,
                         ];
                     })
@@ -187,6 +189,7 @@ class ModuleAccess
                     'match' => 'admin.dashboard',
                     'icon' => 'platform',
                     'tone' => 'ink',
+                    'group' => 'Admin',
                 ],
                 [
                     'key' => 'admin-users',
@@ -195,6 +198,7 @@ class ModuleAccess
                     'match' => 'admin.users*',
                     'icon' => 'workspace',
                     'tone' => 'amber',
+                    'group' => 'Admin',
                 ],
                 [
                     'key' => 'admin-workspaces',
@@ -203,6 +207,7 @@ class ModuleAccess
                     'match' => 'admin.workspaces*',
                     'icon' => 'workspace',
                     'tone' => 'sky',
+                    'group' => 'Admin',
                 ],
                 [
                     'key' => 'admin-billing',
@@ -211,6 +216,7 @@ class ModuleAccess
                     'match' => 'admin.billing',
                     'icon' => 'platform',
                     'tone' => 'emerald',
+                    'group' => 'Admin',
                 ],
                 [
                     'key' => 'admin-activity',
@@ -219,6 +225,7 @@ class ModuleAccess
                     'match' => 'admin.activity',
                     'icon' => 'today',
                     'tone' => 'fuchsia',
+                    'group' => 'Admin',
                 ],
                 [
                     'key' => 'admin-ai-logs',
@@ -227,6 +234,7 @@ class ModuleAccess
                     'match' => 'admin.ai-logs*',
                     'icon' => 'seo',
                     'tone' => 'signal',
+                    'group' => 'Admin',
                 ],
                 [
                     'key' => 'admin-jobs',
@@ -235,6 +243,7 @@ class ModuleAccess
                     'match' => 'admin.jobs*',
                     'icon' => 'seo',
                     'tone' => 'rose',
+                    'group' => 'Admin',
                 ],
                 [
                     'key' => 'admin-system',
@@ -243,6 +252,7 @@ class ModuleAccess
                     'match' => 'admin.system*',
                     'icon' => 'brand',
                     'tone' => 'sky',
+                    'group' => 'Admin',
                 ],
             ];
         }
@@ -268,6 +278,7 @@ class ModuleAccess
                     'match' => $meta['match'],
                     'icon' => $meta['icon'],
                     'tone' => $meta['tone'],
+                    'group' => $meta['group'] ?? 'Work',
                     'params' => $meta['params'] ?? null,
                 ];
             })

@@ -43,7 +43,7 @@ export default function Index({ workspace, byStage, counts }) {
         >
             <Head title="CRM" />
             <div className="atlas-shell space-y-4">
-<section className="grid gap-3 sm:grid-cols-3">
+<section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                         <div className="atlas-panel p-4">
                             <div className="text-[11px] font-semibold uppercase text-ink-muted">Leads</div>
                             <div className="mt-1 font-display text-3xl font-bold text-ink">{counts.total}</div>
@@ -57,6 +57,18 @@ export default function Index({ workspace, byStage, counts }) {
                         <div className="atlas-panel p-4">
                             <div className="text-[11px] font-semibold uppercase text-ink-muted">Closed won</div>
                             <div className="mt-1 font-display text-3xl font-bold text-ink">{counts.won}</div>
+                        </div>
+                        <div className="atlas-panel p-4">
+                            <div className="text-[11px] font-semibold uppercase text-ink-muted">Hot leads</div>
+                            <div className="mt-1 font-display text-3xl font-bold text-rose-700">
+                                {counts.hot || 0}
+                            </div>
+                        </div>
+                        <div className="atlas-panel p-4">
+                            <div className="text-[11px] font-semibold uppercase text-ink-muted">Follow-ups due</div>
+                            <div className="mt-1 font-display text-3xl font-bold text-amber-800">
+                                {counts.follow_ups_due || 0}
+                            </div>
                         </div>
                     </section>
 
@@ -131,11 +143,19 @@ export default function Index({ workspace, byStage, counts }) {
                                         (byStage[stage] || []).map((lead) => (
                                             <li key={lead.id} className="px-3 py-2.5">
                                                 <Link href={route('crm.show', lead.id)} className="block group">
-                                                    <div className="font-semibold text-ink group-hover:text-signal">
-                                                        {lead.name}
+                                                    <div className="flex items-center gap-1.5">
+                                                        <div className="font-semibold text-ink group-hover:text-signal">
+                                                            {lead.name}
+                                                        </div>
+                                                        {lead.score_band === 'hot' ? (
+                                                            <span className="rounded bg-rose-100 px-1 text-[9px] font-bold uppercase text-rose-800">
+                                                                Hot
+                                                            </span>
+                                                        ) : null}
                                                     </div>
                                                     <div className="text-xs text-ink-muted">
                                                         {lead.email || lead.phone || '—'}
+                                                        {lead.score != null ? ` · ${lead.score}` : ''}
                                                     </div>
                                                 </Link>
                                                 <div className="mt-2 flex flex-wrap gap-1">

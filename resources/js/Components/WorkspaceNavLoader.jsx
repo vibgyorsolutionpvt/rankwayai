@@ -1,4 +1,4 @@
-import ApplicationLogo from '@/Components/ApplicationLogo';
+import BrandLogo from '@/Components/BrandLogo';
 import { router, usePage } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 
@@ -31,7 +31,8 @@ function moduleHintFromPath(path) {
         ['/funnels', 'Funnels'],
         ['/billing', 'Billing'],
         ['/settings', 'Settings'],
-        ['/today', 'Today'],
+        ['/business', 'Business Profile'],
+        ['/dashboard', 'Dashboard'],
         ['/workspaces', 'Workspaces'],
         ['/admin', 'Admin'],
     ];
@@ -225,9 +226,8 @@ export default function WorkspaceNavLoader() {
                     <div className="h-full w-1/2 animate-[nav-loader-bar_1.1s_ease-in-out_infinite] rounded-full bg-gradient-to-r from-signal/40 via-signal to-signal/40" />
                 </div>
 
-                <div className="mx-auto flex h-14 w-14 items-center justify-center">
-                    <div className="absolute h-14 w-14 animate-[nav-loader-ring_1.4s_ease-in-out_infinite] rounded-full border-2 border-signal/20 border-t-signal" />
-                    <ApplicationLogo className="relative h-9 w-9 rounded-lg shadow-sm" />
+                <div className="mx-auto flex h-14 items-center justify-center">
+                    <BrandLogo className="relative h-12 w-auto max-w-[220px]" />
                 </div>
 
                 <p className="mt-6 text-[10px] font-semibold uppercase tracking-[0.22em] text-signal-strong">

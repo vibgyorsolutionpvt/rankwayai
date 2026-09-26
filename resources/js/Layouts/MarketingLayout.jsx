@@ -1,5 +1,4 @@
-import ApplicationLogo from '@/Components/ApplicationLogo';
-import BrandName from '@/Components/BrandName';
+import BrandLogo from '@/Components/BrandLogo';
 import ContactChannels from '@/Components/Marketing/ContactChannels';
 import SeoHead from '@/Components/Marketing/SeoHead';
 import { Link, usePage } from '@inertiajs/react';
@@ -49,9 +48,8 @@ export default function MarketingLayout({
             <div className="min-h-screen bg-mist text-ink">
                 <header className="sticky top-0 z-50 border-b border-line/70 bg-mist/90 backdrop-blur-sm">
                     <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-5">
-                        <Link href="/" className="flex items-center gap-3" aria-label="RankwayAI home">
-                            <ApplicationLogo className="h-11 w-11 sm:h-12 sm:w-12" />
-                            <BrandName className="text-xl text-ink sm:text-2xl" />
+                        <Link href="/" className="flex items-center" aria-label="RankwayAI home">
+                            <BrandLogo className="h-9 w-auto sm:h-10" />
                         </Link>
 
                         <nav
@@ -135,13 +133,10 @@ export default function MarketingLayout({
                 <footer className="border-t border-line bg-white/80">
                     <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex items-center gap-2.5">
-                            <ApplicationLogo className="h-8 w-8" />
-                            <div>
-                                <BrandName className="text-sm text-ink" />
-                                <p className="mt-0.5 max-w-xs text-xs leading-relaxed text-ink-muted">
-                                    Marketing OS for SEO, Search Console, social, WhatsApp, and CRM.
-                                </p>
-                            </div>
+                            <BrandLogo className="h-8 w-auto max-w-[160px]" />
+                            <p className="max-w-xs text-xs leading-relaxed text-ink-muted">
+                                Marketing OS for SEO, Search Console, social, WhatsApp, and CRM.
+                            </p>
                         </div>
                         <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm font-semibold text-ink-muted">
                             {NAV.map((item) => (

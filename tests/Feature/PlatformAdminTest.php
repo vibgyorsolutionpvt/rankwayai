@@ -145,7 +145,7 @@ class PlatformAdminTest extends TestCase
 
         $this->actingAs($admin)
             ->post(route('admin.workspaces.enter', $workspace))
-            ->assertRedirect(route('today'));
+            ->assertRedirect(route('dashboard'));
 
         $this->actingAs($admin)
             ->get(route('admin.billing'))

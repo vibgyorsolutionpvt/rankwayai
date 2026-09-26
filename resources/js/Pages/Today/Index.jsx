@@ -20,13 +20,13 @@ export default function Index({
                         {workspace?.name || 'Workspace'}
                     </div>
                     <div className="flex items-center gap-1.5">
-                        <h2 className="font-display text-2xl font-bold text-ink">Today</h2>
+                        <h2 className="font-display text-2xl font-bold text-ink">Dashboard</h2>
                         <HelpGuide help={HELP.today} />
                     </div>
                 </div>
             }
         >
-            <Head title="Today" />
+            <Head title="Dashboard" />
 
             <div className="atlas-shell space-y-2.5 stagger">
                 <section className="atlas-panel flex flex-wrap items-center justify-between gap-3 p-3">

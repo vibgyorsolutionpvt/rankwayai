@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\ResolvesWorkspace;
 use App\Models\CrmLead;
 use App\Models\CrmLeadAttachment;
 use App\Models\WhatsappConversation;
+use App\Services\Crm\LeadScoringService;
 use App\Services\WhatsApp\WhatsAppConversationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -35,12 +36,18 @@ class CrmController extends Controller
 
         return Inertia::render('Crm/Index', [
             'workspace' => ['id' => $workspace->id, 'name' => $workspace->name],
-            'leads' => $leads,
-            'byStage' => $byStage,
+            'leads' => $leads->map(fn (CrmLead $lead) => $lead->toClientArray()),
+            'byStage' => $byStage->map(fn ($group) => $group->map(fn (CrmLead $lead) => $lead->toClientArray())),
             'counts' => [
                 'total' => $leads->count(),
                 'pipeline_value' => $leads->whereIn('stage', ['new', 'contacted', 'qualified'])->sum('value_cents'),
                 'won' => $leads->where('stage', 'won')->count(),
+                'hot' => $leads->where('score_band', 'hot')->count(),
+                'follow_ups_due' => $leads->filter(function (CrmLead $lead) {
+                    return $lead->follow_up_due_at
+                        && $lead->follow_up_due_at->lte(now()->addDay())
+                        && in_array($lead->stage, ['new', 'contacted', 'qualified'], true);
+                })->count(),
             ],
         ]);
     }
@@ -281,6 +288,34 @@ class CrmController extends Controller
         );
 
         return back()->with('success', 'File removed');
+    }
+
+    public function score(Request $request, CrmLead $lead, LeadScoringService $scoring): RedirectResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+        abort_unless($lead->workspace_id === $workspace->id, 404);
+
+        $result = $scoring->score($lead, $request->user()?->id);
+
+        return back()->with(
+            ($result['ok'] ?? false) ? 'success' : 'error',
+            $result['message'] ?? 'Could not score lead.'
+        );
+    }
+
+    public function suggestFollowUp(Request $request, CrmLead $lead, LeadScoringService $scoring): RedirectResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+        abort_unless($lead->workspace_id === $workspace->id, 404);
+
+        $result = $scoring->suggestFollowUp($lead, $request->user()?->id);
+
+        return back()->with(
+            ($result['ok'] ?? false) ? 'success' : 'error',
+            $result['message'] ?? 'Could not suggest follow-up.'
+        );
     }
 
     /**

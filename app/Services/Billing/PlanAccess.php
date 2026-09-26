@@ -12,7 +12,7 @@ use App\Support\NavModules;
 class PlanAccess
 {
     /** Modules available without a paid plan or credit top-up. */
-    public const FREE_MODULES = ['seo', 'billing', 'settings'];
+    public const FREE_MODULES = ['seo', 'billing', 'settings', 'business'];
 
     public function __construct(
         private BillingService $billing,
