@@ -83,6 +83,9 @@ Route::post('/f/{slug}/lead', [FunnelController::class, 'captureLead'])
 
 Route::get('/c/{token}', [PublicBusinessCardController::class, 'show'])
     ->name('studio.cards.public');
+Route::get('/c/{token}/qr', [PublicBusinessCardController::class, 'qr'])
+    ->middleware('throttle:60,1')
+    ->name('studio.cards.public.qr');
 Route::post('/c/{token}/track', [PublicBusinessCardController::class, 'track'])
     ->middleware('throttle:60,1')
     ->name('studio.cards.public.track');
@@ -92,6 +95,9 @@ Route::get('/b/{token}', [PublicBrochureController::class, 'show'])
 Route::post('/b/{token}/track', [PublicBrochureController::class, 'track'])
     ->middleware('throttle:60,1')
     ->name('studio.brochures.public.track');
+Route::get('/b/{token}/qr', [PublicBrochureController::class, 'qr'])
+    ->middleware('throttle:60,1')
+    ->name('studio.brochures.public.qr');
 Route::get('/b/{token}/pdf', [PublicBrochureController::class, 'pdf'])
     ->middleware('throttle:30,1')
     ->name('studio.brochures.public.pdf');

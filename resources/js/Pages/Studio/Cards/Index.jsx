@@ -373,7 +373,7 @@ export default function Index({
                     <div className="border-b border-line px-4 py-3">
                         <h3 className="font-display text-base font-bold text-ink">Your cards</h3>
                         <p className="mt-0.5 text-xs text-ink-muted">
-                            Edit, share public link, QR, or download PDF.
+                            Edit, share, PDF, or download QR.
                         </p>
                     </div>
                     {cards.length === 0 ? (
@@ -433,6 +433,36 @@ export default function Index({
                                             >
                                                 PDF
                                             </a>
+                                            <button
+                                                type="button"
+                                                className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-mist"
+                                                onClick={async () => {
+                                                    try {
+                                                        if (navigator.share) {
+                                                            await navigator.share({
+                                                                title: card.title,
+                                                                url: card.share_url,
+                                                            });
+                                                        } else {
+                                                            await navigator.clipboard.writeText(
+                                                                card.share_url,
+                                                            );
+                                                        }
+                                                    } catch {
+                                                        /* ignore cancel */
+                                                    }
+                                                }}
+                                            >
+                                                Share
+                                            </button>
+                                            {card.qr_download_url || card.qr_url ? (
+                                                <a
+                                                    href={card.qr_download_url || card.qr_url}
+                                                    className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-mist"
+                                                >
+                                                    Download QR
+                                                </a>
+                                            ) : null}
                                             <button
                                                 type="button"
                                                 className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink hover:bg-mist"
