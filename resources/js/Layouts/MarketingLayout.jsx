@@ -171,6 +171,24 @@ export default function MarketingLayout({
                             <span aria-hidden className="text-line">
                                 ·
                             </span>
+                            <Link
+                                href={route('terms')}
+                                className="font-semibold text-ink transition hover:text-signal-strong"
+                            >
+                                Terms
+                            </Link>
+                            <span aria-hidden className="text-line">
+                                ·
+                            </span>
+                            <Link
+                                href={route('data-deletion')}
+                                className="font-semibold text-ink transition hover:text-signal-strong"
+                            >
+                                Data deletion
+                            </Link>
+                            <span aria-hidden className="text-line">
+                                ·
+                            </span>
                             <span>
                                 A product of{' '}
                                 <a
