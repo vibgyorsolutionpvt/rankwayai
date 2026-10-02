@@ -51,6 +51,8 @@ class MarketingSeoController extends Controller
             ['loc' => $base.'/', 'priority' => '1.0', 'changefreq' => 'weekly'],
             ['loc' => $base.'/about', 'priority' => '0.8', 'changefreq' => 'monthly'],
             ['loc' => $base.'/privacy', 'priority' => '0.5', 'changefreq' => 'yearly'],
+            ['loc' => $base.'/terms', 'priority' => '0.4', 'changefreq' => 'yearly'],
+            ['loc' => $base.'/data-deletion', 'priority' => '0.3', 'changefreq' => 'yearly'],
             ['loc' => $base.'/pricing', 'priority' => '0.9', 'changefreq' => 'weekly'],
             ['loc' => $base.'/contact', 'priority' => '0.7', 'changefreq' => 'monthly'],
             ['loc' => $base.'/website-rank-checker', 'priority' => '0.9', 'changefreq' => 'weekly'],

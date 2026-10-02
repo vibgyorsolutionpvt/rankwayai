@@ -60,6 +60,8 @@ Route::get('/', function () {
 
 Route::get('/about', [MarketingController::class, 'about'])->name('about');
 Route::get('/privacy', [MarketingController::class, 'privacy'])->name('privacy');
+Route::get('/terms', [MarketingController::class, 'terms'])->name('terms');
+Route::get('/data-deletion', [MarketingController::class, 'dataDeletion'])->name('data-deletion');
 Route::get('/pricing', [MarketingController::class, 'pricing'])->name('pricing');
 Route::get('/contact', [MarketingController::class, 'contact'])->name('contact');
 Route::post('/contact', [MarketingController::class, 'contactStore'])

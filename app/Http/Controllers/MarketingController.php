@@ -37,6 +37,36 @@ class MarketingController extends Controller
         ]));
     }
 
+    public function terms(): Response
+    {
+        return Inertia::render('Marketing/Terms', $this->pageProps([
+            'title' => 'Terms of Service — RankwayAI',
+            'description' => 'Terms for using RankwayAI (a product of Vibgyor Solution), including WhatsApp, Meta, social, SEO, and CRM features.',
+            'path' => '/terms',
+        ], [
+            'contact_email' => $this->contactEmail(),
+        ]));
+    }
+
+    public function dataDeletion(): Response
+    {
+        return Inertia::render('Marketing/DataDeletion', $this->pageProps([
+            'title' => 'User Data Deletion — RankwayAI',
+            'description' => 'How to delete your RankwayAI account and data, including data received from Facebook, Instagram, Threads, and WhatsApp.',
+            'path' => '/data-deletion',
+        ], [
+            'contact_email' => $this->contactEmail(),
+        ]));
+    }
+
+    private function contactEmail(): string
+    {
+        return (string) \App\Models\PlatformSetting::getValue(
+            'contact_email',
+            (string) config('seo.marketing.contact_email', 'contact@rankwayai.com')
+        );
+    }
+
     public function contact(): Response
     {
         return Inertia::render('Marketing/Contact', $this->pageProps([
