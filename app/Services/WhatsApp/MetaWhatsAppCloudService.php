@@ -5,6 +5,8 @@ namespace App\Services\WhatsApp;
 use App\Models\ChannelMessageTemplate;
 use App\Models\Workspace;
 use App\Services\Integrations\WorkspaceIntegrationService;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -113,10 +115,7 @@ class MetaWhatsAppCloudService
         }
 
         try {
-            $response = Http::withToken($cfg['access_token'])
-                ->timeout(20)
-                ->acceptJson()
-                ->post($url, $payload);
+            $response = $this->graph($cfg['access_token'], 20)->post($url, $payload);
 
             if ($response->successful()) {
                 $id = $response->json('messages.0.id')
@@ -318,10 +317,7 @@ class MetaWhatsAppCloudService
         ];
 
         try {
-            $response = Http::withToken($cfg['access_token'])
-                ->timeout(30)
-                ->acceptJson()
-                ->post($url, $payload);
+            $response = $this->graph($cfg['access_token'], 30)->post($url, $payload);
 
             if ($response->successful()) {
                 $id = $response->json('id');
@@ -407,9 +403,7 @@ class MetaWhatsAppCloudService
         );
 
         try {
-            $response = Http::withToken($cfg['access_token'])
-                ->timeout(20)
-                ->acceptJson()
+            $response = $this->graph($cfg['access_token'], 20)
                 ->get($url, ['fields' => 'status,name,language,rejected_reason']);
 
             if ($response->successful()) {
@@ -549,6 +543,34 @@ class MetaWhatsAppCloudService
         return $language;
     }
 
+    private function graph(string $token, int $timeout): PendingRequest
+    {
+        return Http::withToken($token)
+            ->timeout($timeout)
+            ->connectTimeout(15)
+            // Shared hosts often hang on AAAA lookups for graph.facebook.com.
+            ->withOptions(['force_ip_resolve' => 'v4'])
+            ->retry(3, 800, fn ($e) => $this->isPreSendFailure($e), throw: false)
+            ->acceptJson();
+    }
+
+    /**
+     * Only retry when the request never reached Meta, so a message is never sent twice.
+     */
+    private function isPreSendFailure(\Throwable $e): bool
+    {
+        if (! $e instanceof ConnectionException) {
+            return false;
+        }
+
+        $message = strtolower($e->getMessage());
+
+        return str_contains($message, 'resolving timed out')
+            || str_contains($message, 'could not resolve host')
+            || str_contains($message, 'connection timed out after')
+            || str_contains($message, 'failed to connect');
+    }
+
     /**
      * @param  array<string, mixed>  $context
      */
@@ -579,6 +601,7 @@ class MetaWhatsAppCloudService
         return match (true) {
             $code === 132001 || str_contains($lower, 'does not exist in the translation') => 'Meta pe yeh template name + language exist/approved nahi. Templates tab se Submit to Meta karo, approval ka wait karo, ya Send as template ON karke hello_world use karo (dropdown Free-form). Language en_US hona chahiye jaisa Meta pe hai.',
             $code === 132000 || (str_contains($lower, 'template') && str_contains($lower, 'param')) => 'Template parameters missing/mismatch. Body placeholders Meta template se match hone chahiye.',
+            $code === 133010 || str_contains($lower, 'account not registered') => 'Number WABA mein add hai par Cloud API par register nahi hua. POST /{phone_number_id}/register with {"messaging_product":"whatsapp","pin":"<6-digit 2FA PIN>"} ek baar chalao. Display name approved hona chahiye.',
             $code === 131030 || str_contains($lower, 'not in allowed list') => 'Test/dev mode: recipient must be added under Meta → WhatsApp → API Setup → To (allowlist). Only allowlisted numbers can receive messages until production.',
             $code === 190 || str_contains($lower, 'authenticat') || str_contains($lower, 'session has expired') || str_contains($lower, 'invalid oauth') => 'Access token invalid or expired. Meta → Step 1 Try it out → Generate access token → update META_WA_ACCESS_TOKEN in .env → php artisan config:clear.',
             $code === 100 && str_contains($lower, 'parameter') => 'Meta rejected the payload (missing/invalid parameter). Check template name/language or phone format (digits only, country code).',
