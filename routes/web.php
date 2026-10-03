@@ -1,23 +1,25 @@
 <?php
 
+use App\Http\Controllers\AccountTeamController;
 use App\Http\Controllers\AiStudioController;
 use App\Http\Controllers\AnalyticsController;
-use App\Http\Controllers\BlogController;
-use App\Http\Controllers\EditorMediaController;
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\BillingWebhookController;
+use App\Http\Controllers\BlogController;
 use App\Http\Controllers\BrandKitController;
-use App\Http\Controllers\BusinessProfileController;
 use App\Http\Controllers\BrochureController;
 use App\Http\Controllers\BusinessCardController;
+use App\Http\Controllers\BusinessProfileController;
 use App\Http\Controllers\ChannelsController;
 use App\Http\Controllers\CrmController;
+use App\Http\Controllers\EditorMediaController;
 use App\Http\Controllers\FunnelController;
 use App\Http\Controllers\IntegrationsController;
 use App\Http\Controllers\ItineraryController;
-use App\Http\Controllers\MediaLibraryController;
 use App\Http\Controllers\MarketingController;
 use App\Http\Controllers\MarketingSeoController;
+use App\Http\Controllers\MediaLibraryController;
+use App\Http\Controllers\MetaWhatsAppWebhookController;
 use App\Http\Controllers\PlatformAdminController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PublicBrochureController;
@@ -26,13 +28,13 @@ use App\Http\Controllers\PublicQuotationController;
 use App\Http\Controllers\QuotationController;
 use App\Http\Controllers\SeoController;
 use App\Http\Controllers\SeoV2Controller;
-use App\Http\Controllers\AccountTeamController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\SocialController;
 use App\Http\Controllers\TodayController;
-use App\Http\Controllers\WhatsAppController;
 use App\Http\Controllers\WebsiteRankCheckerController;
+use App\Http\Controllers\WhatsAppController;
 use App\Http\Controllers\WorkspacePageController;
+use App\Http\Controllers\ZavuWebhookController;
 use App\Http\Middleware\EnsureSuperAdmin;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -119,13 +121,19 @@ Route::post('/webhooks/stripe', [BillingWebhookController::class, 'stripe'])
 Route::post('/webhooks/razorpay', [BillingWebhookController::class, 'razorpay'])
     ->middleware('throttle:120,1')
     ->name('webhooks.razorpay');
-Route::post('/webhooks/zavu/{workspace}', \App\Http\Controllers\ZavuWebhookController::class)
+Route::post('/webhooks/zavu/{workspace}', ZavuWebhookController::class)
     ->middleware('throttle:180,1')
     ->name('webhooks.zavu');
-Route::get('/webhooks/meta/whatsapp/{workspace}', [\App\Http\Controllers\MetaWhatsAppWebhookController::class, 'verify'])
+Route::get('/webhooks/meta/whatsapp', [MetaWhatsAppWebhookController::class, 'verifyApp'])
+    ->middleware('throttle:60,1')
+    ->name('webhooks.meta.whatsapp.app.verify');
+Route::post('/webhooks/meta/whatsapp', [MetaWhatsAppWebhookController::class, 'receiveApp'])
+    ->middleware('throttle:600,1')
+    ->name('webhooks.meta.whatsapp.app');
+Route::get('/webhooks/meta/whatsapp/{workspace}', [MetaWhatsAppWebhookController::class, 'verify'])
     ->middleware('throttle:60,1')
     ->name('webhooks.meta.whatsapp.verify');
-Route::post('/webhooks/meta/whatsapp/{workspace}', [\App\Http\Controllers\MetaWhatsAppWebhookController::class, 'receive'])
+Route::post('/webhooks/meta/whatsapp/{workspace}', [MetaWhatsAppWebhookController::class, 'receive'])
     ->middleware('throttle:180,1')
     ->name('webhooks.meta.whatsapp');
 
@@ -354,6 +362,12 @@ Route::middleware(['auth', 'verified', 'workspace.setup', 'module'])->group(func
 
     Route::get('/whatsapp', [WhatsAppController::class, 'index'])->name('whatsapp.index');
     Route::put('/whatsapp/setup', [WhatsAppController::class, 'saveSetup'])->name('whatsapp.setup');
+    Route::post('/whatsapp/embedded-signup', [WhatsAppController::class, 'embeddedSignup'])
+        ->middleware('throttle:10,1')
+        ->name('whatsapp.embedded-signup');
+    Route::post('/whatsapp/register-number', [WhatsAppController::class, 'registerNumber'])
+        ->middleware('throttle:10,1')
+        ->name('whatsapp.register-number');
     Route::post('/whatsapp/conversations', [WhatsAppController::class, 'start'])
         ->middleware('throttle:40,1')
         ->name('whatsapp.conversations.start');

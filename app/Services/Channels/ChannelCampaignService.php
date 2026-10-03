@@ -9,6 +9,7 @@ use App\Models\Workspace;
 use App\Services\Channels\Rcs\RcsDeliveryService;
 use App\Services\Channels\Rcs\RcsProviderCatalog;
 use App\Services\Integrations\WorkspaceIntegrationService;
+use App\Services\WhatsApp\MetaWhatsAppCloudService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -19,13 +20,13 @@ class ChannelCampaignService
         private readonly RcsDeliveryService $rcs,
         private readonly SmtpDeliveryService $smtp,
         private readonly WorkspaceIntegrationService $integrations,
-        private readonly \App\Services\WhatsApp\MetaWhatsAppCloudService $metaWhatsApp,
+        private readonly MetaWhatsAppCloudService $metaWhatsApp,
     ) {}
 
     /**
      * Resolve delivery provider for a channel.
      * Email: SMTP → Zavu → sandbox.
-     * WhatsApp: Meta Cloud API → Zavu → sandbox.
+     * WhatsApp: workspace Meta Cloud API → workspace Zavu → none (blocked).
      */
     public function provider(?Workspace $workspace = null, string $channel = 'whatsapp'): string
     {
@@ -143,6 +144,19 @@ class ChannelCampaignService
             return ['ok' => false, 'message' => $campaign->failure_reason, 'campaign' => $campaign];
         }
 
+        if ($campaign->channel === 'whatsapp') {
+            $workspace = $campaign->workspace ?? Workspace::query()->find($campaign->workspace_id);
+            if (! $workspace || ! $this->integrations->whatsappConnected($workspace)) {
+                $campaign->update([
+                    'status' => 'failed',
+                    'provider' => 'none',
+                    'failure_reason' => WorkspaceIntegrationService::whatsappNotConnectedMessage(),
+                ]);
+
+                return ['ok' => false, 'message' => $campaign->failure_reason, 'campaign' => $campaign->fresh()];
+            }
+        }
+
         if ($campaign->channel === 'rcs') {
             $workspace = $campaign->workspace ?? Workspace::query()->find($campaign->workspace_id);
             $campaign->update([
@@ -231,6 +245,10 @@ class ChannelCampaignService
         }
 
         $provider = $this->provider($workspace, $campaign->channel);
+
+        if ($campaign->channel === 'whatsapp' && $provider === 'none') {
+            return ['ok' => false, 'id' => null, 'error' => WorkspaceIntegrationService::whatsappNotConnectedMessage()];
+        }
 
         if ($provider === 'sandbox') {
             return [

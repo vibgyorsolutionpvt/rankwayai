@@ -52,9 +52,9 @@ class IntegrationCatalog
                 'id' => 'whatsapp_meta',
                 'category' => 'messaging',
                 'label' => 'WhatsApp Business',
-                'blurb' => 'Client submits business number and profile. RankwayAI connects Meta Cloud API on the platform side.',
+                'blurb' => 'Connect your own WhatsApp Business number (Meta Cloud API). Messages are sent only from your number — nothing is sent until this is connected.',
                 'fields' => [
-                    // Client onboarding (business only)
+                    // Business profile
                     ['key' => 'business_display_name', 'label' => 'Business display name', 'placeholder' => 'Your business name'],
                     ['key' => 'business_phone', 'label' => 'WhatsApp number (E.164)', 'placeholder' => '+91XXXXXXXXXX'],
                     [
@@ -87,12 +87,12 @@ class IntegrationCatalog
                     ['key' => 'business_address', 'label' => 'Business address', 'placeholder' => 'Street, area, city'],
                     ['key' => 'business_country', 'label' => 'Country', 'placeholder' => 'IN'],
                     ['key' => 'business_about', 'label' => 'About / profile bio', 'placeholder' => 'Short WhatsApp profile description'],
-                    // Meta Cloud API (platform only — from Developer Console)
-                    ['key' => 'phone_number_id', 'label' => 'Phone number ID (Meta)', 'required' => true, 'placeholder' => 'From Meta → WhatsApp → API setup'],
-                    ['key' => 'waba_id', 'label' => 'WABA ID', 'placeholder' => 'WhatsApp Business Account ID'],
-                    ['key' => 'access_token', 'label' => 'Access token', 'secret' => true, 'required' => true],
-                    ['key' => 'app_secret', 'label' => 'App secret', 'secret' => true, 'placeholder' => 'For webhook signature check'],
-                    ['key' => 'verify_token', 'label' => 'Webhook verify token', 'required' => true, 'placeholder' => 'Any secret string you choose'],
+                    // Workspace's own Meta Cloud API credentials (from developers.facebook.com)
+                    ['key' => 'phone_number_id', 'label' => 'Phone number ID', 'required' => true, 'placeholder' => 'Meta → WhatsApp → API Setup'],
+                    ['key' => 'waba_id', 'label' => 'WhatsApp Business Account ID', 'placeholder' => 'Needed to submit templates'],
+                    ['key' => 'access_token', 'label' => 'Permanent access token', 'secret' => true, 'required' => true, 'placeholder' => 'System user token'],
+                    ['key' => 'app_secret', 'label' => 'App secret', 'secret' => true, 'placeholder' => 'Meta app → Settings → Basic (webhook signature)'],
+                    ['key' => 'verify_token', 'label' => 'Webhook verify token', 'required' => true, 'placeholder' => 'Auto-generated if left blank'],
                     ['key' => 'api_version', 'label' => 'Graph API version', 'placeholder' => 'v21.0'],
                 ],
             ],

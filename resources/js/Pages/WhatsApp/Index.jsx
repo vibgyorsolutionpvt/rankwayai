@@ -8,6 +8,7 @@ import TextInput from '@/Components/TextInput';
 import { toast } from '@/Components/ToastProvider';
 import { confirmAsk } from '@/Components/ConfirmProvider';
 import Toggle from '@/Components/Toggle';
+import EmbeddedSignupButton from '@/Components/WhatsApp/EmbeddedSignupButton';
 import { Head, Link, router, useForm } from '@inertiajs/react';
 import { useMemo, useState } from 'react';
 
@@ -36,7 +37,7 @@ function waQuery(view, extra = {}) {
 export default function Index({
     workspace,
     view = 'conversations',
-    provider = 'sandbox',
+    provider = 'none',
     plan = null,
     meta_setup = null,
     conversations = [],
@@ -49,6 +50,7 @@ export default function Index({
     counts = {},
 }) {
     const sendLocked = plan && !plan.features?.channel_send;
+    const notConnected = provider === 'none';
     const [composing, setComposing] = useState(false);
     const [editingTemplateId, setEditingTemplateId] = useState(null);
 
@@ -161,8 +163,8 @@ export default function Index({
                                 {provider === 'meta'
                                     ? 'Meta Cloud API'
                                     : provider === 'zavu'
-                                      ? 'Zavu (fallback)'
-                                      : 'test mode'}
+                                      ? 'Zavu'
+                                      : 'Not connected'}
                             </span>
                             {' · '}
                             Conversations, templates, and campaigns in one place.
@@ -182,10 +184,12 @@ export default function Index({
                     </div>
                 </section>
 
-                {provider === 'sandbox' ? (
+                {notConnected ? (
                     <section className="atlas-panel border border-amber-200 bg-amber-50/80 p-3">
                         <p className="text-sm text-amber-900">
-                            WhatsApp is in <span className="font-semibold">test mode</span>. Open{' '}
+                            <span className="font-semibold">WhatsApp is not connected.</span> No
+                            message will be sent from this workspace until you connect your own
+                            WhatsApp Business number. Open{' '}
                             <button
                                 type="button"
                                 className="font-semibold underline"
@@ -193,8 +197,7 @@ export default function Index({
                             >
                                 Setup
                             </button>{' '}
-                            and submit your WhatsApp number + business details — RankwayAI will
-                            connect Meta for you.
+                            and add your Meta Phone number ID + access token.
                         </p>
                     </section>
                 ) : null}
@@ -300,8 +303,15 @@ function ConversationsView({
     placeholders,
     sendLocked,
     applyTemplateToReply,
-    provider = 'sandbox',
+    provider = 'none',
 }) {
+    const blockIfNotConnected = () => {
+        if (provider !== 'none') return false;
+        toast.error('Connect your WhatsApp number in Setup first. No message is sent until then.');
+        router.get(waQuery('setup'), {}, { preserveScroll: true });
+        return true;
+    };
+
     return (
         <section className="grid gap-3 lg:grid-cols-[280px_1fr]">
             <div className="atlas-panel flex max-h-[70vh] flex-col overflow-hidden">
@@ -363,6 +373,7 @@ function ConversationsView({
                                 toast.error('Upgrade to send WhatsApp messages.');
                                 return;
                             }
+                            if (blockIfNotConnected()) return;
                             startForm.post(route('whatsapp.conversations.start'), {
                                 preserveScroll: true,
                                 onSuccess: () => {
@@ -524,6 +535,7 @@ function ConversationsView({
                                     toast.error('Upgrade to send WhatsApp messages.');
                                     return;
                                 }
+                                if (blockIfNotConnected()) return;
                                 replyForm.post(
                                     route(
                                         'whatsapp.conversations.reply',
@@ -582,7 +594,7 @@ function TemplatesView({
     setEditingTemplateId,
     resetTemplateForm,
     placeholders,
-    provider = 'sandbox',
+    provider = 'none',
 }) {
     return (
         <section className="grid gap-3 lg:grid-cols-2">
@@ -847,6 +859,21 @@ function SetupView({ metaSetup, workspace }) {
     const brandProfile = metaSetup?.brand_profile || {};
     const canManageMeta = !!metaSetup?.can_manage_meta;
     const onboardingStatus = metaSetup?.onboarding_status || 'not_started';
+    const esConfig = metaSetup?.embedded_signup || { enabled: false };
+    const [showManual, setShowManual] = useState(
+        !esConfig.enabled || metaSetup?.connected_via === 'manual',
+    );
+    const [pin, setPin] = useState('');
+    const [activating, setActivating] = useState(false);
+
+    const activateNumber = () => {
+        setActivating(true);
+        router.post(
+            route('whatsapp.register-number'),
+            { pin },
+            { preserveScroll: true, onFinish: () => setActivating(false) },
+        );
+    };
 
     const initial = useMemo(() => {
         const credentials = { ...(metaSetup?.values || {}) };
@@ -858,7 +885,7 @@ function SetupView({ metaSetup, workspace }) {
             }
         }
         return {
-            enabled: true,
+            enabled: metaSetup?.enabled ?? true,
             credentials,
         };
     }, [metaSetup, fields]);
@@ -897,14 +924,16 @@ function SetupView({ metaSetup, workspace }) {
 
     const statusLabel = metaSetup?.connected
         ? 'Connected'
-        : onboardingStatus === 'pending_platform' || onboardingStatus === 'pending'
-          ? 'Pending RankwayAI'
-          : 'Not started';
+        : onboardingStatus === 'error'
+          ? 'Credentials rejected'
+          : onboardingStatus === 'paused'
+            ? 'Paused'
+            : 'Not connected';
 
     const statusClass = metaSetup?.connected
         ? 'bg-emerald-100 text-emerald-800'
-        : onboardingStatus === 'pending_platform' || onboardingStatus === 'pending'
-          ? 'bg-sky-100 text-sky-900'
+        : onboardingStatus === 'error'
+          ? 'bg-rose-100 text-rose-800'
           : 'bg-amber-100 text-amber-900';
 
     const setCredential = (key, value) => {
@@ -945,11 +974,11 @@ function SetupView({ metaSetup, workspace }) {
         form.transform(() => payload).put(route('whatsapp.setup'), {
             preserveScroll: true,
             onSuccess: () =>
-                toast.success(
-                    canManageMeta
-                        ? 'WhatsApp setup saved'
-                        : 'Details submitted — RankwayAI will connect Meta'
-                ),
+                form.setData('credentials', {
+                    ...form.data.credentials,
+                    access_token: '',
+                    app_secret: '',
+                }),
         });
     };
 
@@ -1075,9 +1104,9 @@ function SetupView({ metaSetup, workspace }) {
                             </h3>
                         </div>
                         <p className="mt-1 text-sm text-ink-muted">
-                            {canManageMeta
-                                ? 'Platform: add Meta Cloud API credentials after the client submits their number and business profile.'
-                                : 'Brand details stay on RankwayAI. WhatsApp / WABA can use the same or different values — Meta is created by RankwayAI.'}
+                            Connect your own WhatsApp Business number through Meta Cloud API.
+                            Messages from this workspace go out only from your number, and Meta
+                            bills your own business account.
                         </p>
                     </div>
                     <span
@@ -1090,12 +1119,67 @@ function SetupView({ metaSetup, workspace }) {
                     </span>
                 </div>
 
-                {!metaSetup?.connected &&
-                (onboardingStatus === 'pending_platform' || onboardingStatus === 'pending') ? (
-                    <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
-                        Your details are with RankwayAI. We will connect Meta WhatsApp for{' '}
-                        <strong>{metaSetup?.business_phone || 'this number'}</strong> and notify you
-                        when messaging goes live.
+                {metaSetup?.connected ? (
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+                        Sending from{' '}
+                        <strong>
+                            {[metaSetup?.verified_name, metaSetup?.verified_phone]
+                                .filter(Boolean)
+                                .join(' · ') || metaSetup?.business_phone || 'your number'}
+                        </strong>
+                        .
+                    </div>
+                ) : (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                        No WhatsApp message is sent from this workspace until your WhatsApp
+                        number is connected.
+                        {metaSetup?.last_error ? (
+                            <span className="mt-1 block text-xs text-rose-700">
+                                Last error: {metaSetup.last_error}
+                            </span>
+                        ) : null}
+                    </div>
+                )}
+
+                {canManageMeta && esConfig.enabled ? (
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-mist/40 px-3 py-3">
+                        <div className="max-w-xl text-sm text-ink-muted">
+                            <div className="font-semibold text-ink">
+                                {metaSetup?.connected ? 'Switch number' : 'Connect in 5 minutes'}
+                            </div>
+                            Log in with Facebook, pick or create your WhatsApp Business account,
+                            add your number and verify the OTP. RankwayAI saves everything
+                            automatically — no tokens to copy.
+                        </div>
+                        <EmbeddedSignupButton config={esConfig} connected={!!metaSetup?.connected} />
+                    </div>
+                ) : null}
+
+                {canManageMeta && onboardingStatus === 'needs_pin' ? (
+                    <div className="space-y-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-950">
+                        <div className="font-semibold">Activate your number</div>
+                        <p className="text-xs">
+                            This number already has a WhatsApp two-step verification PIN. Enter that
+                            6-digit PIN to activate it for sending.
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <TextInput
+                                className="w-32"
+                                inputMode="numeric"
+                                maxLength={6}
+                                value={pin}
+                                placeholder="123456"
+                                autoComplete="off"
+                                onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+                            />
+                            <SecondaryButton
+                                type="button"
+                                disabled={pin.length !== 6 || activating}
+                                onClick={activateNumber}
+                            >
+                                {activating ? 'Activating…' : 'Activate number'}
+                            </SecondaryButton>
+                        </div>
                     </div>
                 ) : null}
             </section>
@@ -1122,23 +1206,58 @@ function SetupView({ metaSetup, workspace }) {
 
             {canManageMeta ? (
                 <>
+                    {esConfig.enabled && !showManual ? (
+                        <button
+                            type="button"
+                            className="text-xs font-semibold text-ink-muted underline hover:text-ink"
+                            onClick={() => setShowManual(true)}
+                        >
+                            Advanced: connect with your own Meta app credentials
+                        </button>
+                    ) : null}
+
+                    {showManual ? (
                     <section className="atlas-panel space-y-3 p-4">
-                        <h4 className="text-sm font-bold text-ink">Meta Cloud API (platform)</h4>
-                        <p className="text-xs text-ink-muted">
-                            RankwayAI-only: Phone number ID, WABA, access token, and webhook verify
-                            token after you create the Meta assets for this client.
-                        </p>
-                        <div className="rounded-lg border border-line bg-mist/50 px-3 py-2 text-sm">
-                            <div className="text-[10px] font-bold uppercase tracking-wide text-ink-muted">
-                                Meta webhook callback URL
-                            </div>
-                            <code className="mt-1 block break-all text-xs text-ink">
-                                {metaSetup?.webhook_url ||
-                                    `${window.location.origin}/webhooks/meta/whatsapp/${workspace.id}`}
-                            </code>
+                        <h4 className="text-sm font-bold text-ink">Your Meta Cloud API credentials</h4>
+                        <ol className="list-decimal space-y-0.5 ps-5 text-xs text-ink-muted">
+                            <li>
+                                developers.facebook.com → create a Business app → add the WhatsApp
+                                product and add your number.
+                            </li>
+                            <li>
+                                WhatsApp → API Setup: copy the <strong>Phone number ID</strong> and{' '}
+                                <strong>WhatsApp Business Account ID</strong>.
+                            </li>
+                            <li>
+                                Business Settings → System users → Generate token (permissions
+                                whatsapp_business_messaging + whatsapp_business_management, never
+                                expires).
+                            </li>
+                            <li>
+                                Meta app → WhatsApp → Configuration: paste the callback URL and
+                                verify token below, then subscribe to <code>messages</code>.
+                            </li>
+                        </ol>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                            <CopyBox
+                                label="Webhook callback URL"
+                                value={
+                                    metaSetup?.webhook_url ||
+                                    `${window.location.origin}/webhooks/meta/whatsapp/${workspace.id}`
+                                }
+                            />
+                            <CopyBox
+                                label="Webhook verify token"
+                                value={
+                                    metaSetup?.values?.verify_token ||
+                                    'Generated automatically when you save'
+                                }
+                                copyable={!!metaSetup?.values?.verify_token}
+                            />
                         </div>
                         <div className="grid gap-3 sm:grid-cols-2">{metaKeys.map(renderMetaField)}</div>
                     </section>
+                    ) : null}
 
                     <section className="flex flex-wrap items-center justify-between gap-3">
                         <label className="inline-flex items-center gap-2 text-sm font-semibold text-ink">
@@ -1149,18 +1268,52 @@ function SetupView({ metaSetup, workspace }) {
                             Enable WhatsApp for this workspace
                         </label>
                         <PrimaryButton type="submit" disabled={form.processing}>
-                            {form.processing ? 'Saving…' : 'Save Meta connection'}
+                            {form.processing
+                                ? 'Saving…'
+                                : showManual
+                                  ? 'Save & connect'
+                                  : 'Save profile'}
                         </PrimaryButton>
                     </section>
                 </>
             ) : (
-                <section className="flex justify-end">
-                    <PrimaryButton type="submit" disabled={form.processing}>
-                        {form.processing ? 'Submitting…' : 'Submit for Meta setup'}
-                    </PrimaryButton>
+                <section className="atlas-panel p-4 text-sm text-ink-muted">
+                    Only workspace owners and admins can connect WhatsApp. Ask your workspace owner
+                    to add the Meta credentials here.
                 </section>
             )}
         </form>
+    );
+}
+
+function CopyBox({ label, value, copyable = true }) {
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(value);
+            toast.success(`${label} copied`);
+        } catch {
+            toast.error('Copy failed — select and copy manually.');
+        }
+    };
+
+    return (
+        <div className="rounded-lg border border-line bg-mist/50 px-3 py-2 text-sm">
+            <div className="flex items-center justify-between gap-2">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-ink-muted">
+                    {label}
+                </div>
+                {copyable ? (
+                    <button
+                        type="button"
+                        className="text-[11px] font-semibold text-ink-muted underline hover:text-ink"
+                        onClick={copy}
+                    >
+                        Copy
+                    </button>
+                ) : null}
+            </div>
+            <code className="mt-1 block break-all text-xs text-ink">{value}</code>
+        </div>
     );
 }
 

@@ -10,6 +10,8 @@ use App\Models\CrmLead;
 use App\Services\Billing\PlanAccess;
 use App\Services\Channels\ChannelCampaignService;
 use App\Services\Channels\ChannelTemplateService;
+use App\Services\Channels\Rcs\RcsProviderCatalog;
+use App\Services\Integrations\WorkspaceIntegrationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -86,7 +88,7 @@ class ChannelsController extends Controller
         ]);
 
         if ($data['channel'] === 'rcs') {
-            $allowed = \App\Services\Channels\Rcs\RcsProviderCatalog::ids();
+            $allowed = RcsProviderCatalog::ids();
             if (! empty($data['rcs_provider']) && ! in_array($data['rcs_provider'], $allowed, true)) {
                 return back()->with('error', 'Invalid RCS provider.');
             }
@@ -94,6 +96,14 @@ class ChannelsController extends Controller
 
         if (in_array($data['delivery'], ['now', 'schedule'], true) && ! $plans->allows($workspace, 'channel_send')) {
             return back()->with('error', $plans->denyMessage('channel_send'));
+        }
+
+        if (
+            $data['channel'] === 'whatsapp'
+            && in_array($data['delivery'], ['now', 'schedule'], true)
+            && $channels->provider($workspace, 'whatsapp') === 'none'
+        ) {
+            return back()->with('error', WorkspaceIntegrationService::whatsappNotConnectedMessage());
         }
 
         if ($data['channel'] === 'email' && blank($data['subject'] ?? null)) {
@@ -204,11 +214,15 @@ class ChannelsController extends Controller
         return back()->with('success', 'Template deleted.');
     }
 
-    public function send(Request $request, ChannelCampaign $campaign): RedirectResponse
+    public function send(Request $request, ChannelCampaign $campaign, ChannelCampaignService $channels): RedirectResponse
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
         abort_unless($campaign->workspace_id === $workspace->id, 404);
+
+        if ($campaign->channel === 'whatsapp' && $channels->provider($workspace, 'whatsapp') === 'none') {
+            return back()->with('error', WorkspaceIntegrationService::whatsappNotConnectedMessage());
+        }
 
         SendChannelCampaignJob::dispatchSync($campaign->id);
 

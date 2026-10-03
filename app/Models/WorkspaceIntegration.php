@@ -11,6 +11,7 @@ class WorkspaceIntegration extends Model
         'workspace_id',
         'category',
         'provider',
+        'external_id',
         'enabled',
         'status',
         'credentials',
@@ -27,6 +28,16 @@ class WorkspaceIntegration extends Model
             'meta' => 'array',
             'connected_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::saving(function (WorkspaceIntegration $row) {
+            if ($row->provider === 'whatsapp_meta') {
+                $phoneId = trim((string) ($row->credentials['phone_number_id'] ?? ''));
+                $row->external_id = $phoneId !== '' ? $phoneId : null;
+            }
+        });
     }
 
     public function workspace(): BelongsTo

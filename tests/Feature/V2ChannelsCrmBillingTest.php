@@ -4,14 +4,21 @@ namespace Tests\Feature;
 
 use App\Enums\WorkspaceRole;
 use App\Models\AiUsageLog;
+use App\Models\BillingAccount;
 use App\Models\ChannelCampaign;
 use App\Models\ChannelCampaignRecipient;
+use App\Models\CreditRecharge;
 use App\Models\CrmLead;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Models\WorkspaceAiSetting;
 use App\Models\WorkspaceSubscription;
+use App\Services\Billing\BillingAccountService;
 use App\Services\Billing\BillingService;
+use App\Services\Channels\ChannelCampaignService;
+use App\Services\Integrations\WorkspaceIntegrationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class V2ChannelsCrmBillingTest extends TestCase
@@ -26,6 +33,19 @@ class V2ChannelsCrmBillingTest extends TestCase
         app(BillingService::class)->changePlan($workspace, $plan, 'active');
 
         return [$user, $workspace];
+    }
+
+    private function connectWhatsapp(Workspace $workspace): void
+    {
+        app(WorkspaceIntegrationService::class)->upsert($workspace, 'whatsapp_meta', [
+            'phone_number_id' => '1234567890',
+            'access_token' => 'meta_token_secret',
+            'verify_token' => 'verify',
+        ]);
+
+        Http::fake([
+            'graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.CAMPAIGN']]], 200),
+        ]);
     }
 
     public function test_crm_lead_pipeline(): void
@@ -59,9 +79,60 @@ class V2ChannelsCrmBillingTest extends TestCase
             ->assertInertia(fn ($page) => $page->component('Crm/Index')->has('byStage.qualified', 1));
     }
 
-    public function test_whatsapp_campaign_sends_in_sandbox(): void
+    public function test_whatsapp_campaign_is_blocked_until_workspace_connects_whatsapp(): void
     {
         [$user, $workspace] = $this->memberWithWorkspace();
+        Http::fake();
+
+        CrmLead::query()->create([
+            'workspace_id' => $workspace->id,
+            'name' => 'Ravi',
+            'phone' => '+919111111111',
+            'stage' => 'new',
+            'source' => 'manual',
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('channels.store'), [
+                'name' => 'Festive blast',
+                'channel' => 'whatsapp',
+                'body' => 'Hello from Atlas',
+                'delivery' => 'now',
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('error');
+
+        $this->assertSame(0, ChannelCampaign::query()->count());
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('channels.store'), [
+                'name' => 'Draft blast',
+                'channel' => 'whatsapp',
+                'body' => 'Hello from Atlas',
+                'delivery' => 'draft',
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $draft = ChannelCampaign::query()->first();
+        $this->assertSame('draft', $draft->status);
+
+        // Scheduled/queued sends that run after a disconnect fail instead of sending.
+        app(ChannelCampaignService::class)->send($draft);
+        $draft->refresh();
+        $this->assertSame('failed', $draft->status);
+        $this->assertSame('none', $draft->provider);
+        $this->assertSame(0, $draft->sent_count);
+        $this->assertSame('new', CrmLead::query()->first()->stage);
+        Http::assertNothingSent();
+    }
+
+    public function test_whatsapp_campaign_sends_from_workspace_meta_number(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $this->connectWhatsapp($workspace);
 
         CrmLead::query()->create([
             'workspace_id' => $workspace->id,
@@ -83,8 +154,9 @@ class V2ChannelsCrmBillingTest extends TestCase
 
         $campaign = ChannelCampaign::query()->first();
         $this->assertSame('sent', $campaign->status);
-        $this->assertSame('sandbox', $campaign->provider);
+        $this->assertSame('meta', $campaign->provider);
         $this->assertSame(1, $campaign->sent_count);
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'graph.facebook.com/v21.0/1234567890/messages'));
         $this->assertSame(1, ChannelCampaignRecipient::query()->where('status', 'sent')->count());
         $this->assertSame('contacted', CrmLead::query()->first()->stage);
     }
@@ -138,6 +210,7 @@ class V2ChannelsCrmBillingTest extends TestCase
     public function test_channel_template_can_be_saved_and_used_in_campaign(): void
     {
         [$user, $workspace] = $this->memberWithWorkspace();
+        $this->connectWhatsapp($workspace);
 
         $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])
@@ -197,6 +270,7 @@ class V2ChannelsCrmBillingTest extends TestCase
     public function test_campaign_can_be_scheduled(): void
     {
         [$user, $workspace] = $this->memberWithWorkspace();
+        $this->connectWhatsapp($workspace);
 
         CrmLead::query()->create([
             'workspace_id' => $workspace->id,
@@ -394,12 +468,12 @@ class V2ChannelsCrmBillingTest extends TestCase
             ->assertRedirect()
             ->assertSessionHas('success');
 
-        $settings = \App\Models\WorkspaceAiSetting::query()->where('workspace_id', $workspace->id)->first();
-        $account = \App\Models\BillingAccount::query()->where('user_id', $user->id)->first();
+        $settings = WorkspaceAiSetting::query()->where('workspace_id', $workspace->id)->first();
+        $account = BillingAccount::query()->where('user_id', $user->id)->first();
         $this->assertNotNull($account);
         $this->assertSame(500, (int) $account->topup_credits);
 
-        $recharge = \App\Models\CreditRecharge::query()->where('workspace_id', $workspace->id)->first();
+        $recharge = CreditRecharge::query()->where('workspace_id', $workspace->id)->first();
         $this->assertNotNull($recharge);
         $this->assertSame('paid', $recharge->status);
         $this->assertSame('manual', $recharge->provider);
@@ -475,9 +549,9 @@ class V2ChannelsCrmBillingTest extends TestCase
     {
         [$user, $workspace] = $this->memberWithWorkspace('starter');
 
-        $recharge = \App\Models\CreditRecharge::query()->create([
+        $recharge = CreditRecharge::query()->create([
             'workspace_id' => $workspace->id,
-            'billing_account_id' => app(\App\Services\Billing\BillingAccountService::class)->account($user)->id,
+            'billing_account_id' => app(BillingAccountService::class)->account($user)->id,
             'user_id' => $user->id,
             'pack_id' => 'in_2000',
             'credits' => 2000,
@@ -507,7 +581,7 @@ class V2ChannelsCrmBillingTest extends TestCase
         ])->assertOk();
 
         $this->assertSame('paid', $recharge->fresh()->status);
-        $account = \App\Models\BillingAccount::query()->where('user_id', $user->id)->first();
+        $account = BillingAccount::query()->where('user_id', $user->id)->first();
         $this->assertNotNull($account);
         $this->assertSame(2000, (int) $account->topup_credits);
     }

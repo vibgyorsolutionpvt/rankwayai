@@ -1,8 +1,14 @@
 <?php
 
+use App\Http\Middleware\EnsureHasWorkspace;
+use App\Http\Middleware\EnsureModuleAccess;
+use App\Http\Middleware\EnsurePlanFeature;
+use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\LogTeamMemberActivity;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -15,21 +21,22 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->trustProxies(at: '*');
 
         $middleware->web(append: [
-            \App\Http\Middleware\HandleInertiaRequests::class,
-            \Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets::class,
-            \App\Http\Middleware\LogTeamMemberActivity::class,
+            HandleInertiaRequests::class,
+            AddLinkHeadersForPreloadedAssets::class,
+            LogTeamMemberActivity::class,
         ]);
 
         $middleware->alias([
-            'plan' => \App\Http\Middleware\EnsurePlanFeature::class,
-            'module' => \App\Http\Middleware\EnsureModuleAccess::class,
-            'workspace.setup' => \App\Http\Middleware\EnsureHasWorkspace::class,
+            'plan' => EnsurePlanFeature::class,
+            'module' => EnsureModuleAccess::class,
+            'workspace.setup' => EnsureHasWorkspace::class,
         ]);
 
         $middleware->validateCsrfTokens(except: [
             'webhooks/stripe',
             'webhooks/razorpay',
             'webhooks/zavu/*',
+            'webhooks/meta/whatsapp',
             'webhooks/meta/whatsapp/*',
         ]);
     })

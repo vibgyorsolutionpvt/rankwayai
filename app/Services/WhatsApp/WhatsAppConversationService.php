@@ -96,6 +96,16 @@ class WhatsAppConversationService
             return ['ok' => false, 'message' => null, 'error' => 'Message body is required.', 'conversation' => $conversation];
         }
 
+        $provider = $this->integrations->whatsappProvider($workspace);
+        if ($provider === 'none') {
+            return [
+                'ok' => false,
+                'message' => null,
+                'error' => WorkspaceIntegrationService::whatsappNotConnectedMessage(),
+                'conversation' => $conversation,
+            ];
+        }
+
         $lead = $conversation->lead;
         $sourceBody = ($asTemplate && $template) ? (string) $template->body : $body;
         if ($sourceBody === '') {
@@ -112,15 +122,7 @@ class WhatsAppConversationService
             $bodyParams = $this->meta->resolveBodyParamValues((string) $template->body, $tokenMap);
         }
 
-        $provider = $this->integrations->whatsappProvider($workspace);
-
         $delivery = match ($provider) {
-            'sandbox' => [
-                'ok' => true,
-                'id' => 'sandbox_wa_'.Str::lower(Str::random(10)),
-                'error' => null,
-                'conversation_id' => null,
-            ],
             'meta' => $this->meta->sendText(
                 $workspace,
                 $conversation->phone,
