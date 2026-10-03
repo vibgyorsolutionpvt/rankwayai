@@ -1,0 +1,1 @@
+import{j as i}from"./app-BAa90cM6.js";function s({className:n="",alt:a="RankwayAI",...o}){return i.jsx("img",{...o,src:"/img/rankwayai-icon.png?v=3",alt:a,className:`object-contain ${n}`,decoding:"async"})}export{s as A};

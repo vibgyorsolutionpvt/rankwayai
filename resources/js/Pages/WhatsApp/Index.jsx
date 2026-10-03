@@ -169,12 +169,16 @@ export default function Index({
                             {' · '}
                             Conversations, templates, and campaigns in one place.
                         </p>
-                        <p className="mt-1 text-xs text-ink-muted">
-                            Meta webhook:{' '}
-                            <code className="rounded bg-mist px-1 py-0.5">
-                                /webhooks/meta/whatsapp/{workspace.id}
-                            </code>
-                        </p>
+                        {meta_setup?.verified_phone || meta_setup?.verified_name ? (
+                            <p className="mt-1 text-xs text-ink-muted">
+                                Number:{' '}
+                                <span className="font-semibold text-ink">
+                                    {[meta_setup.verified_name, meta_setup.verified_phone]
+                                        .filter(Boolean)
+                                        .join(' · ')}
+                                </span>
+                            </p>
+                        ) : null}
                     </div>
                     <div className="flex gap-4 text-sm">
                         <Stat label="Unread" value={counts.unread || 0} />
@@ -197,7 +201,7 @@ export default function Index({
                             >
                                 Setup
                             </button>{' '}
-                            and add your Meta Phone number ID + access token.
+                            and click Connect WhatsApp.
                         </p>
                     </section>
                 ) : null}

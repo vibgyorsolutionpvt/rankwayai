@@ -278,7 +278,9 @@ class MetaEmbeddedSignupService
             ?? $response->json('error.message')
             ?? Str::limit($response->body(), 200));
 
-        return trim((filled($code) ? '(#'.$code.') ' : '').$message);
+        $prefix = filled($code) && ! str_contains($message, '(#'.$code.')') ? '(#'.$code.') ' : '';
+
+        return trim($prefix.$message);
     }
 
     /**
