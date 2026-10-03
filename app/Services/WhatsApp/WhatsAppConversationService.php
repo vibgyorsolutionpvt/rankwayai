@@ -2,6 +2,7 @@
 
 namespace App\Services\WhatsApp;
 
+use App\Models\ChannelCampaignRecipient;
 use App\Models\ChannelMessageTemplate;
 use App\Models\CrmLead;
 use App\Models\User;
@@ -23,12 +24,9 @@ class WhatsAppConversationService
 
     public function normalizePhone(string $phone): string
     {
-        $digits = preg_replace('/\D+/', '', $phone) ?: '';
-        if ($digits === '') {
-            return trim($phone);
-        }
+        $digits = MetaWhatsAppCloudService::internationalDigits($phone);
 
-        return str_starts_with($phone, '+') ? '+'.$digits : '+'.$digits;
+        return $digits === '' ? trim($phone) : '+'.$digits;
     }
 
     public function findOrCreate(
@@ -250,7 +248,57 @@ class WhatsAppConversationService
             }
         }
 
+        foreach ($this->meta->parseStatuses($payload) as $status) {
+            $this->applyDeliveryStatus($workspace, $status);
+        }
+
         return $created;
+    }
+
+    /**
+     * @param  array{id:string,status:string,error:?string,error_meta:?array<string, mixed>}  $status
+     */
+    public function applyDeliveryStatus(Workspace $workspace, array $status): void
+    {
+        $rank = ['sent' => 1, 'delivered' => 2, 'read' => 3];
+        $next = $status['status'];
+
+        $message = WhatsappMessage::query()
+            ->where('provider_message_id', $status['id'])
+            ->whereHas('conversation', fn ($q) => $q->where('workspace_id', $workspace->id))
+            ->first();
+
+        if ($message && $message->direction === 'outbound') {
+            if ($next === 'failed') {
+                $message->update([
+                    'status' => 'failed',
+                    'error_message' => $status['error'],
+                    'meta' => array_merge($message->meta ?? [], ['delivery_error' => $status['error_meta']]),
+                ]);
+            } elseif (($rank[$next] ?? 0) > ($rank[$message->status] ?? 0)) {
+                $message->update(['status' => $next, 'error_message' => null]);
+            }
+        }
+
+        $recipient = ChannelCampaignRecipient::query()
+            ->where('provider_message_id', $status['id'])
+            ->whereHas('campaign', fn ($q) => $q->where('workspace_id', $workspace->id))
+            ->first();
+
+        if ($recipient) {
+            if ($next === 'failed') {
+                $recipient->update(['status' => 'failed', 'error_message' => $status['error']]);
+            } elseif (($rank[$next] ?? 0) > ($rank[$recipient->status] ?? 0)) {
+                $recipient->update(['status' => $next, 'error_message' => null]);
+            }
+
+            if ($recipient->wasChanged('status') && $campaign = $recipient->campaign) {
+                $campaign->update([
+                    'sent_count' => $campaign->recipients()->whereIn('status', ['sent', 'delivered', 'read'])->count(),
+                    'failed_count' => $campaign->recipients()->where('status', 'failed')->count(),
+                ]);
+            }
+        }
     }
 
     public function markRead(WhatsappConversation $conversation): void
