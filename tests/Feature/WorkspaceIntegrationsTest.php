@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\WorkspaceRole;
+use App\Mail\ChannelCampaignMail;
 use App\Models\ChannelCampaign;
 use App\Models\CrmLead;
 use App\Models\User;
@@ -236,7 +237,7 @@ class WorkspaceIntegrationsTest extends TestCase
 
         $channels = app(ChannelCampaignService::class);
         $this->assertSame('smtp', $channels->provider($workspace, 'email'));
-        $this->assertSame('sandbox', $channels->provider($workspace, 'whatsapp'));
+        $this->assertSame('none', $channels->provider($workspace, 'whatsapp'));
 
         Mail::fake();
 
@@ -265,7 +266,7 @@ class WorkspaceIntegrationsTest extends TestCase
         $this->assertSame('sent', $campaign->status);
         $this->assertSame(1, $campaign->sent_count);
 
-        Mail::assertSent(\App\Mail\ChannelCampaignMail::class, function ($mail) {
+        Mail::assertSent(ChannelCampaignMail::class, function ($mail) {
             return $mail->hasTo('asha@example.com');
         });
     }

@@ -7,7 +7,7 @@ import SelectMenu from '@/Components/SelectMenu';
 import TextInput from '@/Components/TextInput';
 import { toast } from '@/Components/ToastProvider';
 import { confirmAsk } from '@/Components/ConfirmProvider';
-import { Head, router, useForm } from '@inertiajs/react';
+import { Head, Link, router, useForm } from '@inertiajs/react';
 import { useMemo, useState } from 'react';
 
 const deliveryOptions = [
@@ -188,11 +188,18 @@ export default function Index({
                         <p className="mt-0.5 text-sm text-ink-muted">
                             WhatsApp:{' '}
                             <span className="font-semibold text-ink">
-                                {providers.whatsapp === 'meta'
-                                    ? 'Meta Cloud API'
-                                    : providers.whatsapp === 'zavu'
-                                      ? 'Zavu'
-                                      : 'test mode'}
+                                {providers.whatsapp === 'meta' ? (
+                                    'Meta Cloud API'
+                                ) : providers.whatsapp === 'zavu' ? (
+                                    'Zavu'
+                                ) : (
+                                    <Link
+                                        href={route('whatsapp.index', { view: 'setup' })}
+                                        className="text-rose-700 underline"
+                                    >
+                                        Not connected — set up
+                                    </Link>
+                                )}
                             </span>
                             {' · '}
                             Email:{' '}

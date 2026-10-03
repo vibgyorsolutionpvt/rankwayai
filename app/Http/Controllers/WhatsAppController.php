@@ -13,9 +13,13 @@ use App\Services\Channels\ChannelCampaignService;
 use App\Services\Channels\ChannelTemplateService;
 use App\Services\Integrations\IntegrationCatalog;
 use App\Services\Integrations\WorkspaceIntegrationService;
+use App\Services\WhatsApp\MetaEmbeddedSignupService;
+use App\Services\WhatsApp\MetaWhatsAppCloudService;
 use App\Services\WhatsApp\WhatsAppConversationService;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -130,8 +134,12 @@ class WhatsAppController extends Controller
         ]);
     }
 
-    public function start(Request $request, WhatsAppConversationService $conversations, PlanAccess $plans): RedirectResponse
-    {
+    public function start(
+        Request $request,
+        WhatsAppConversationService $conversations,
+        PlanAccess $plans,
+        WorkspaceIntegrationService $integrations,
+    ): RedirectResponse {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
 
@@ -146,6 +154,12 @@ class WhatsAppController extends Controller
 
         if (! $plans->allows($workspace, 'channel_send')) {
             return back()->with('error', $plans->denyMessage('channel_send'));
+        }
+
+        if (! $integrations->whatsappConnected($workspace)) {
+            return redirect()
+                ->route('whatsapp.index', ['view' => 'setup'])
+                ->with('error', WorkspaceIntegrationService::whatsappNotConnectedMessage());
         }
 
         $phone = $data['phone'] ?? null;
@@ -261,7 +275,7 @@ class WhatsAppController extends Controller
         return back()->with('success', 'Conversation closed.');
     }
 
-    public function storeTemplate(Request $request, \App\Services\WhatsApp\MetaWhatsAppCloudService $meta): RedirectResponse
+    public function storeTemplate(Request $request, MetaWhatsAppCloudService $meta): RedirectResponse
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
@@ -320,7 +334,7 @@ class WhatsAppController extends Controller
     public function syncTemplateStatus(
         Request $request,
         ChannelMessageTemplate $template,
-        \App\Services\WhatsApp\MetaWhatsAppCloudService $meta,
+        MetaWhatsAppCloudService $meta,
     ): RedirectResponse {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
@@ -397,19 +411,18 @@ class WhatsAppController extends Controller
     }
 
     /**
-     * Client onboarding: business number + profile only.
-     * Meta Cloud API is completed later by RankwayAI (platform), not by the client.
+     * Each workspace connects its own Meta WhatsApp Cloud API number.
+     * Nothing is sent from a shared/platform number.
      */
     public function saveSetup(
         Request $request,
         WorkspaceIntegrationService $integrations,
+        MetaWhatsAppCloudService $meta,
     ): RedirectResponse {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
 
-        $canManageMeta = (bool) $request->user()?->is_superadmin;
-
-        $rules = [
+        $data = $request->validate([
             'enabled' => ['sometimes', 'boolean'],
             'credentials' => ['required', 'array'],
             'credentials.business_display_name' => ['required', 'string', 'max:120'],
@@ -420,73 +433,172 @@ class WhatsAppController extends Controller
             'credentials.business_address' => ['nullable', 'string', 'max:255'],
             'credentials.business_country' => ['nullable', 'string', 'max:8'],
             'credentials.business_about' => ['nullable', 'string', 'max:500'],
-        ];
-
-        if ($canManageMeta) {
-            $rules['credentials.phone_number_id'] = ['nullable', 'string', 'max:64'];
-            $rules['credentials.waba_id'] = ['nullable', 'string', 'max:64'];
-            $rules['credentials.access_token'] = ['nullable', 'string', 'max:4000'];
-            $rules['credentials.app_secret'] = ['nullable', 'string', 'max:4000'];
-            $rules['credentials.verify_token'] = ['nullable', 'string', 'max:255'];
-            $rules['credentials.api_version'] = ['nullable', 'string', 'max:16'];
-        }
-
-        $data = $request->validate($rules);
+            'credentials.phone_number_id' => ['nullable', 'string', 'regex:/^\d{6,32}$/'],
+            'credentials.waba_id' => ['nullable', 'string', 'regex:/^\d{6,32}$/'],
+            'credentials.access_token' => ['nullable', 'string', 'max:4000'],
+            'credentials.app_secret' => ['nullable', 'string', 'max:4000'],
+            'credentials.verify_token' => ['nullable', 'string', 'max:255'],
+            'credentials.api_version' => ['nullable', 'string', 'regex:/^v\d{1,3}\.\d{1,2}$/'],
+        ], [
+            'credentials.phone_number_id.regex' => 'Phone number ID should be digits only (Meta → WhatsApp → API Setup).',
+            'credentials.waba_id.regex' => 'WhatsApp Business Account ID should be digits only.',
+            'credentials.api_version.regex' => 'API version looks like v21.0.',
+        ]);
         $input = $data['credentials'] ?? [];
 
         $creds = [];
-        foreach (self::BUSINESS_SETUP_KEYS as $key) {
+        foreach ([...self::BUSINESS_SETUP_KEYS, ...self::META_SETUP_KEYS] as $key) {
             if (array_key_exists($key, $input)) {
                 $creds[$key] = $input[$key];
             }
         }
 
-        // Only platform admins may write Meta Cloud API credentials.
-        if ($canManageMeta) {
-            foreach (self::META_SETUP_KEYS as $key) {
-                if (array_key_exists($key, $input)) {
-                    $creds[$key] = $input[$key];
-                }
-            }
+        if (filled($creds['phone_number_id'] ?? null)
+            && $integrations->whatsappPhoneIdUsedElsewhere($workspace, (string) $creds['phone_number_id'])) {
+            return back()->withInput()->with('error', 'This WhatsApp number is already connected to another workspace.');
         }
 
+        $existing = $integrations->getRecord($workspace, 'whatsapp_meta');
+        if (blank($creds['verify_token'] ?? null) && blank($existing?->credential('verify_token'))) {
+            $creds['verify_token'] = Str::random(32);
+        }
+
+        $enabled = $request->boolean('enabled', true);
+
         try {
-            $row = $integrations->upsert(
-                $workspace,
-                'whatsapp_meta',
-                $creds,
-                $canManageMeta ? $request->boolean('enabled', true) : true
-            );
+            $row = $integrations->upsert($workspace, 'whatsapp_meta', $creds, $enabled);
         } catch (\InvalidArgumentException $e) {
             return back()->withInput()->with('error', $e->getMessage());
         }
 
-        // Business submitted without full Meta API → pending (platform connects later).
-        if (! $integrations->hasWhatsappMeta($workspace)) {
-            $merged = array_merge($row->credentials ?? [], $creds, [
-                'onboarding_status' => 'pending_platform',
-                'onboarding_submitted_at' => now()->toIso8601String(),
-            ]);
+        $phoneId = (string) ($row->credential('phone_number_id') ?: '');
+        $token = (string) ($row->credential('access_token') ?: '');
+
+        if ($phoneId === '' || $token === '') {
             $row->update([
-                'credentials' => $merged,
-                'status' => 'pending',
-                'enabled' => true,
-                'last_error' => null,
+                'credentials' => array_merge($row->credentials ?? [], ['onboarding_status' => 'incomplete']),
+                'status' => 'disconnected',
+                'last_error' => 'Phone number ID and access token are required to send messages.',
             ]);
 
             return redirect()
                 ->route('whatsapp.index', ['view' => 'setup'])
-                ->with('success', 'Details submitted. RankwayAI will connect Meta WhatsApp for this number — you do not need Developer Console access.');
+                ->with('success', 'Business details saved. Connect your WhatsApp number to start sending — no WhatsApp message goes out until then.');
         }
 
-        $merged = array_merge($row->credentials ?? [], [
-            'onboarding_status' => 'connected',
+        if ($existing?->credential('onboarding_status') === 'needs_pin') {
+            $row->update([
+                'credentials' => array_merge($row->credentials ?? [], ['onboarding_status' => 'needs_pin']),
+                'status' => 'error',
+                'connected_at' => null,
+            ]);
+
+            return redirect()
+                ->route('whatsapp.index', ['view' => 'setup'])
+                ->with('success', 'Profile saved. Enter your two-step PIN to activate the number before sending.');
+        }
+
+        if (! $enabled) {
+            return redirect()
+                ->route('whatsapp.index', ['view' => 'setup'])
+                ->with('success', 'WhatsApp is paused for this workspace. No messages will be sent.');
+        }
+
+        $check = $meta->verifyCredentials($phoneId, $token, (string) ($row->credential('api_version') ?: 'v21.0'));
+
+        if (! $check['ok'] && $check['reachable']) {
+            $row->update([
+                'credentials' => array_merge($row->credentials ?? [], ['onboarding_status' => 'error']),
+                'status' => 'error',
+                'last_error' => $check['error'],
+                'connected_at' => null,
+            ]);
+
+            return redirect()
+                ->route('whatsapp.index', ['view' => 'setup'])
+                ->with('error', 'Meta rejected these credentials: '.$check['error']);
+        }
+
+        $row->update([
+            'credentials' => array_merge($row->credentials ?? [], array_filter([
+                'onboarding_status' => 'connected',
+                'verified_phone' => $check['display_phone_number'] ?? null,
+                'verified_name' => $check['verified_name'] ?? null,
+            ], fn ($v) => filled($v))),
+            'status' => 'connected',
+            'last_error' => null,
+            'connected_at' => $row->connected_at ?: now(),
         ]);
-        $row->update(['credentials' => $merged]);
+
+        $label = trim(($check['verified_name'] ?? '').' '.($check['display_phone_number'] ?? ''));
 
         return redirect()
             ->route('whatsapp.index', ['view' => 'setup'])
-            ->with('success', 'WhatsApp Business is connected and live for this workspace.');
+            ->with('success', $check['ok']
+                ? 'WhatsApp connected'.($label !== '' ? " ({$label})" : '').'. Messages from this workspace now go out from your own number.'
+                : 'Credentials saved, but Meta could not be reached to verify them right now. Send a test message to confirm.');
+    }
+
+    public function embeddedSignup(Request $request, MetaEmbeddedSignupService $signup): RedirectResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+
+        $data = $request->validate([
+            'code' => ['required', 'string', 'max:2048'],
+            'waba_id' => ['nullable', 'string', 'regex:/^\d{6,32}$/'],
+            'phone_number_id' => ['nullable', 'string', 'regex:/^\d{6,32}$/'],
+            'pin' => ['nullable', 'digits:6'],
+        ]);
+
+        try {
+            $result = $signup->complete(
+                $workspace,
+                $data['code'],
+                $data['waba_id'] ?? null,
+                $data['phone_number_id'] ?? null,
+                $data['pin'] ?? null,
+            );
+        } catch (ConnectionException $e) {
+            return redirect()
+                ->route('whatsapp.index', ['view' => 'setup'])
+                ->with('error', 'Could not reach Meta right now. Please try Connect WhatsApp again in a minute.');
+        }
+
+        if (! $result['ok']) {
+            return redirect()
+                ->route('whatsapp.index', ['view' => 'setup'])
+                ->with('error', $result['error']);
+        }
+
+        $label = trim(($result['verified_name'] ?? '').' '.($result['display_phone_number'] ?? ''));
+
+        return redirect()
+            ->route('whatsapp.index', ['view' => 'setup'])
+            ->with('success', 'WhatsApp connected'.($label !== '' ? " ({$label})" : '').'. Submit a template next — campaigns can start once Meta approves it.');
+    }
+
+    public function registerNumber(Request $request, MetaEmbeddedSignupService $signup): RedirectResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+
+        $data = $request->validate([
+            'pin' => ['required', 'digits:6'],
+        ]);
+
+        try {
+            $result = $signup->register($workspace, $data['pin']);
+        } catch (ConnectionException $e) {
+            return back()->with('error', 'Could not reach Meta right now. Please try again in a minute.');
+        }
+
+        return redirect()
+            ->route('whatsapp.index', ['view' => 'setup'])
+            ->with(
+                $result['ok'] ? 'success' : 'error',
+                $result['ok'] ? 'Number activated. WhatsApp is ready to send.' : 'Activation failed: '.$result['error']
+            );
     }
 
     /**
@@ -528,19 +640,25 @@ class WhatsAppController extends Controller
         $path = '/webhooks/meta/whatsapp/'.$workspace->id;
         $connected = $integrations->hasWhatsappMeta($workspace);
         $onboarding = $row ? (string) ($row->credential('onboarding_status') ?: '') : '';
-        if ($onboarding === '' && $row) {
-            $onboarding = $connected ? 'connected' : (string) $row->status;
+        if ($connected) {
+            $onboarding = 'connected';
+        } elseif ($onboarding === 'connected' || $onboarding === 'pending_platform') {
+            $onboarding = $row && ! $row->enabled ? 'paused' : 'incomplete';
         }
         if ($onboarding === '') {
-            $onboarding = 'not_started';
+            $onboarding = $row ? 'incomplete' : 'not_started';
         }
-
-        $canManageMeta = (bool) ($user?->is_superadmin);
 
         return [
             'connected' => $connected,
+            'enabled' => $row ? (bool) $row->enabled : true,
             'onboarding_status' => $onboarding,
-            'can_manage_meta' => $canManageMeta,
+            'can_manage_meta' => $user !== null && $user->can('update', $workspace),
+            'last_error' => $row?->last_error,
+            'verified_phone' => $row ? ($row->credential('verified_phone') ?: null) : null,
+            'verified_name' => $row ? ($row->credential('verified_name') ?: null) : null,
+            'connected_via' => $row ? ($row->credential('connected_via') ?: 'manual') : null,
+            'embedded_signup' => app(MetaEmbeddedSignupService::class)->clientConfig(),
             'webhook_url' => rtrim((string) config('app.url'), '/').$path,
             'webhook_path' => $path,
             'fields' => $def['fields'],

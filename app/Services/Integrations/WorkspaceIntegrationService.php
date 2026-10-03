@@ -192,31 +192,16 @@ class WorkspaceIntegrationService
     }
 
     /**
+     * Workspace-owned credentials only. There is deliberately no server .env fallback:
+     * each customer sends from their own WhatsApp number and pays Meta on their own account.
+     *
      * @return array{phone_number_id:string,waba_id:?string,access_token:string,app_secret:?string,verify_token:string,api_version:string}|null
      */
     public function whatsappMetaConfig(Workspace $workspace): ?array
     {
         $row = $this->get($workspace, 'whatsapp_meta');
         if (! $row) {
-            // Platform env fallback for single-tenant / shared Meta app (not in PHPUnit).
-            if (app()->runningUnitTests()) {
-                return null;
-            }
-            $phoneId = config('services.meta.whatsapp_phone_number_id');
-            $token = config('services.meta.whatsapp_access_token');
-            $verify = config('services.meta.whatsapp_verify_token');
-            if (blank($phoneId) || blank($token) || blank($verify)) {
-                return null;
-            }
-
-            return [
-                'phone_number_id' => (string) $phoneId,
-                'waba_id' => config('services.meta.whatsapp_waba_id'),
-                'access_token' => (string) $token,
-                'app_secret' => config('services.meta.app_secret') ?: config('services.meta.whatsapp_app_secret'),
-                'verify_token' => (string) $verify,
-                'api_version' => (string) (config('services.meta.whatsapp_api_version') ?: 'v21.0'),
-            ];
+            return null;
         }
 
         $phoneId = (string) ($row->credential('phone_number_id') ?: '');
@@ -230,16 +215,14 @@ class WorkspaceIntegrationService
             'phone_number_id' => $phoneId,
             'waba_id' => filled($row->credential('waba_id')) ? (string) $row->credential('waba_id') : null,
             'access_token' => $token,
-            'app_secret' => filled($row->credential('app_secret'))
-                ? (string) $row->credential('app_secret')
-                : (config('services.meta.app_secret') ?: null),
+            'app_secret' => filled($row->credential('app_secret')) ? (string) $row->credential('app_secret') : null,
             'verify_token' => $verify,
             'api_version' => (string) ($row->credential('api_version') ?: 'v21.0'),
         ];
     }
 
     /**
-     * WhatsApp delivery: Meta Cloud API → Zavu → sandbox.
+     * WhatsApp delivery: workspace Meta Cloud API → workspace Zavu → none (sending blocked).
      */
     public function whatsappProvider(Workspace $workspace): string
     {
@@ -247,11 +230,48 @@ class WorkspaceIntegrationService
             return 'meta';
         }
 
-        if (filled($this->zavuKey($workspace))) {
+        if (filled($this->credential($workspace, 'zavu', 'api_key'))) {
             return 'zavu';
         }
 
-        return 'sandbox';
+        return 'none';
+    }
+
+    public function workspaceForWhatsappPhoneId(string $phoneNumberId): ?Workspace
+    {
+        if (trim($phoneNumberId) === '') {
+            return null;
+        }
+
+        $row = WorkspaceIntegration::query()
+            ->where('provider', 'whatsapp_meta')
+            ->where('external_id', $phoneNumberId)
+            ->where('enabled', true)
+            ->where('status', 'connected')
+            ->latest('connected_at')
+            ->first();
+
+        return $row?->workspace;
+    }
+
+    public function whatsappPhoneIdUsedElsewhere(Workspace $workspace, string $phoneNumberId): bool
+    {
+        return WorkspaceIntegration::query()
+            ->where('provider', 'whatsapp_meta')
+            ->where('external_id', $phoneNumberId)
+            ->where('workspace_id', '!=', $workspace->id)
+            ->where('status', 'connected')
+            ->exists();
+    }
+
+    public function whatsappConnected(Workspace $workspace): bool
+    {
+        return $this->whatsappProvider($workspace) !== 'none';
+    }
+
+    public static function whatsappNotConnectedMessage(): string
+    {
+        return 'WhatsApp is not connected for this workspace. Open WhatsApp → Setup and add your own Meta credentials (Phone number ID + access token). No message is sent until then.';
     }
 
     public function hasSmtp(Workspace $workspace): bool
@@ -385,9 +405,7 @@ class WorkspaceIntegrationService
 
         return match ($provider) {
             'meta' => (bool) ($snap['meta'] ?? false),
-            'whatsapp_meta' => filled(config('services.meta.whatsapp_phone_number_id'))
-                && filled(config('services.meta.whatsapp_access_token'))
-                && filled(config('services.meta.whatsapp_verify_token')),
+            'whatsapp_meta' => false, // per-workspace credentials only
             'linkedin' => (bool) ($snap['linkedin'] ?? false),
             'x' => (bool) ($snap['x'] ?? false),
             'zavu' => (bool) ($snap['zavu'] ?? false),

@@ -55,6 +55,10 @@ return [
         'whatsapp_verify_token' => env('META_WA_VERIFY_TOKEN'),
         'whatsapp_app_secret' => env('META_WA_APP_SECRET'),
         'whatsapp_api_version' => env('META_WA_API_VERSION', 'v21.0'),
+        // Embedded Signup (Facebook Login for Business configuration for WhatsApp onboarding).
+        'whatsapp_es_config_id' => env('META_WA_ES_CONFIG_ID'),
+        // App-level webhook (/webhooks/meta/whatsapp) shared by every onboarded WABA.
+        'whatsapp_webhook_verify_token' => env('META_WA_WEBHOOK_VERIFY_TOKEN', env('META_WA_VERIFY_TOKEN')),
     ],
 
     'linkedin' => [

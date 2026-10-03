@@ -31,13 +31,13 @@ class MetaWhatsAppCloudService
         if (! $cfg) {
             $this->logFailure($workspace, $to, [
                 'reason' => 'not_configured',
-                'why' => 'META_WA_* env or workspace whatsapp_meta credentials missing.',
+                'why' => 'Workspace has not saved its own WhatsApp credentials (WhatsApp → Setup).',
             ]);
 
             return [
                 'ok' => false,
                 'id' => null,
-                'error' => 'Meta WhatsApp Cloud API is not configured.',
+                'error' => WorkspaceIntegrationService::whatsappNotConnectedMessage(),
                 'conversation_id' => null,
                 'error_meta' => ['reason' => 'not_configured'],
             ];
@@ -291,7 +291,7 @@ class MetaWhatsAppCloudService
                 'ok' => false,
                 'id' => null,
                 'status' => null,
-                'error' => 'Meta WABA ID missing. Set META_WA_WABA_ID in .env.',
+                'error' => 'WhatsApp Business Account (WABA) ID missing. Add it in WhatsApp → Setup.',
             ];
         }
 
@@ -543,6 +543,55 @@ class MetaWhatsAppCloudService
         return $language;
     }
 
+    /**
+     * Confirms the phone number ID + token pair with Meta before the workspace goes live.
+     *
+     * @return array{ok:bool, reachable:bool, display_phone_number:?string, verified_name:?string, error:?string}
+     */
+    public function verifyCredentials(string $phoneNumberId, string $accessToken, string $apiVersion = 'v21.0'): array
+    {
+        $url = sprintf(
+            'https://graph.facebook.com/%s/%s',
+            ltrim($apiVersion ?: 'v21.0', '/'),
+            $phoneNumberId
+        );
+
+        try {
+            $response = $this->graph($accessToken, 15)->get($url, [
+                'fields' => 'display_phone_number,verified_name',
+            ]);
+        } catch (\Throwable $e) {
+            return [
+                'ok' => false,
+                'reachable' => false,
+                'display_phone_number' => null,
+                'verified_name' => null,
+                'error' => Str::limit($e->getMessage(), 240),
+            ];
+        }
+
+        if ($response->successful()) {
+            return [
+                'ok' => true,
+                'reachable' => true,
+                'display_phone_number' => $response->json('display_phone_number'),
+                'verified_name' => $response->json('verified_name'),
+                'error' => null,
+            ];
+        }
+
+        $code = $response->json('error.code');
+        $message = (string) ($response->json('error.message') ?? $response->body());
+
+        return [
+            'ok' => false,
+            'reachable' => true,
+            'display_phone_number' => null,
+            'verified_name' => null,
+            'error' => $this->formatDisplayError($code, Str::limit($message, 200), $this->explainError($code, $message, $response->status())),
+        ];
+    }
+
     private function graph(string $token, int $timeout): PendingRequest
     {
         return Http::withToken($token)
@@ -603,7 +652,7 @@ class MetaWhatsAppCloudService
             $code === 132000 || (str_contains($lower, 'template') && str_contains($lower, 'param')) => 'Template parameters missing/mismatch. Body placeholders Meta template se match hone chahiye.',
             $code === 133010 || str_contains($lower, 'account not registered') => 'Number WABA mein add hai par Cloud API par register nahi hua. POST /{phone_number_id}/register with {"messaging_product":"whatsapp","pin":"<6-digit 2FA PIN>"} ek baar chalao. Display name approved hona chahiye.',
             $code === 131030 || str_contains($lower, 'not in allowed list') => 'Test/dev mode: recipient must be added under Meta → WhatsApp → API Setup → To (allowlist). Only allowlisted numbers can receive messages until production.',
-            $code === 190 || str_contains($lower, 'authenticat') || str_contains($lower, 'session has expired') || str_contains($lower, 'invalid oauth') => 'Access token invalid or expired. Meta → Step 1 Try it out → Generate access token → update META_WA_ACCESS_TOKEN in .env → php artisan config:clear.',
+            $code === 190 || str_contains($lower, 'authenticat') || str_contains($lower, 'session has expired') || str_contains($lower, 'invalid oauth') => 'Access token invalid or expired. Generate a permanent System User token (Business Settings → System users → Generate token with whatsapp_business_messaging + whatsapp_business_management) and save it in WhatsApp → Setup.',
             $code === 100 && str_contains($lower, 'parameter') => 'Meta rejected the payload (missing/invalid parameter). Check template name/language or phone format (digits only, country code).',
             $code === 131047 || str_contains($lower, 're-engagement') || str_contains($lower, '24 hour') => 'Outside 24h customer-care window — send an approved template message instead of free-form text.',
             $httpStatus === 401 || $httpStatus === 403 => 'Meta rejected credentials (HTTP '.$httpStatus.'). Regenerate access token and confirm phone_number_id belongs to the same app/WABA.',
