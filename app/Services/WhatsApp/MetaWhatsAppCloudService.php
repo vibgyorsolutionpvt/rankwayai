@@ -43,7 +43,7 @@ class MetaWhatsAppCloudService
             ];
         }
 
-        $toDigits = preg_replace('/\D+/', '', $to) ?: $to;
+        $toDigits = self::internationalDigits($to) ?: $to;
         $url = sprintf(
             'https://graph.facebook.com/%s/%s/messages',
             ltrim($cfg['api_version'], '/'),
@@ -200,6 +200,32 @@ class MetaWhatsAppCloudService
     }
 
     /**
+     * Digits with country code. Local numbers without one (e.g. 98765 43210 or 098765 43210)
+     * get the default country code, otherwise Meta reads the first digits as a country.
+     */
+    public static function internationalDigits(string $phone): string
+    {
+        $raw = trim($phone);
+        $digits = preg_replace('/\D+/', '', $raw) ?: '';
+        if ($digits === '' || str_starts_with($raw, '+')) {
+            return $digits;
+        }
+        if (str_starts_with($digits, '00')) {
+            return substr($digits, 2);
+        }
+
+        $country = preg_replace('/\D+/', '', (string) config('services.meta.whatsapp_default_country_code', '91'));
+        if ($country !== '' && strlen($digits) === 11 && str_starts_with($digits, '0')) {
+            return $country.substr($digits, 1);
+        }
+        if ($country !== '' && strlen($digits) === 10) {
+            return $country.$digits;
+        }
+
+        return $digits;
+    }
+
+    /**
      * Flatten Meta webhook payload into inbound message rows.
      *
      * @param  array<string, mixed>  $payload
@@ -247,6 +273,52 @@ class MetaWhatsAppCloudService
                         'id' => isset($message['id']) ? (string) $message['id'] : null,
                         'contact_name' => $names[$from] ?? $names[ltrim($from, '+')] ?? null,
                     ];
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Flatten Meta webhook payload into outbound delivery status rows.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return list<array{id:string,status:string,error:?string,error_meta:?array<string, mixed>}>
+     */
+    public function parseStatuses(array $payload): array
+    {
+        $out = [];
+        foreach ($payload['entry'] ?? [] as $entry) {
+            foreach ($entry['changes'] ?? [] as $change) {
+                foreach ($change['value']['statuses'] ?? [] as $status) {
+                    $id = (string) ($status['id'] ?? '');
+                    $state = strtolower((string) ($status['status'] ?? ''));
+                    if ($id === '' || ! in_array($state, ['sent', 'delivered', 'read', 'failed'], true)) {
+                        continue;
+                    }
+
+                    $error = null;
+                    $errorMeta = null;
+                    if ($state === 'failed') {
+                        $first = $status['errors'][0] ?? [];
+                        $code = $first['code'] ?? null;
+                        $message = (string) (
+                            $first['error_data']['details']
+                            ?? $first['message']
+                            ?? $first['title']
+                            ?? 'Meta could not deliver this message.'
+                        );
+                        $error = Str::limit($this->formatDisplayError($code, $message, $this->explainError($code, $message, 200)), 400);
+                        $errorMeta = array_filter([
+                            'code' => $code,
+                            'title' => $first['title'] ?? null,
+                            'message' => $message,
+                            'href' => $first['href'] ?? null,
+                        ], fn ($v) => $v !== null);
+                    }
+
+                    $out[] = ['id' => $id, 'status' => $state, 'error' => $error, 'error_meta' => $errorMeta];
                 }
             }
         }
@@ -655,6 +727,13 @@ class MetaWhatsAppCloudService
             $code === 190 || str_contains($lower, 'authenticat') || str_contains($lower, 'session has expired') || str_contains($lower, 'invalid oauth') => 'Access token invalid or expired. Generate a permanent System User token (Business Settings → System users → Generate token with whatsapp_business_messaging + whatsapp_business_management) and save it in WhatsApp → Setup.',
             $code === 100 && str_contains($lower, 'parameter') => 'Meta rejected the payload (missing/invalid parameter). Check template name/language or phone format (digits only, country code).',
             $code === 131047 || str_contains($lower, 're-engagement') || str_contains($lower, '24 hour') => 'Outside 24h customer-care window — send an approved template message instead of free-form text.',
+            $code === 131042 || str_contains($lower, 'payment') => 'Billing issue on the WhatsApp Business Account. Add a valid payment method in Meta Business Settings → Billing & payments.',
+            $code === 131026 || str_contains($lower, 'undeliverable') => 'Recipient cannot receive this message (not on WhatsApp, old app version, or has not accepted the latest terms).',
+            $code === 131049 => 'Meta held this marketing message to protect recipient engagement (per-user marketing limit). Try later or use a utility template.',
+            $code === 131050 => 'Recipient has stopped marketing messages from this business.',
+            $code === 131031 => 'WhatsApp Business Account is locked or restricted. Check WhatsApp Manager → Account quality.',
+            $code === 132015 || $code === 132016 => 'Template is paused or disabled by Meta due to low quality. Edit or submit a new template.',
+            $code === 130472 => 'Recipient is part of a Meta experiment and did not receive this marketing message.',
             $httpStatus === 401 || $httpStatus === 403 => 'Meta rejected credentials (HTTP '.$httpStatus.'). Regenerate access token and confirm phone_number_id belongs to the same app/WABA.',
             default => 'See Meta error message/code above. Check token, phone_number_id, recipient allowlist, and API version.',
         };
@@ -662,7 +741,7 @@ class MetaWhatsAppCloudService
 
     private function formatDisplayError(mixed $code, string $message, string $why): string
     {
-        $prefix = filled($code) ? '(#'.$code.') ' : '';
+        $prefix = filled($code) && ! str_contains($message, '(#'.$code.')') ? '(#'.$code.') ' : '';
 
         return trim($prefix.$message).' — '.$why;
     }
