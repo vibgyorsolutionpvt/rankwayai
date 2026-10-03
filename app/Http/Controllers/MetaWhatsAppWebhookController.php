@@ -46,6 +46,16 @@ class MetaWhatsAppWebhookController extends Controller
         }
 
         foreach ($this->splitByPhoneNumberId($payload) as $phoneId => $subPayload) {
+            $values = array_column(array_merge(...array_column($subPayload['entry'], 'changes')), 'value');
+            Log::channel('whatsapp')->info('whatsapp.webhook.received', [
+                'phone_number_id' => $phoneId,
+                'messages' => count(array_merge(...array_map(fn ($v) => $v['messages'] ?? [], $values))),
+                'statuses' => array_map(
+                    fn ($s) => ($s['status'] ?? '?').(isset($s['errors'][0]['code']) ? ':'.$s['errors'][0]['code'] : ''),
+                    array_merge(...array_map(fn ($v) => $v['statuses'] ?? [], $values))
+                ),
+            ]);
+
             $workspace = $integrations->workspaceForWhatsappPhoneId((string) $phoneId);
             if (! $workspace) {
                 Log::channel('whatsapp')->info('whatsapp.webhook.unknown_phone', ['phone_number_id' => $phoneId]);
