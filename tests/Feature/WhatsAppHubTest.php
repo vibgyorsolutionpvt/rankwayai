@@ -12,7 +12,6 @@ use App\Models\Workspace;
 use App\Services\Billing\BillingService;
 use App\Services\Channels\ChannelCampaignService;
 use App\Services\Integrations\WorkspaceIntegrationService;
-use App\Services\WhatsApp\MetaWhatsAppCloudService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -335,39 +334,6 @@ class WhatsAppHubTest extends TestCase
         $this->assertSame('+919876543210', $conversation->phone);
         $this->assertSame(1, WhatsappMessage::query()->where('direction', 'outbound')->count());
         $this->assertStringContainsString('Hello Ravi', WhatsappMessage::query()->first()->body);
-    }
-
-    public function test_local_numbers_get_default_country_code(): void
-    {
-        [$user, $workspace] = $this->memberWithWorkspace();
-        $this->connectMeta($workspace);
-        Http::fake([
-            'graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.LOCAL']]], 200),
-        ]);
-
-        CrmLead::query()->create([
-            'workspace_id' => $workspace->id,
-            'name' => 'Sunil',
-            'phone' => '98765 43210',
-            'stage' => 'new',
-            'source' => 'manual',
-        ]);
-
-        $this->actingAs($user)
-            ->withSession(['active_workspace_id' => $workspace->id])
-            ->post(route('whatsapp.conversations.start'), [
-                'crm_lead_id' => CrmLead::query()->first()->id,
-                'body' => 'Hello',
-            ])
-            ->assertRedirect();
-
-        $this->assertSame('+919876543210', WhatsappConversation::query()->first()->phone);
-        Http::assertSent(fn ($request) => str_contains($request->url(), '/messages') && $request['to'] === '919876543210');
-
-        $this->assertSame('919876543210', MetaWhatsAppCloudService::internationalDigits('098765 43210'));
-        $this->assertSame('14155550100', MetaWhatsAppCloudService::internationalDigits('+1 415 555 0100'));
-        $this->assertSame('447700900123', MetaWhatsAppCloudService::internationalDigits('0044 7700 900123'));
-        $this->assertSame('919876543210', MetaWhatsAppCloudService::internationalDigits('919876543210'));
     }
 
     public function test_zavu_webhook_ingests_inbound_message(): void

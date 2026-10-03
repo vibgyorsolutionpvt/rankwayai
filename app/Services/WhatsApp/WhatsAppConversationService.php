@@ -24,9 +24,12 @@ class WhatsAppConversationService
 
     public function normalizePhone(string $phone): string
     {
-        $digits = MetaWhatsAppCloudService::internationalDigits($phone);
+        $digits = preg_replace('/\D+/', '', $phone) ?: '';
+        if ($digits === '') {
+            return trim($phone);
+        }
 
-        return $digits === '' ? trim($phone) : '+'.$digits;
+        return str_starts_with($phone, '+') ? '+'.$digits : '+'.$digits;
     }
 
     public function findOrCreate(

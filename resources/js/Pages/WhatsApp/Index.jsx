@@ -507,24 +507,33 @@ function ConversationsView({
                                     className={
                                         'max-w-[85%] rounded-lg px-3 py-2 text-sm ' +
                                         (m.direction === 'outbound'
-                                            ? 'ms-auto bg-signal text-white'
-                                            : 'bg-mist text-ink')
+                                            ? m.status === 'failed'
+                                                ? 'ms-auto border border-danger/30 bg-danger-soft text-ink'
+                                                : 'ms-auto border border-signal/20 bg-signal-soft text-ink'
+                                            : 'border border-line bg-white text-ink')
                                     }
                                 >
                                     <div className="whitespace-pre-wrap">{m.body}</div>
-                                    <div
-                                        className={
-                                            'mt-1 text-[10px] ' +
-                                            (m.direction === 'outbound'
-                                                ? 'text-white/70'
-                                                : 'text-ink-muted')
-                                        }
-                                    >
-                                        {m.sent_at} · {m.status}
+                                    <div className="mt-1 text-xs text-ink-muted">
+                                        {m.sent_at} ·{' '}
+                                        <span
+                                            className={
+                                                'font-semibold ' +
+                                                (m.status === 'failed'
+                                                    ? 'text-danger'
+                                                    : m.status === 'read'
+                                                      ? 'text-sky-600'
+                                                      : m.status === 'delivered'
+                                                        ? 'text-signal-strong'
+                                                        : 'text-ink-muted')
+                                            }
+                                        >
+                                            {m.status}
+                                        </span>
                                         {m.template_name ? ` · ${m.template_name}` : ''}
                                     </div>
                                     {m.error_message ? (
-                                        <div className="mt-1 text-[10px] text-rose-200">
+                                        <div className="mt-1 text-xs text-danger">
                                             {m.error_message}
                                         </div>
                                     ) : null}

@@ -43,7 +43,7 @@ class MetaWhatsAppCloudService
             ];
         }
 
-        $toDigits = self::internationalDigits($to) ?: $to;
+        $toDigits = preg_replace('/\D+/', '', $to) ?: $to;
         $url = sprintf(
             'https://graph.facebook.com/%s/%s/messages',
             ltrim($cfg['api_version'], '/'),
@@ -197,32 +197,6 @@ class MetaWhatsAppCloudService
                 'error_meta' => $errorMeta,
             ];
         }
-    }
-
-    /**
-     * Digits with country code. Local numbers without one (e.g. 98765 43210 or 098765 43210)
-     * get the default country code, otherwise Meta reads the first digits as a country.
-     */
-    public static function internationalDigits(string $phone): string
-    {
-        $raw = trim($phone);
-        $digits = preg_replace('/\D+/', '', $raw) ?: '';
-        if ($digits === '' || str_starts_with($raw, '+')) {
-            return $digits;
-        }
-        if (str_starts_with($digits, '00')) {
-            return substr($digits, 2);
-        }
-
-        $country = preg_replace('/\D+/', '', (string) config('services.meta.whatsapp_default_country_code', '91'));
-        if ($country !== '' && strlen($digits) === 11 && str_starts_with($digits, '0')) {
-            return $country.substr($digits, 1);
-        }
-        if ($country !== '' && strlen($digits) === 10) {
-            return $country.$digits;
-        }
-
-        return $digits;
     }
 
     /**
