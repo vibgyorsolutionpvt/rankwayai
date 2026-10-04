@@ -12,12 +12,14 @@ use App\Models\SeoSite;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Access\ModuleAccess;
+use App\Services\Ai\AiContentService;
 use App\Services\Billing\PlanAccess;
 use App\Services\Workspaces\ProvisionClientWorkspace;
 use App\Services\Workspaces\VisibleWorkspaceService;
 use App\Support\BusinessTypes;
 use App\Support\DomainNormalizer;
 use App\Support\NavModules;
+use App\Support\SocialPlatforms;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Password;
@@ -263,6 +265,7 @@ class WorkspacePageController extends Controller
                     'industry' => 'Enter your business type when selecting Other.',
                 ])->withInput();
             }
+
         } else {
             $industry = $typeLabel ?? $industry;
         }
@@ -293,7 +296,7 @@ class WorkspacePageController extends Controller
             'social_links' => $social !== [] ? $social : null,
         ]);
 
-        app(\App\Services\Ai\AiContentService::class)->syncSettingsFromWorkspace($workspace->fresh());
+        app(AiContentService::class)->syncSettingsFromWorkspace($workspace->fresh());
 
         ActivityLog::record($workspace, $request->user(), 'workspace.profile_updated', [
             'business_type' => $workspace->business_type,
@@ -302,6 +305,30 @@ class WorkspacePageController extends Controller
         ]);
 
         return back()->with('success', 'Business profile saved — AI and documents will use it automatically.');
+    }
+
+    public function updateCrmLeadCustomFields(Request $request, Workspace $workspace): RedirectResponse
+    {
+        $this->authorize('manageMembers', $workspace);
+
+        $data = $request->validate([
+            'fields' => ['present', 'array', 'max:20'],
+            'fields.*.key' => ['required', 'string', 'regex:/^[a-z][a-z0-9_]{0,39}$/', 'distinct:strict'],
+            'fields.*.label' => ['required', 'string', 'max:60'],
+        ]);
+
+        $reserved = ['name', 'brand', 'cta', 'cta_url', 'phone', 'email', 'website'];
+        foreach ($data['fields'] as $index => $field) {
+            if (in_array($field['key'], $reserved, true)) {
+                return back()->withErrors([
+                    "fields.$index.key" => 'This key is already used by a built-in placeholder.',
+                ]);
+            }
+        }
+
+        $workspace->update(['crm_lead_custom_fields' => array_values($data['fields'])]);
+
+        return back()->with('success', 'CRM lead fields saved.');
     }
 
     /**
@@ -464,7 +491,7 @@ class WorkspacePageController extends Controller
 
         $data = $request->validate([
             'platforms' => ['nullable', 'array'],
-            'platforms.*' => ['string', 'in:'.implode(',', \App\Support\SocialPlatforms::keys())],
+            'platforms.*' => ['string', 'in:'.implode(',', SocialPlatforms::keys())],
             'inherit_all' => ['sometimes', 'boolean'],
         ]);
 
@@ -472,8 +499,8 @@ class WorkspacePageController extends Controller
             $workspace->forceFill(['enabled_social_platforms' => null])->save();
         } else {
             $allowed = array_values(array_intersect(
-                \App\Support\SocialPlatforms::normalize($data['platforms'] ?? []) ?? [],
-                \App\Support\SocialPlatforms::globallyEnabledKeys()
+                SocialPlatforms::normalize($data['platforms'] ?? []) ?? [],
+                SocialPlatforms::globallyEnabledKeys()
             ));
             $workspace->forceFill(['enabled_social_platforms' => $allowed])->save();
         }

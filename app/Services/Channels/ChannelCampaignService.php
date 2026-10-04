@@ -5,6 +5,7 @@ namespace App\Services\Channels;
 use App\Models\ChannelCampaign;
 use App\Models\ChannelCampaignRecipient;
 use App\Models\CrmLead;
+use App\Models\WhatsappConversation;
 use App\Models\Workspace;
 use App\Services\Channels\Rcs\RcsDeliveryService;
 use App\Services\Channels\Rcs\RcsProviderCatalog;
@@ -15,6 +16,10 @@ use Illuminate\Support\Str;
 
 class ChannelCampaignService
 {
+    public const LEAD_STAGES = ['new', 'contacted', 'qualified', 'won', 'lost'];
+
+    public const DEFAULT_AUDIENCE_STAGES = ['new', 'contacted', 'qualified'];
+
     public function __construct(
         private readonly ChannelTemplateService $templates,
         private readonly RcsDeliveryService $rcs,
@@ -82,6 +87,8 @@ class ChannelCampaignService
             'created_by' => $userId,
             'name' => $data['name'],
             'channel' => $data['channel'],
+            'whatsapp_template_id' => $data['whatsapp_template_id'] ?? null,
+            'crm_lead_group_id' => $data['crm_lead_group_id'] ?? null,
             'subject' => $data['subject'] ?? null,
             'body' => $data['body'],
             'status' => ($data['scheduled_at'] ?? null) ? 'scheduled' : 'draft',
@@ -89,53 +96,152 @@ class ChannelCampaignService
             'provider' => $provider,
         ]);
 
-        $this->attachRecipients($campaign, $leadIds);
+        $this->attachRecipients($campaign, $leadIds, $data['audience'] ?? []);
 
-        return $campaign->fresh('recipients');
+        return $campaign->fresh();
     }
 
     /**
      * @param  list<int>|null  $leadIds
+     * @param  array{stages?:list<string>, sources?:list<string>, custom_field?:?string, custom_value?:?string}  $filters
      */
-    public function attachRecipients(ChannelCampaign $campaign, ?array $leadIds = null): void
+    public function attachRecipients(ChannelCampaign $campaign, ?array $leadIds = null, array $filters = []): void
     {
-        $query = CrmLead::query()->where('workspace_id', $campaign->workspace_id);
-
-        if ($leadIds) {
-            $query->whereIn('id', $leadIds);
-        } else {
-            $query->whereIn('stage', ['new', 'contacted', 'qualified']);
-        }
-
-        $leads = $query->get();
         $count = 0;
+        $batch = [];
+        $flush = function () use (&$batch, &$count) {
+            if ($batch !== []) {
+                ChannelCampaignRecipient::query()->insert($batch);
+                $count += count($batch);
+                $batch = [];
+            }
+        };
 
-        foreach ($leads as $lead) {
-            $to = $lead->destinationFor($campaign->channel);
-            if (blank($to)) {
+        foreach ($this->audience($campaign->workspace_id, $campaign->channel, $campaign->crm_lead_group_id, $leadIds, $filters) as [$lead, $to, $skip]) {
+            if ($skip !== null) {
                 continue;
             }
-
-            ChannelCampaignRecipient::query()->create([
+            $now = now();
+            $batch[] = [
                 'channel_campaign_id' => $campaign->id,
                 'crm_lead_id' => $lead->id,
                 'to' => $to,
                 'status' => 'pending',
-            ]);
-            $count++;
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+            if (count($batch) >= 500) {
+                $flush();
+            }
         }
+        $flush();
 
         $campaign->update(['recipient_count' => $count]);
     }
 
     /**
+     * @param  list<int>|null  $leadIds
+     * @param  array{stages?:list<string>, sources?:list<string>, custom_field?:?string, custom_value?:?string}  $filters
+     * @return array{matched:int, recipients:int, duplicates:int, opted_out:int}
+     */
+    public function audienceSummary(int $workspaceId, string $channel, ?int $groupId, ?array $leadIds, array $filters = []): array
+    {
+        $summary = ['matched' => 0, 'recipients' => 0, 'duplicates' => 0, 'opted_out' => 0];
+        foreach ($this->audience($workspaceId, $channel, $groupId, $leadIds, $filters) as [, , $skip]) {
+            $summary['matched']++;
+            match ($skip) {
+                null => $summary['recipients']++,
+                'duplicate' => $summary['duplicates']++,
+                'opted_out' => $summary['opted_out']++,
+            };
+        }
+
+        return $summary;
+    }
+
+    /**
+     * Every lead with a destination, flagged when it repeats an earlier number/email
+     * or has opted out of WhatsApp. "All leads" mode defaults to open pipeline stages.
+     *
+     * @param  list<int>|null  $leadIds
+     * @param  array{stages?:list<string>, sources?:list<string>, custom_field?:?string, custom_value?:?string}  $filters
+     * @return \Generator<int, array{0:CrmLead, 1:string, 2:?string}>
+     */
+    private function audience(int $workspaceId, string $channel, ?int $groupId, ?array $leadIds, array $filters): \Generator
+    {
+        $column = $channel === 'email' ? 'email' : 'phone';
+        $query = CrmLead::query()
+            ->where('workspace_id', $workspaceId)
+            ->whereNotNull($column)
+            ->where($column, '!=', '');
+
+        if ($groupId) {
+            $query->whereHas('groups', fn ($groups) => $groups->whereKey($groupId));
+        } elseif ($leadIds) {
+            $query->whereIn('id', $leadIds);
+        } else {
+            $stages = array_key_exists('stages', $filters)
+                ? array_values(array_intersect((array) $filters['stages'], self::LEAD_STAGES))
+                : self::DEFAULT_AUDIENCE_STAGES;
+            $query->whereIn('stage', $stages);
+
+            $sources = array_values(array_filter((array) ($filters['sources'] ?? []), 'filled'));
+            if ($sources !== []) {
+                $query->whereIn('source', $sources);
+            }
+
+            $field = (string) ($filters['custom_field'] ?? '');
+            $value = trim((string) ($filters['custom_value'] ?? ''));
+            if ($value !== '' && preg_match('/^[a-z0-9_]{1,60}$/', $field)) {
+                $query->where('custom_fields->'.$field, $value);
+            }
+        }
+
+        $optedOut = $channel === 'whatsapp'
+            ? WhatsappConversation::query()
+                ->where('workspace_id', $workspaceId)
+                ->where('opted_out_until', '>', now())
+                ->pluck('phone')
+                ->mapWithKeys(fn ($phone) => [$this->destinationKey('whatsapp', (string) $phone) => true])
+                ->all()
+            : [];
+
+        $seen = [];
+        foreach ($query->select(['id', 'phone', 'email'])->lazyById(1000) as $lead) {
+            $to = (string) $lead->destinationFor($channel);
+            $key = $this->destinationKey($channel, $to);
+            if ($key === '') {
+                continue;
+            }
+
+            if (isset($seen[$key])) {
+                yield [$lead, $to, 'duplicate'];
+            } elseif (isset($optedOut[$key])) {
+                $seen[$key] = true;
+                yield [$lead, $to, 'opted_out'];
+            } else {
+                $seen[$key] = true;
+                yield [$lead, $to, null];
+            }
+        }
+    }
+
+    private function destinationKey(string $channel, string $to): string
+    {
+        return $channel === 'email'
+            ? strtolower(trim($to))
+            : (preg_replace('/\D+/', '', $to) ?: '');
+    }
+
+    /**
      * @return array{ok:bool, message:string, campaign:ChannelCampaign}
      */
-    public function send(ChannelCampaign $campaign): array
+    public function send(ChannelCampaign $campaign, ?int $recipientLimit = null): array
     {
-        $campaign->loadMissing('recipients');
-
-        if ($campaign->recipients->isEmpty()) {
+        $pendingQuery = $campaign->recipients()
+            ->where('status', 'pending')
+            ->orderBy('id');
+        if (! $campaign->recipients()->exists()) {
             $campaign->update([
                 'status' => 'failed',
                 'failure_reason' => 'No recipients with a valid '.$campaign->channel.' destination.',
@@ -151,6 +257,14 @@ class ChannelCampaignService
                     'status' => 'failed',
                     'provider' => 'none',
                     'failure_reason' => WorkspaceIntegrationService::whatsappNotConnectedMessage(),
+                ]);
+
+                return ['ok' => false, 'message' => $campaign->failure_reason, 'campaign' => $campaign->fresh()];
+            }
+            if ($campaign->whatsapp_template_id && $this->provider($workspace, 'whatsapp') !== 'meta') {
+                $campaign->update([
+                    'status' => 'failed',
+                    'failure_reason' => 'Approved WhatsApp template campaigns require the Meta Cloud API provider.',
                 ]);
 
                 return ['ok' => false, 'message' => $campaign->failure_reason, 'campaign' => $campaign->fresh()];
@@ -174,8 +288,11 @@ class ChannelCampaignService
         $sent = 0;
         $failed = 0;
 
-        foreach ($campaign->recipients->where('status', 'pending') as $recipient) {
-            $result = $this->deliver($campaign->fresh(), $recipient);
+        $pendingRecipients = $pendingQuery
+            ->when($recipientLimit !== null, fn ($query) => $query->limit(max(1, $recipientLimit)))
+            ->get();
+        foreach ($pendingRecipients as $recipient) {
+            $result = $this->deliver($campaign, $recipient);
             if ($result['ok']) {
                 $recipient->update([
                     'status' => 'sent',
@@ -199,17 +316,22 @@ class ChannelCampaignService
             }
         }
 
+        $sent = $campaign->recipients()->whereIn('status', ['sent', 'delivered', 'read'])->count();
+        $failed = $campaign->recipients()->where('status', 'failed')->count();
+        $hasPending = $campaign->recipients()->where('status', 'pending')->exists();
         $campaign->update([
             'sent_count' => $sent,
             'failed_count' => $failed,
-            'sent_at' => now(),
-            'status' => $failed > 0 && $sent === 0 ? 'failed' : 'sent',
-            'failure_reason' => $failed > 0 && $sent === 0 ? 'All recipients failed' : null,
+            'sent_at' => $hasPending ? null : now(),
+            'status' => $hasPending ? 'sending' : ($failed > 0 && $sent === 0 ? 'failed' : 'sent'),
+            'failure_reason' => ! $hasPending && $failed > 0 && $sent === 0 ? 'All recipients failed' : null,
         ]);
 
         return [
-            'ok' => $sent > 0,
-            'message' => "Sent {$sent}, failed {$failed} via {$campaign->fresh()->provider}",
+            'ok' => $hasPending || $sent > 0,
+            'message' => $hasPending
+                ? "Campaign in progress: {$sent} sent, {$failed} failed"
+                : "Sent {$sent}, failed {$failed} via {$campaign->fresh()->provider}",
             'campaign' => $campaign->fresh(),
         ];
     }
@@ -219,11 +341,22 @@ class ChannelCampaignService
      */
     private function deliver(ChannelCampaign $campaign, ChannelCampaignRecipient $recipient): array
     {
-        $campaign->loadMissing('workspace', 'recipients.lead');
-        $lead = $recipient->lead ?? ($recipient->crm_lead_id
-            ? CrmLead::query()->find($recipient->crm_lead_id)
-            : null);
+        $campaign->loadMissing('workspace');
+        $recipient->loadMissing('lead');
+        $lead = $recipient->lead;
         $workspace = $campaign->workspace ?? Workspace::query()->find($campaign->workspace_id);
+        if (
+            $campaign->channel === 'whatsapp'
+            && $workspace
+            && WhatsappConversation::phoneIsOptedOut($workspace->id, (string) $recipient->to)
+        ) {
+            return [
+                'ok' => false,
+                'id' => null,
+                'error' => 'Recipient opted out of WhatsApp messages for one month.',
+            ];
+        }
+
         $body = $workspace
             ? $this->templates->render($campaign->body, $workspace, $lead)
             : $campaign->body;
@@ -268,7 +401,41 @@ class ChannelCampaignService
         }
 
         if ($campaign->channel === 'whatsapp' && $provider === 'meta' && $workspace) {
-            $result = $this->metaWhatsApp->sendText($workspace, (string) $recipient->to, $body);
+            $template = null;
+            $bodyParams = [];
+            $headerParams = [];
+            if ($campaign->whatsapp_template_id) {
+                $template = $campaign->whatsappTemplate;
+                if (
+                    ! $template
+                    || $template->workspace_id !== $campaign->workspace_id
+                    || $template->channel !== 'whatsapp'
+                    || $template->wa_status !== 'approved'
+                ) {
+                    return [
+                        'ok' => false,
+                        'id' => null,
+                        'error' => 'The selected WhatsApp template is no longer available or approved.',
+                    ];
+                }
+
+                $tokenMap = $this->templates->tokens($workspace, null, $lead);
+                $bodyParams = $this->metaWhatsApp->resolveBodyParamValues($template->body, $tokenMap);
+                $headerText = $template->components['header']['text'] ?? '';
+                if (is_string($headerText) && $headerText !== '') {
+                    $headerParams = $this->metaWhatsApp->resolveBodyParamValues($headerText, $tokenMap);
+                }
+            }
+
+            $result = $this->metaWhatsApp->sendText(
+                $workspace,
+                (string) $recipient->to,
+                $body,
+                $template,
+                $template !== null,
+                $bodyParams,
+                $headerParams,
+            );
 
             return [
                 'ok' => $result['ok'],

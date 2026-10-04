@@ -24,6 +24,7 @@ export default function WorkspacePanel({
     roles = [],
     moduleCatalog = null,
     socialPlatformCatalog = null,
+    crmLeadCustomFields = [],
     canViewTeamHistory = false,
     teamHistory = null,
     historyFilters = {},
@@ -186,6 +187,15 @@ export default function WorkspacePanel({
 
                 </div>
             </section>
+
+            {activeWorkspace ? (
+                <CrmLeadCustomFieldsPanel
+                    key={activeWorkspace.id}
+                    workspace={activeWorkspace}
+                    initialFields={crmLeadCustomFields}
+                    canManage={canManage}
+                />
+            ) : null}
 
             {activeWorkspace && moduleCatalog && canManage ? (
                 <section className="atlas-panel overflow-hidden">
@@ -543,6 +553,7 @@ export default function WorkspacePanel({
                                                                     { preserveScroll: true },
                                                                 );
                                                             }
+
                                                         }}
                                                     >
                                                         Remove
@@ -817,5 +828,123 @@ export default function WorkspacePanel({
                 onClose={() => setDetail(null)}
             />
         </div>
+    );
+}
+
+function CrmLeadCustomFieldsPanel({ workspace, initialFields, canManage }) {
+    const form = useForm({
+        fields: initialFields.map((field) => ({ ...field })),
+    });
+
+    return (
+        <section className="atlas-panel overflow-hidden">
+            <div className="border-b border-line px-4 py-3.5">
+                <h3 className="font-display text-base font-bold text-ink">CRM custom fields</h3>
+                <p className="mt-0.5 text-sm text-ink-muted">
+                    Define fields once for this workspace. Add each field’s value to a lead, then
+                    insert its token in WhatsApp templates.
+                </p>
+            </div>
+            <form
+                className="space-y-3 p-4"
+                onSubmit={(event) => {
+                    event.preventDefault();
+                    form.put(route('workspaces.crm-lead-fields.update', workspace.id), {
+                        preserveScroll: true,
+                    });
+                }}
+            >
+                {form.data.fields.length ? (
+                    <div className="space-y-2">
+                        {form.data.fields.map((field, index) => (
+                            <div
+                                key={`${index}-${field.key}`}
+                                className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]"
+                            >
+                                <TextInput
+                                    disabled={!canManage}
+                                    value={field.label}
+                                    maxLength={60}
+                                    aria-label="Custom field label"
+                                    placeholder="Field label, e.g. Client"
+                                    onChange={(event) =>
+                                        form.setData(
+                                            'fields',
+                                            form.data.fields.map((item, itemIndex) =>
+                                                itemIndex === index
+                                                    ? { ...item, label: event.target.value }
+                                                    : item,
+                                            ),
+                                        )
+                                    }
+                                />
+                                <TextInput
+                                    disabled={!canManage}
+                                    value={field.key}
+                                    maxLength={40}
+                                    aria-label="Custom field token"
+                                    placeholder="token_key"
+                                    onChange={(event) =>
+                                        form.setData(
+                                            'fields',
+                                            form.data.fields.map((item, itemIndex) =>
+                                                itemIndex === index
+                                                    ? {
+                                                          ...item,
+                                                          key: event.target.value
+                                                              .toLowerCase()
+                                                              .replace(/[^a-z0-9_]/g, ''),
+                                                      }
+                                                    : item,
+                                            ),
+                                        )
+                                    }
+                                />
+                                <button
+                                    type="button"
+                                    disabled={!canManage}
+                                    className="rounded-lg px-3 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                                    onClick={() =>
+                                        form.setData(
+                                            'fields',
+                                            form.data.fields.filter(
+                                                (_, itemIndex) => itemIndex !== index,
+                                            ),
+                                        )
+                                    }
+                                >
+                                    Remove
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <p className="text-sm text-ink-muted">No custom fields defined yet.</p>
+                )}
+                <p className="text-xs text-ink-muted">
+                    Tokens use lowercase letters, numbers, and underscores, for example{' '}
+                    <code>{'{{client}}'}</code>. Existing lead values are kept if a field is
+                    removed.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                    <button
+                        type="button"
+                        disabled={!canManage || form.data.fields.length >= 20}
+                        className="rounded-lg border border-line px-3 py-2 text-sm font-semibold text-ink hover:bg-mist disabled:opacity-50"
+                        onClick={() =>
+                            form.setData('fields', [...form.data.fields, { key: '', label: '' }])
+                        }
+                    >
+                        Add field
+                    </button>
+                    {canManage ? (
+                        <PrimaryButton processing={form.processing}>Save fields</PrimaryButton>
+                    ) : null}
+                </div>
+                {Object.keys(form.errors).length ? (
+                    <p className="text-sm text-rose-600">{Object.values(form.errors)[0]}</p>
+                ) : null}
+            </form>
+        </section>
     );
 }

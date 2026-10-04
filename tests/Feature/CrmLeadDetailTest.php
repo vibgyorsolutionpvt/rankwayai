@@ -10,6 +10,8 @@ use App\Models\User;
 use App\Models\WhatsappConversation;
 use App\Models\Workspace;
 use App\Services\Billing\BillingService;
+use App\Services\Channels\ChannelTemplateService;
+use App\Services\WhatsApp\MetaWhatsAppCloudService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -74,6 +76,72 @@ class CrmLeadDetailTest extends TestCase
             'body' => 'Called; interested in Pro plan.',
         ]);
         $this->assertSame('contacted', $lead->fresh()->stage);
+    }
+
+    public function test_workspace_custom_lead_fields_are_saved_and_rendered_in_whatsapp_templates(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->put(route('workspaces.crm-lead-fields.update', $workspace), [
+                'fields' => [
+                    ['key' => 'client', 'label' => 'Client'],
+                ],
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $workspace->refresh();
+        $this->assertSame(
+            [['key' => 'client', 'label' => 'Client']],
+            $workspace->crm_lead_custom_fields,
+        );
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('crm.store'), [
+                'name' => 'Asha',
+                'custom_fields' => ['client' => 'Acme Ltd'],
+            ])
+            ->assertRedirect();
+
+        $lead = CrmLead::query()->latest('id')->firstOrFail();
+        $this->assertSame(['client' => 'Acme Ltd'], $lead->custom_fields);
+
+        $templateService = app(ChannelTemplateService::class);
+        $this->assertSame(
+            'Hello Acme Ltd',
+            $templateService->render('Hello {{client}}', $workspace, $lead),
+        );
+        $this->assertSame(
+            ['Acme Ltd'],
+            app(MetaWhatsAppCloudService::class)
+                ->resolveBodyParamValues('Hello {{client}}', $templateService->tokens($workspace, null, $lead)),
+        );
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('whatsapp.index', ['view' => 'templates']))
+            ->assertInertia(fn ($page) => $page
+                ->where('placeholders.5.token', '{{client}}')
+                ->where('placeholders.5.label', 'Client'));
+    }
+
+    public function test_custom_lead_fields_cannot_overwrite_built_in_placeholders(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->put(route('workspaces.crm-lead-fields.update', $workspace), [
+                'fields' => [
+                    ['key' => 'name', 'label' => 'Different name'],
+                ],
+            ])
+            ->assertSessionHasErrors('fields.0.key');
+
+        $this->assertNull($workspace->fresh()->crm_lead_custom_fields);
     }
 
     public function test_open_whatsapp_links_conversation_to_lead(): void

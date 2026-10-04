@@ -6,14 +6,17 @@ use App\Http\Controllers\Concerns\ResolvesWorkspace;
 use App\Models\CrmLead;
 use App\Models\CrmLeadAttachment;
 use App\Models\WhatsappConversation;
+use App\Models\Workspace;
 use App\Services\Crm\LeadScoringService;
 use App\Services\WhatsApp\WhatsAppConversationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CrmController extends Controller
 {
@@ -36,6 +39,7 @@ class CrmController extends Controller
 
         return Inertia::render('Crm/Index', [
             'workspace' => ['id' => $workspace->id, 'name' => $workspace->name],
+            'customFieldDefinitions' => $workspace->crm_lead_custom_fields ?? [],
             'leads' => $leads->map(fn (CrmLead $lead) => $lead->toClientArray()),
             'byStage' => $byStage->map(fn ($group) => $group->map(fn (CrmLead $lead) => $lead->toClientArray())),
             'counts' => [
@@ -83,6 +87,7 @@ class CrmController extends Controller
             'activities' => $activities,
             'conversations' => $conversations,
             'attachments' => $attachments,
+            'customFieldDefinitions' => $workspace->crm_lead_custom_fields ?? [],
         ]);
     }
 
@@ -100,7 +105,10 @@ class CrmController extends Controller
             'source' => ['nullable', 'string', 'max:60'],
             'value_cents' => ['nullable', 'integer', 'min:0', 'max:100000000'],
             'notes' => ['nullable', 'string', 'max:2000'],
+            'custom_fields' => ['nullable', 'array'],
+            'custom_fields.*' => ['nullable', 'string', 'max:1000'],
         ]);
+        $customFields = $this->validatedCustomFieldValues($data['custom_fields'] ?? [], $workspace);
 
         $lead = CrmLead::query()->create([
             'workspace_id' => $workspace->id,
@@ -112,6 +120,7 @@ class CrmController extends Controller
             'source' => $data['source'] ?? 'manual',
             'value_cents' => $data['value_cents'] ?? 0,
             'notes' => $data['notes'] ?? null,
+            'custom_fields' => $customFields,
         ]);
 
         $lead->logActivity(
@@ -139,9 +148,17 @@ class CrmController extends Controller
             'source' => ['nullable', 'string', 'max:60'],
             'value_cents' => ['nullable', 'integer', 'min:0', 'max:100000000'],
             'notes' => ['nullable', 'string', 'max:2000'],
+            'custom_fields' => ['sometimes', 'array'],
+            'custom_fields.*' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $fromStage = $lead->stage;
+        if (array_key_exists('custom_fields', $data)) {
+            $data['custom_fields'] = array_merge(
+                $lead->custom_fields ?? [],
+                $this->validatedCustomFieldValues($data['custom_fields'], $workspace),
+            );
+        }
         $lead->update($data);
 
         if (isset($data['stage']) && $data['stage'] !== $fromStage) {
@@ -158,6 +175,27 @@ class CrmController extends Controller
         }
 
         return back()->with('success', 'Lead updated');
+    }
+
+    /**
+     * @param  array<string, mixed>  $values
+     * @return array<string, string>
+     */
+    private function validatedCustomFieldValues(array $values, Workspace $workspace): array
+    {
+        $allowedKeys = collect($workspace->crm_lead_custom_fields ?? [])
+            ->pluck('key')
+            ->all();
+        $unknownKeys = array_diff(array_keys($values), $allowedKeys);
+        if ($unknownKeys !== []) {
+            throw ValidationException::withMessages([
+                'custom_fields' => 'Only custom fields defined in workspace settings can be saved.',
+            ]);
+        }
+
+        return collect($values)
+            ->map(fn ($value) => trim((string) ($value ?? '')))
+            ->all();
     }
 
     public function destroy(Request $request, CrmLead $lead): RedirectResponse
@@ -237,6 +275,10 @@ class CrmController extends Controller
             $lead->name,
             $lead->id
         );
+        if (! $conversation->isVisibleTo($request->user(), $workspace)) {
+            return back()->with('error', 'This lead’s WhatsApp chat is assigned to '.($conversation->assignee?->name ?? 'another team member').'.');
+        }
+        $conversations->assignIfUnassigned($conversation, $request->user());
 
         if ($conversation->crm_lead_id !== $lead->id) {
             $conversation->forceFill(['crm_lead_id' => $lead->id])->save();
@@ -319,7 +361,7 @@ class CrmController extends Controller
     }
 
     /**
-     * @param  array<int, \Illuminate\Http\UploadedFile>  $files
+     * @param  array<int, UploadedFile>  $files
      * @return list<CrmLeadAttachment>
      */
     private function storeLeadFiles(int $workspaceId, CrmLead $lead, array $files, ?int $userId): array

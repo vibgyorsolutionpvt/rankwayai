@@ -7,7 +7,6 @@ use App\Models\Itinerary;
 use App\Models\Workspace;
 use App\Services\Ai\AiProviderRouter;
 use App\Services\Billing\CreditWalletService;
-use Illuminate\Support\Str;
 
 class ItineraryService
 {
@@ -413,7 +412,6 @@ JSON:
     }
 
     /**
-     * @param  mixed  $days
      * @return list<array<string, mixed>>
      */
     public function normalizeDays(mixed $days): array

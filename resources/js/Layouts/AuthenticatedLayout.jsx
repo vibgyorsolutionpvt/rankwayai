@@ -662,6 +662,15 @@ export default function AuthenticatedLayout({ header, children }) {
     }, [page.navigation, plan, user?.is_superadmin]);
 
     const sidebarSections = useMemo(() => {
+        const adminItems = navItems.filter((item) => item.group === 'Admin');
+        if (adminItems.length > 0) {
+            return adminItems.map((item) => ({
+                title: item.label,
+                icon: item.icon || 'platform',
+                items: [{ ...item, locked: false, restricted: false, comingSoon: false }],
+            }));
+        }
+
         const byKey = new Map(navItems.map((item) => [item.key, item]));
 
         return SIDEBAR_SECTIONS.map((section) => ({

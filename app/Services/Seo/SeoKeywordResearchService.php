@@ -6,6 +6,7 @@ use App\Models\AiGeneration;
 use App\Models\AiUsageLog;
 use App\Models\SeoSite;
 use App\Models\Workspace;
+use App\Models\WorkspaceAiSetting;
 use App\Services\Ai\AiProviderRouter;
 use App\Services\Billing\CreditWalletService;
 use App\Services\Billing\PlanAccess;
@@ -259,9 +260,9 @@ class SeoKeywordResearchService
         return null;
     }
 
-    private function aiSettings(Workspace $workspace): \App\Models\WorkspaceAiSetting
+    private function aiSettings(Workspace $workspace): WorkspaceAiSetting
     {
-        return \App\Models\WorkspaceAiSetting::query()->firstOrCreate(
+        return WorkspaceAiSetting::query()->firstOrCreate(
             ['workspace_id' => $workspace->id],
             [
                 'monthly_budget_usd' => 20,

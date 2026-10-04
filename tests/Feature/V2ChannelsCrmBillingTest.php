@@ -3,18 +3,23 @@
 namespace Tests\Feature;
 
 use App\Enums\WorkspaceRole;
+use App\Jobs\SendChannelCampaignJob;
 use App\Models\AiUsageLog;
 use App\Models\BillingAccount;
 use App\Models\ChannelCampaign;
 use App\Models\ChannelCampaignRecipient;
+use App\Models\ChannelMessageTemplate;
 use App\Models\CreditRecharge;
 use App\Models\CrmLead;
+use App\Models\CrmLeadGroup;
 use App\Models\User;
+use App\Models\WhatsappConversation;
 use App\Models\Workspace;
 use App\Models\WorkspaceAiSetting;
 use App\Models\WorkspaceSubscription;
 use App\Services\Billing\BillingAccountService;
 use App\Services\Billing\BillingService;
+use App\Services\Billing\UsageMeterService;
 use App\Services\Channels\ChannelCampaignService;
 use App\Services\Integrations\WorkspaceIntegrationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -161,6 +166,358 @@ class V2ChannelsCrmBillingTest extends TestCase
         $this->assertSame('contacted', CrmLead::query()->first()->stage);
     }
 
+    public function test_whatsapp_campaign_audience_filters_dedupes_and_skips_opted_out(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $this->connectWhatsapp($workspace);
+        $workspace->update(['crm_lead_custom_fields' => [['key' => 'city', 'label' => 'City', 'type' => 'text']]]);
+
+        $lead = fn (string $name, string $phone, string $stage, string $source, array $custom = []) => CrmLead::query()->create([
+            'workspace_id' => $workspace->id,
+            'name' => $name,
+            'phone' => $phone,
+            'stage' => $stage,
+            'source' => $source,
+            'custom_fields' => $custom,
+        ]);
+        $lead('Ravi', '+91 91111 11111', 'new', 'website', ['city' => 'Delhi']);
+        $lead('Ravi again', '919111111111', 'contacted', 'website', ['city' => 'Delhi']);
+        $lead('Stop', '+919222222222', 'new', 'website', ['city' => 'Delhi']);
+        $lead('Mumbai', '+919333333333', 'new', 'website', ['city' => 'Mumbai']);
+        $lead('Won', '+919444444444', 'won', 'website', ['city' => 'Delhi']);
+        $lead('Ads', '+919555555555', 'new', 'ads', ['city' => 'Delhi']);
+        WhatsappConversation::query()->create([
+            'workspace_id' => $workspace->id,
+            'phone' => '+919222222222',
+            'opted_out_until' => now()->addMonth(),
+        ]);
+
+        $filters = [
+            'recipient_mode' => 'all',
+            'stages' => ['new', 'contacted', 'won'],
+            'sources' => ['website'],
+            'custom_field' => 'city',
+            'custom_value' => 'Delhi',
+        ];
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->postJson(route('whatsapp.campaigns.audience-preview'), $filters)
+            ->assertOk()
+            ->assertExactJson(['matched' => 4, 'recipients' => 2, 'duplicates' => 1, 'opted_out' => 1]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->postJson(route('whatsapp.campaigns.audience-preview'), ['recipient_mode' => 'all'])
+            ->assertOk()
+            ->assertJson(['recipients' => 3, 'duplicates' => 1, 'opted_out' => 1]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('channels.store'), [
+                'name' => 'Delhi blast',
+                'channel' => 'whatsapp',
+                'body' => 'Hello',
+                'delivery' => 'now',
+                ...$filters,
+            ])
+            ->assertRedirect();
+
+        $campaign = ChannelCampaign::query()->first();
+        $this->assertSame(2, $campaign->recipient_count);
+        $this->assertEqualsCanonicalizing(
+            ['+91 91111 11111', '+919444444444'],
+            ChannelCampaignRecipient::query()->pluck('to')->all()
+        );
+    }
+
+    public function test_whatsapp_campaign_with_no_matching_recipients_is_not_created(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $this->connectWhatsapp($workspace);
+        CrmLead::query()->create([
+            'workspace_id' => $workspace->id,
+            'name' => 'Won',
+            'phone' => '+919444444444',
+            'stage' => 'won',
+            'source' => 'manual',
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('channels.store'), [
+                'name' => 'Empty',
+                'channel' => 'whatsapp',
+                'body' => 'Hello',
+                'delivery' => 'now',
+                'recipient_mode' => 'all',
+                'stages' => [],
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('error');
+
+        $this->assertSame(0, ChannelCampaign::query()->count());
+    }
+
+    public function test_whatsapp_campaign_sends_selected_approved_template_with_lead_values(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $this->connectWhatsapp($workspace);
+
+        $lead = CrmLead::query()->create([
+            'workspace_id' => $workspace->id,
+            'name' => 'Ravi',
+            'phone' => '+919111111111',
+            'stage' => 'new',
+            'source' => 'manual',
+        ]);
+        $template = ChannelMessageTemplate::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'name' => 'welcome_campaign',
+            'channel' => 'whatsapp',
+            'category' => 'marketing',
+            'language' => 'en_US',
+            'wa_status' => 'approved',
+            'body' => 'Hi {{name}} from {{brand}}',
+            'components' => [
+                'header' => ['format' => 'TEXT', 'text' => 'Welcome {{name}}'],
+            ],
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('channels.store'), [
+                'name' => 'Welcome campaign',
+                'channel' => 'whatsapp',
+                'body' => $template->body,
+                'whatsapp_template_id' => $template->id,
+                'lead_ids' => [$lead->id],
+                'delivery' => 'now',
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $campaign = ChannelCampaign::query()->firstOrFail();
+        $this->assertSame($template->id, $campaign->whatsapp_template_id);
+        $this->assertSame('sent', $campaign->status);
+        $this->assertSame(1, $campaign->sent_count);
+
+        Http::assertSent(function ($request) use ($workspace) {
+            return str_contains($request->url(), 'graph.facebook.com/v21.0/1234567890/messages')
+                && $request['type'] === 'template'
+                && $request['template']['name'] === 'welcome_campaign'
+                && $request['template']['components'][0]['type'] === 'header'
+                && $request['template']['components'][0]['parameters'][0]['text'] === 'Ravi'
+                && $request['template']['components'][1]['type'] === 'body'
+                && $request['template']['components'][1]['parameters'][0]['text'] === 'Ravi'
+                && $request['template']['components'][1]['parameters'][1]['text'] === $workspace->name;
+        });
+    }
+
+    public function test_whatsapp_campaign_can_target_a_saved_contact_group(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $lead = CrmLead::query()->create([
+            'workspace_id' => $workspace->id,
+            'name' => 'Group lead',
+            'phone' => '+919111111111',
+            'stage' => 'new',
+            'source' => 'csv_import',
+        ]);
+        $group = CrmLeadGroup::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'name' => 'October customers',
+            'status' => 'completed',
+        ]);
+        $group->leads()->attach($lead->id);
+        $template = ChannelMessageTemplate::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'name' => 'welcome_campaign',
+            'channel' => 'whatsapp',
+            'language' => 'en_US',
+            'wa_status' => 'approved',
+            'body' => 'Hi {{name}}',
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('channels.store'), [
+                'name' => 'Group campaign',
+                'channel' => 'whatsapp',
+                'body' => $template->body,
+                'whatsapp_template_id' => $template->id,
+                'recipient_mode' => 'group',
+                'crm_lead_group_id' => $group->id,
+                'delivery' => 'draft',
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $campaign = ChannelCampaign::query()->firstOrFail();
+        $this->assertSame($group->id, $campaign->crm_lead_group_id);
+        $this->assertSame(1, $campaign->recipient_count);
+        $this->assertSame($lead->id, $campaign->recipients()->value('crm_lead_id'));
+    }
+
+    public function test_saved_group_campaign_sends_in_worker_batches(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $this->connectWhatsapp($workspace);
+
+        $group = CrmLeadGroup::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'name' => 'Batch contacts',
+            'status' => 'completed',
+        ]);
+        $template = ChannelMessageTemplate::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'name' => 'batch_template',
+            'channel' => 'whatsapp',
+            'language' => 'en_US',
+            'wa_status' => 'approved',
+            'body' => 'Hello {{name}}',
+        ]);
+        $now = now();
+        $leadRows = [];
+        $membershipRows = [];
+        $recipientRows = [];
+        $campaign = ChannelCampaign::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'name' => 'Batch campaign',
+            'channel' => 'whatsapp',
+            'whatsapp_template_id' => $template->id,
+            'crm_lead_group_id' => $group->id,
+            'body' => $template->body,
+            'status' => 'sending',
+            'provider' => 'meta',
+            'recipient_count' => 205,
+        ]);
+        for ($index = 0; $index < 205; $index++) {
+            $leadRows[] = [
+                'workspace_id' => $workspace->id,
+                'name' => 'Batch lead '.$index,
+                'phone' => '+1555'.str_pad((string) $index, 7, '0', STR_PAD_LEFT),
+                'stage' => 'new',
+                'source' => 'csv_import',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+        foreach (array_chunk($leadRows, 100) as $chunk) {
+            CrmLead::query()->insert($chunk);
+        }
+        $leads = CrmLead::query()->where('workspace_id', $workspace->id)->get(['id', 'phone']);
+        foreach ($leads as $lead) {
+            $membershipRows[] = [
+                'crm_lead_group_id' => $group->id,
+                'crm_lead_id' => $lead->id,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+            $recipientRows[] = [
+                'channel_campaign_id' => $campaign->id,
+                'crm_lead_id' => $lead->id,
+                'to' => $lead->phone,
+                'status' => 'pending',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+        $group->leads()->sync($leads->modelKeys());
+        foreach (array_chunk($recipientRows, 100) as $chunk) {
+            ChannelCampaignRecipient::query()->insert($chunk);
+        }
+
+        SendChannelCampaignJob::dispatchSync($campaign->id);
+
+        $campaign->refresh();
+        $this->assertSame('sent', $campaign->status);
+        $this->assertSame(205, $campaign->sent_count);
+        $this->assertSame(0, $campaign->recipients()->where('status', 'pending')->count());
+        Http::assertSentCount(205);
+    }
+
+    public function test_whatsapp_campaign_rejects_unapproved_template(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $template = ChannelMessageTemplate::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'name' => 'pending_template',
+            'channel' => 'whatsapp',
+            'language' => 'en_US',
+            'wa_status' => 'pending',
+            'body' => 'Hi {{name}}',
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->from(route('whatsapp.index', ['view' => 'campaigns']))
+            ->post(route('channels.store'), [
+                'name' => 'Pending template campaign',
+                'channel' => 'whatsapp',
+                'body' => $template->body,
+                'whatsapp_template_id' => $template->id,
+                'delivery' => 'draft',
+            ])
+            ->assertRedirect(route('whatsapp.index', ['view' => 'campaigns']))
+            ->assertSessionHasErrors('whatsapp_template_id');
+
+        $this->assertSame(0, ChannelCampaign::query()->count());
+    }
+
+    public function test_whatsapp_campaign_skips_a_contact_who_replied_stop(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $this->connectWhatsapp($workspace);
+
+        $lead = CrmLead::query()->create([
+            'workspace_id' => $workspace->id,
+            'name' => 'Ravi',
+            'phone' => '+919111111111',
+            'stage' => 'new',
+            'source' => 'manual',
+        ]);
+        WhatsappConversation::query()->create([
+            'workspace_id' => $workspace->id,
+            'crm_lead_id' => $lead->id,
+            'phone' => '+919111111111',
+            'opted_out_until' => now()->addMonth(),
+        ]);
+
+        $campaign = ChannelCampaign::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'name' => 'Do not send',
+            'channel' => 'whatsapp',
+            'body' => 'Hello {{name}}',
+            'status' => 'draft',
+            'recipient_count' => 1,
+        ]);
+        $campaign->recipients()->create([
+            'crm_lead_id' => $lead->id,
+            'to' => '+919111111111',
+            'status' => 'pending',
+        ]);
+
+        $result = app(ChannelCampaignService::class)->send($campaign);
+
+        $this->assertSame(0, $result['campaign']->sent_count);
+        $this->assertSame(1, $result['campaign']->failed_count);
+        $this->assertSame('failed', $campaign->recipients()->first()->status);
+        $this->assertStringContainsString(
+            'opted out',
+            strtolower($campaign->recipients()->first()->error_message),
+        );
+        Http::assertNothingSent();
+    }
+
     public function test_rcs_campaign_sends_in_sandbox(): void
     {
         [$user, $workspace] = $this->memberWithWorkspace();
@@ -299,6 +656,35 @@ class V2ChannelsCrmBillingTest extends TestCase
         $this->assertSame('scheduled', $campaign->status);
         $this->assertNotNull($campaign->scheduled_at);
         $this->assertSame(0, $campaign->sent_count);
+    }
+
+    public function test_monthly_channel_quota_excludes_whatsapp_sends(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        foreach ([
+            ['channel' => 'whatsapp', 'sent_count' => 10000],
+            ['channel' => 'email', 'sent_count' => 4],
+            ['channel' => 'rcs', 'sent_count' => 3],
+        ] as $campaignData) {
+            ChannelCampaign::query()->create([
+                'workspace_id' => $workspace->id,
+                'created_by' => $user->id,
+                'name' => ucfirst($campaignData['channel']).' campaign',
+                'channel' => $campaignData['channel'],
+                'body' => 'Test',
+                'status' => 'sent',
+                'sent_count' => $campaignData['sent_count'],
+            ]);
+        }
+
+        $usage = app(UsageMeterService::class)->forWorkspace(
+            $workspace,
+            app(BillingService::class)->subscription($workspace),
+        );
+
+        $this->assertSame(7, $usage['channel_sends']['used']);
+        $this->assertSame('Email / RCS sends', $usage['channel_sends']['label']);
     }
 
     public function test_billing_defaults_to_free_and_plan_change_is_manual(): void

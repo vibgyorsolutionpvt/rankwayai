@@ -44,7 +44,7 @@ function HeroVisual() {
     return (
         <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
             <div className="absolute inset-0 bg-[#f4f7f8]" />
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_90%_70%_at_0%_0%,rgba(14,159,144,0.18),transparent_55%)]" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_90%_70%_at_0%_0%,rgba(37,99,235,0.18),transparent_55%)]" />
             <div className="absolute inset-0 opacity-[0.35] [background-image:linear-gradient(rgba(11,18,32,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(11,18,32,0.05)_1px,transparent_1px)] [background-size:44px_44px] [mask-image:linear-gradient(90deg,black_40%,transparent_75%)]" />
         </div>
     );
@@ -57,7 +57,7 @@ function ProductPlane() {
             aria-hidden="true"
         >
             {/* Full-height ink plane aligned to this column */}
-            <div className="absolute inset-y-0 -right-[max(1.5rem,calc((100vw-72rem)/2+1.5rem))] left-0 bg-gradient-to-br from-[#0b1f2a] via-[#0d2a33] to-[#0e9f90]/45" />
+            <div className="absolute inset-y-0 -right-[max(1.5rem,calc((100vw-72rem)/2+1.5rem))] left-0 bg-gradient-to-br from-[#0b1f2a] via-[#0d2a33] to-[#2563eb]/45" />
             <div className="absolute inset-y-0 -right-[max(1.5rem,calc((100vw-72rem)/2+1.5rem))] left-0 opacity-20 [background-image:linear-gradient(rgba(255,255,255,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.07)_1px,transparent_1px)] [background-size:40px_40px]" />
 
             <div className="relative z-10 flex w-full items-center justify-center px-10 xl:px-14">

@@ -5,7 +5,6 @@ namespace App\Services\Billing;
 use App\Models\BillingAccount;
 use App\Models\User;
 use App\Models\Workspace;
-use App\Models\WorkspaceAiSetting;
 use App\Models\WorkspaceSubscription;
 use App\Services\Integrations\ProviderStatus;
 use Illuminate\Support\Str;

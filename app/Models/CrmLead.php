@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CrmLead extends Model
@@ -18,6 +19,7 @@ class CrmLead extends Model
         'source',
         'value_cents',
         'notes',
+        'custom_fields',
         'last_contacted_at',
         'score',
         'score_band',
@@ -37,6 +39,7 @@ class CrmLead extends Model
             'follow_up_due_at' => 'datetime',
             'value_cents' => 'integer',
             'score' => 'integer',
+            'custom_fields' => 'array',
         ];
     }
 
@@ -68,6 +71,12 @@ class CrmLead extends Model
     public function whatsappConversations(): HasMany
     {
         return $this->hasMany(WhatsappConversation::class)->orderByDesc('last_message_at');
+    }
+
+    public function groups(): BelongsToMany
+    {
+        return $this->belongsToMany(CrmLeadGroup::class, 'crm_lead_group_members')
+            ->withTimestamps();
     }
 
     /**
@@ -108,6 +117,7 @@ class CrmLead extends Model
             'source' => $this->source,
             'value_cents' => $this->value_cents,
             'notes' => $this->notes,
+            'custom_fields' => $this->custom_fields ?? [],
             'last_contacted_at' => $this->last_contacted_at?->timezone(config('app.timezone'))->format('d M Y, g:i A'),
             'created_at' => $this->created_at?->timezone(config('app.timezone'))->format('d M Y'),
             'score' => $this->score,

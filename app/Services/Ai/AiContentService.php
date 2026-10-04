@@ -10,6 +10,7 @@ use App\Models\SocialAccount;
 use App\Models\SocialPost;
 use App\Models\Workspace;
 use App\Models\WorkspaceAiSetting;
+use App\Services\Billing\CreditPackCatalog;
 use App\Services\Billing\CreditWalletService;
 use App\Services\Festivals\FestivalCalendarService;
 use App\Support\SocialPlatforms;
@@ -454,6 +455,7 @@ PROMPT;
             $line = trim($line);
             if ($line === '') {
                 $normalized[] = '';
+
                 continue;
             }
 
@@ -461,12 +463,14 @@ PROMPT;
             if (preg_match('/^(?:☑|•|\-|\*|–|—|\d+[\.\)])\s+(.+)$/u', $line, $m)) {
                 $text = trim($m[1]);
                 $normalized[] = $this->iconForBulletText($text).' '.$text;
+
                 continue;
             }
 
             // Already has an emoji / currency bullet — keep OpenAI's choice
             if ($this->lineStartsWithComposeIcon($line)) {
                 $normalized[] = $line;
+
                 continue;
             }
 
@@ -593,6 +597,7 @@ PROMPT;
             $line = trim($line);
             if ($line === '') {
                 $lines[] = '';
+
                 continue;
             }
             // Split accidental "text ✅ item ✅ item" / mixed-icon runs on one line
@@ -606,6 +611,7 @@ PROMPT;
                 foreach ($hits[0] as $bullet) {
                     $lines[] = trim($bullet);
                 }
+
                 continue;
             }
             $lines[] = $line;
@@ -619,6 +625,7 @@ PROMPT;
                 if ($blank <= 1) {
                     $out[] = '';
                 }
+
                 continue;
             }
             $blank = 0;
@@ -1958,7 +1965,7 @@ STD;
             'festival' => $festival?->name,
         ]);
 
-        $creditsUsed = \App\Services\Billing\CreditPackCatalog::costToCredits($cost);
+        $creditsUsed = CreditPackCatalog::costToCredits($cost);
 
         $message = count($posts).' drafts ready — based on your topic. '.$creditsUsed.' credits used.';
         if ($festival) {
@@ -2168,6 +2175,7 @@ STD;
         foreach ($mainLines as $line) {
             if ($line === '') {
                 $flushBullets();
+
                 continue;
             }
             $isBullet = $this->lineStartsWithComposeIcon($line)
@@ -3505,6 +3513,7 @@ PROMPT;
         foreach ($sections as $section) {
             if (is_string($section)) {
                 $html .= '<h2>'.e($section).'</h2><p></p>';
+
                 continue;
             }
             if (! is_array($section)) {

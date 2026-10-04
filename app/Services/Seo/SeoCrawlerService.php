@@ -11,6 +11,7 @@ use App\Services\Seo\Providers\BrowserlessJsRenderProvider;
 use App\Services\Seo\Providers\LocalChromeJsRenderProvider;
 use App\Services\Seo\Providers\NullJsRenderProvider;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -223,10 +224,10 @@ class SeoCrawlerService
         $cacheKey = 'seo_sitemap_map:'.$site->id;
 
         if ($force) {
-            \Illuminate\Support\Facades\Cache::forget($cacheKey);
+            Cache::forget($cacheKey);
         }
 
-        return \Illuminate\Support\Facades\Cache::remember($cacheKey, now()->addMinutes(30), function () use ($site) {
+        return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($site) {
             $sitemapUrl = $this->resolveSitemapUrl($site);
             if (! $sitemapUrl) {
                 return [

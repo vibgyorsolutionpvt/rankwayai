@@ -21,7 +21,7 @@ export default function About({ auth, canLogin, canRegister, seo, plans = [] }) 
             }}
         >
             <section className="relative overflow-hidden border-b border-line">
-                <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_0%_0%,rgba(14,159,144,0.16),transparent_55%)]" />
+                <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_0%_0%,rgba(37,99,235,0.16),transparent_55%)]" />
                 <div className="relative mx-auto max-w-6xl px-6 py-16 sm:py-24">
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-signal-strong">
                         About us

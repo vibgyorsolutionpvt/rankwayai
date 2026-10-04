@@ -73,7 +73,8 @@ export default function Index({
         form.transform((data) => ({
             ...data,
             draft_count: Number(data.post_count || 1),
-        })).post(route('ai.generate-today'));
+        }));
+        form.post(route('ai.generate-today'));
     };
 
     const generatePreview = async () => {

@@ -84,6 +84,7 @@ class SeoKeywordMetricsService
                 $metric = $byKeyword->get(mb_strtolower($keyword->keyword));
                 if (! $metric) {
                     $keyword->update(['metrics_fetched_at' => now(), 'metrics_provider' => $provider->name()]);
+
                     continue;
                 }
                 $keyword->update([

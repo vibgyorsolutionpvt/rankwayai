@@ -376,12 +376,28 @@ Route::middleware(['auth', 'verified', 'workspace.setup', 'module'])->group(func
         ->name('whatsapp.conversations.reply');
     Route::post('/whatsapp/conversations/{conversation}/close', [WhatsAppController::class, 'close'])
         ->name('whatsapp.conversations.close');
+    Route::post('/whatsapp/conversations/{conversation}/assign', [WhatsAppController::class, 'assign'])
+        ->middleware('throttle:60,1')
+        ->name('whatsapp.conversations.assign');
+    Route::post('/whatsapp/campaigns/lead-groups', [WhatsAppController::class, 'storeCampaignLeadGroup'])
+        ->middleware('throttle:30,1')
+        ->name('whatsapp.campaigns.lead-groups.store');
+    Route::post('/whatsapp/campaigns/lead-groups/{group}/import', [WhatsAppController::class, 'importCampaignLeads'])
+        ->middleware('throttle:10,1')
+        ->name('whatsapp.campaigns.lead-groups.import');
+    Route::post('/whatsapp/campaigns/audience-preview', [WhatsAppController::class, 'audiencePreview'])
+        ->middleware('throttle:120,1')
+        ->name('whatsapp.campaigns.audience-preview');
+    Route::delete('/whatsapp/campaigns/lead-groups/{group}', [WhatsAppController::class, 'destroyCampaignLeadGroup'])
+        ->name('whatsapp.campaigns.lead-groups.destroy');
     Route::post('/whatsapp/templates', [WhatsAppController::class, 'storeTemplate'])
         ->middleware('throttle:30,1')
         ->name('whatsapp.templates.store');
     Route::post('/whatsapp/templates/{template}/sync-meta', [WhatsAppController::class, 'syncTemplateStatus'])
         ->middleware('throttle:30,1')
         ->name('whatsapp.templates.sync-meta');
+    Route::get('/whatsapp/templates/{template}/media', [WhatsAppController::class, 'templateMedia'])
+        ->name('whatsapp.templates.media');
     Route::patch('/whatsapp/templates/{template}', [WhatsAppController::class, 'updateTemplate'])
         ->name('whatsapp.templates.update');
     Route::delete('/whatsapp/templates/{template}', [WhatsAppController::class, 'destroyTemplate'])
@@ -423,6 +439,7 @@ Route::middleware(['auth', 'verified', 'workspace.setup', 'module'])->group(func
     Route::post('/workspaces', [WorkspacePageController::class, 'store'])->name('workspaces.store');
     Route::post('/workspaces/{workspace}/switch', [WorkspacePageController::class, 'switch'])->name('workspaces.switch');
     Route::patch('/workspaces/{workspace}/profile', [WorkspacePageController::class, 'updateProfile'])->name('workspaces.profile.update');
+    Route::put('/workspaces/{workspace}/crm-lead-fields', [WorkspacePageController::class, 'updateCrmLeadCustomFields'])->name('workspaces.crm-lead-fields.update');
     Route::post('/workspaces/{workspace}/members', [WorkspacePageController::class, 'storeMember'])->name('workspaces.members.store');
     Route::patch('/workspaces/{workspace}/members/{userId}', [WorkspacePageController::class, 'updateMember'])->name('workspaces.members.update');
     Route::delete('/workspaces/{workspace}/members/{userId}', [WorkspacePageController::class, 'destroyMember'])->name('workspaces.members.destroy');

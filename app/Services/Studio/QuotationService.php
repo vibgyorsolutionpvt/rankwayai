@@ -6,7 +6,6 @@ use App\Models\Itinerary;
 use App\Models\Quotation;
 use App\Models\Workspace;
 use Barryvdh\DomPDF\Facade\Pdf;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
@@ -239,7 +238,6 @@ class QuotationService
     }
 
     /**
-     * @param  mixed  $items
      * @return list<array{description:string,qty:float,unit_price:float,amount:float}>
      */
     public function normalizeLineItems(mixed $items): array

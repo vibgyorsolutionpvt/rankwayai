@@ -13,6 +13,8 @@ class ChannelCampaign extends Model
         'created_by',
         'name',
         'channel',
+        'whatsapp_template_id',
+        'crm_lead_group_id',
         'subject',
         'body',
         'status',
@@ -38,6 +40,16 @@ class ChannelCampaign extends Model
     public function workspace(): BelongsTo
     {
         return $this->belongsTo(Workspace::class);
+    }
+
+    public function whatsappTemplate(): BelongsTo
+    {
+        return $this->belongsTo(ChannelMessageTemplate::class, 'whatsapp_template_id');
+    }
+
+    public function crmLeadGroup(): BelongsTo
+    {
+        return $this->belongsTo(CrmLeadGroup::class);
     }
 
     public function recipients(): HasMany

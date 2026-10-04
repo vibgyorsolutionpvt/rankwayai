@@ -37,6 +37,7 @@ export default function Index({
     roles = [],
     moduleCatalog = null,
     socialPlatformCatalog = null,
+    crmLeadCustomFields = [],
     canViewTeamHistory = false,
     teamHistory = null,
     agencyTeam = null,
@@ -128,6 +129,7 @@ export default function Index({
                         roles={roles}
                         moduleCatalog={moduleCatalog}
                         socialPlatformCatalog={socialPlatformCatalog}
+                        crmLeadCustomFields={crmLeadCustomFields}
                         canViewTeamHistory={canViewTeamHistory}
                         teamHistory={teamHistory}
                         historyFilters={historyFilters}
