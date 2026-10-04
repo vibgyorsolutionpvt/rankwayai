@@ -37,6 +37,12 @@ class MetaWhatsAppWebhookController extends Controller
         $signature = (string) $request->header('X-Hub-Signature-256', '');
 
         if ($secret === '' || ! hash_equals('sha256='.hash_hmac('sha256', $raw, $secret), $signature)) {
+            Log::channel('whatsapp')->warning('whatsapp.webhook.invalid_signature', [
+                'app_secret_set' => $secret !== '',
+                'signature_present' => $signature !== '',
+                'bytes' => strlen($raw),
+            ]);
+
             return response('Invalid signature', 401);
         }
 

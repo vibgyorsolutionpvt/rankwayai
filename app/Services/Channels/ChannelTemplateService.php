@@ -31,7 +31,7 @@ class ChannelTemplateService
     {
         $brand ??= $workspace->resolveBrandKit();
 
-        return [
+        $tokens = [
             'name' => $lead?->name ?: 'there',
             'brand' => $workspace->name,
             'cta' => $brand?->default_cta_label ?: 'Get started',
@@ -40,5 +40,14 @@ class ChannelTemplateService
             'email' => $brand?->email ?: '',
             'website' => $brand?->website_url ?: '',
         ];
+
+        foreach ($workspace->crm_lead_custom_fields ?? [] as $field) {
+            $key = $field['key'] ?? null;
+            if (is_string($key) && ! array_key_exists($key, $tokens)) {
+                $tokens[$key] = (string) ($lead?->custom_fields[$key] ?? '');
+            }
+        }
+
+        return $tokens;
     }
 }

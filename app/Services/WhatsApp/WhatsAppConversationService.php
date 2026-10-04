@@ -2,6 +2,7 @@
 
 namespace App\Services\WhatsApp;
 
+use App\Models\ChannelCampaign;
 use App\Models\ChannelCampaignRecipient;
 use App\Models\ChannelMessageTemplate;
 use App\Models\CrmLead;
@@ -92,6 +93,15 @@ class WhatsAppConversationService
         ?ChannelMessageTemplate $template = null,
         bool $asTemplate = false
     ): array {
+        if (WhatsappConversation::phoneIsOptedOut($workspace->id, $conversation->phone)) {
+            return [
+                'ok' => false,
+                'message' => null,
+                'error' => 'This contact opted out of WhatsApp messages. Sending is paused for one month.',
+                'conversation' => $conversation,
+            ];
+        }
+
         $body = trim($body);
         if ($body === '' && ! ($asTemplate && $template)) {
             return ['ok' => false, 'message' => null, 'error' => 'Message body is required.', 'conversation' => $conversation];
@@ -170,6 +180,58 @@ class WhatsAppConversationService
     }
 
     /**
+     * Campaign recipients only get an inbox thread once Meta confirms delivery.
+     */
+    public function recordCampaignMessage(
+        Workspace $workspace,
+        ChannelCampaign $campaign,
+        ChannelCampaignRecipient $recipient,
+        string $status
+    ): WhatsappMessage {
+        $recipient->loadMissing('lead');
+        $lead = $recipient->lead;
+        $body = $this->templates->render((string) $campaign->body, $workspace, $lead);
+        $conversation = $this->findOrCreate(
+            $workspace,
+            (string) $recipient->to,
+            $lead?->name,
+            $recipient->crm_lead_id
+        );
+
+        $msg = WhatsappMessage::query()->create([
+            'whatsapp_conversation_id' => $conversation->id,
+            'user_id' => $campaign->created_by,
+            'channel_campaign_id' => $campaign->id,
+            'direction' => 'outbound',
+            'body' => $body,
+            'status' => $status,
+            'provider_message_id' => $recipient->provider_message_id,
+            'template_name' => $campaign->whatsappTemplate?->name,
+            'meta' => [
+                'campaign_id' => $campaign->id,
+                'campaign_name' => $campaign->name,
+            ],
+            'sent_at' => $recipient->sent_at ?? now(),
+        ]);
+
+        $conversation->update(array_filter([
+            'last_message_preview' => Str::limit($body, 140),
+            'last_message_at' => $recipient->sent_at ?? now(),
+            'status' => 'open',
+            'assigned_user_id' => $conversation->assigned_user_id ?: $campaign->created_by,
+        ], fn ($v) => $v !== null));
+
+        return $msg;
+    }
+
+    public function assignIfUnassigned(WhatsappConversation $conversation, ?User $user): void
+    {
+        if ($user && ! $conversation->assigned_user_id) {
+            $conversation->update(['assigned_user_id' => $user->id]);
+        }
+    }
+
+    /**
      * @param  array<string, mixed>  $payload
      */
     public function ingestInbound(Workspace $workspace, array $payload): ?WhatsappMessage
@@ -231,10 +293,18 @@ class WhatsAppConversationService
             'last_message_at' => now(),
             'unread_count' => $conversation->unread_count + 1,
             'window_expires_at' => now()->addHours(24),
+            'opted_out_until' => $this->isOptOutKeyword($text)
+                ? now()->addMonth()
+                : $conversation->opted_out_until,
             'status' => 'open',
         ]);
 
         return $msg;
+    }
+
+    private function isOptOutKeyword(string $text): bool
+    {
+        return preg_match('/^(?:STOP(?:\s+ALL)?|UNSUBSCRIBE|CANCEL|END|QUIT)[.!?\s]*$/i', trim($text)) === 1;
     }
 
     /**
@@ -301,6 +371,10 @@ class WhatsAppConversationService
                     'failed_count' => $campaign->recipients()->where('status', 'failed')->count(),
                 ]);
             }
+
+            if (! $message && in_array($recipient->status, ['delivered', 'read'], true) && $recipient->campaign) {
+                $this->recordCampaignMessage($workspace, $recipient->campaign, $recipient, $recipient->status);
+            }
         }
     }
 
@@ -321,6 +395,26 @@ class WhatsAppConversationService
         ?ChannelMessageTemplate $template,
         bool $asTemplate
     ): array {
+        $templateComponents = $template?->components ?? [];
+        $headerFormat = $templateComponents['header']['format'] ?? 'NONE';
+        if (
+            $asTemplate
+            && (
+                $headerFormat !== 'NONE'
+                || ! empty($templateComponents['buttons'])
+            )
+        ) {
+            return [
+                'ok' => false,
+                'id' => null,
+                'error' => 'Advanced WhatsApp template components require the Meta Cloud API provider.',
+                'conversation_id' => null,
+            ];
+        }
+        if ($asTemplate && filled($templateComponents['footer'] ?? null)) {
+            $text = rtrim($text)."\n\n".trim((string) $templateComponents['footer']);
+        }
+
         $key = $this->integrations->zavuKey($workspace);
         if (blank($key)) {
             return ['ok' => false, 'id' => null, 'error' => 'Zavu API key missing.', 'conversation_id' => null];

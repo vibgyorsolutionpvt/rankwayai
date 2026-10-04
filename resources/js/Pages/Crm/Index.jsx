@@ -15,7 +15,7 @@ const stageLabel = {
     lost: 'Lost',
 };
 
-export default function Index({ workspace, byStage, counts }) {
+export default function Index({ workspace, byStage, counts, customFieldDefinitions = [] }) {
     const form = useForm({
         name: '',
         email: '',
@@ -25,6 +25,9 @@ export default function Index({ workspace, byStage, counts }) {
         source: 'manual',
         value_cents: 0,
         notes: '',
+        custom_fields: Object.fromEntries(
+            customFieldDefinitions.map((field) => [field.key, '']),
+        ),
     });
 
     return (
@@ -77,7 +80,16 @@ export default function Index({ workspace, byStage, counts }) {
                         onSubmit={(e) => {
                             e.preventDefault();
                             form.post(route('crm.store'), {
-                                onSuccess: () => form.reset('name', 'email', 'phone', 'company', 'notes', 'value_cents'),
+                                onSuccess: () =>
+                                    form.reset(
+                                        'name',
+                                        'email',
+                                        'phone',
+                                        'company',
+                                        'notes',
+                                        'value_cents',
+                                        'custom_fields',
+                                    ),
                             });
                         }}
                     >
@@ -114,6 +126,21 @@ export default function Index({ workspace, byStage, counts }) {
                                 onChange={(e) => form.setData('phone', e.target.value)}
                             />
                         </div>
+                        {customFieldDefinitions.map((field) => (
+                            <div key={field.key}>
+                                <InputLabel value={field.label} />
+                                <TextInput
+                                    className="mt-1.5 w-full"
+                                    value={form.data.custom_fields[field.key] || ''}
+                                    onChange={(e) =>
+                                        form.setData('custom_fields', {
+                                            ...form.data.custom_fields,
+                                            [field.key]: e.target.value,
+                                        })
+                                    }
+                                />
+                            </div>
+                        ))}
                         <div>
                             <InputLabel value="Deal value (USD)" />
                             <TextInput

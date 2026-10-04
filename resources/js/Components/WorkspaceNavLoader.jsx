@@ -219,7 +219,7 @@ export default function WorkspaceNavLoader() {
             role="status"
         >
             <div className="absolute inset-0 bg-mist/80 backdrop-blur-md" />
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(14,159,144,0.16),transparent_55%)]" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(37,99,235,0.16),transparent_55%)]" />
 
             <div className="relative w-full max-w-sm animate-fade-up overflow-hidden rounded-2xl border border-line/80 bg-white/95 p-8 text-center shadow-panel">
                 <div className="pointer-events-none absolute inset-x-0 top-0 h-1 overflow-hidden bg-mist-deep">

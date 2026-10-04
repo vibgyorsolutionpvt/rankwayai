@@ -66,15 +66,14 @@ export default function Edit({ workspace, brochure, templates = [], brandKits = 
                     className="atlas-panel space-y-4 p-4"
                     onSubmit={(e) => {
                         e.preventDefault();
-                        form
-                            .transform((data) => ({
-                                ...data,
-                                sections: (data.sections || []).map(({ items_text, ...rest }) => ({
-                                    ...rest,
-                                    items: items_text,
-                                })),
-                            }))
-                            .post(route('studio.brochures.update', brochure.id));
+                        form.transform((data) => ({
+                            ...data,
+                            sections: (data.sections || []).map(({ items_text, ...rest }) => ({
+                                ...rest,
+                                items: items_text,
+                            })),
+                        }));
+                        form.post(route('studio.brochures.update', brochure.id));
                     }}
                 >
                     <div className="grid gap-3 sm:grid-cols-2">

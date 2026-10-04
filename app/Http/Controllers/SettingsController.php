@@ -9,10 +9,11 @@ use App\Models\Workspace;
 use App\Services\Access\ModuleAccess;
 use App\Services\Audit\TeamActivityService;
 use App\Services\Billing\BillingService;
-use App\Services\Workspaces\AgencyTeamService;
-use App\Services\Workspaces\VisibleWorkspaceService;
 use App\Services\Integrations\IntegrationCatalog;
 use App\Services\Integrations\WorkspaceIntegrationService;
+use App\Services\Workspaces\AgencyTeamService;
+use App\Services\Workspaces\VisibleWorkspaceService;
+use App\Support\BusinessTypes;
 use App\Support\NavModules;
 use App\Support\SocialPlatforms;
 use Illuminate\Http\RedirectResponse;
@@ -59,7 +60,7 @@ class SettingsController extends Controller
                     'slug' => $item->slug,
                     'role' => $item->pivot->role,
                     'business_type' => $item->business_type
-                        ?? \App\Support\BusinessTypes::inferFromIndustry($item->industry),
+                        ?? BusinessTypes::inferFromIndustry($item->industry),
                     'industry' => $item->resolvedIndustry(),
                     'tagline' => $item->tagline,
                     'description' => $item->description,
@@ -96,9 +97,11 @@ class SettingsController extends Controller
         $teamHistory = null;
         $canViewTeamHistory = false;
         $agencyTeamData = null;
+        $crmLeadCustomFields = [];
         if ($active) {
             $request->session()->put('active_workspace_id', $active['id']);
             $activeModel = Workspace::query()->findOrFail($active['id']);
+            $crmLeadCustomFields = $activeModel->crm_lead_custom_fields ?? [];
             $canViewTeamHistory = $request->user()->can('manageMembers', $activeModel);
             $members = $activeModel->users()->orderBy('name')->get()->map(fn (User $user) => [
                 'id' => $user->id,
@@ -181,6 +184,7 @@ class SettingsController extends Controller
             'integrations' => $integrations->dashboard($workspace),
             'workspaces' => $workspaces,
             'activeWorkspace' => $active,
+            'crmLeadCustomFields' => $crmLeadCustomFields,
             'members' => $members,
             'roles' => WorkspaceRole::values(),
             'moduleCatalog' => $moduleCatalog,

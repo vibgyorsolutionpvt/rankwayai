@@ -318,8 +318,7 @@ class ModuleAccess
     }
 
     /**
-     * @param  mixed  $keys
-     * @return list<string>|null  null means "inherit all"
+     * @return list<string>|null null means "inherit all"
      */
     private function normalizeKeys(mixed $keys): ?array
     {

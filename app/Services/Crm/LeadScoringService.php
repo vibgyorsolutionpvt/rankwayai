@@ -5,6 +5,7 @@ namespace App\Services\Crm;
 use App\Models\AiUsageLog;
 use App\Models\CrmLead;
 use App\Models\Quotation;
+use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Ai\AiProviderRouter;
 use App\Services\Billing\CreditWalletService;
@@ -60,7 +61,7 @@ class LeadScoringService
         $lead->logActivity(
             'score',
             'Lead scored '.$result['score'].' ('.ucfirst($result['band']).')',
-            $userId ? \App\Models\User::query()->find($userId) : null,
+            $userId ? User::query()->find($userId) : null,
             [
                 'score' => $result['score'],
                 'band' => $result['band'],
@@ -128,7 +129,7 @@ class LeadScoringService
         $lead->logActivity(
             'follow_up',
             'Follow-up suggested: '.$suggestion['next_action'],
-            $userId ? \App\Models\User::query()->find($userId) : null,
+            $userId ? User::query()->find($userId) : null,
             ['source' => $source, 'due_at' => $lead->follow_up_due_at?->toIso8601String()]
         );
 

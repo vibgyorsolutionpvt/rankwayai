@@ -154,18 +154,17 @@ export default function Edit({ workspace, itinerary, can_view_profit = false }) 
                 className="atlas-shell space-y-4"
                 onSubmit={(e) => {
                     e.preventDefault();
-                    form
-                        .transform((data) => ({
-                            ...data,
-                            days: (data.days || []).map((day) => ({
-                                ...day,
-                                meals: String(day.meals_text || '')
-                                    .split(',')
-                                    .map((m) => m.trim())
-                                    .filter(Boolean),
-                            })),
-                        }))
-                        .post(route('studio.itineraries.update', itinerary.id));
+                    form.transform((data) => ({
+                        ...data,
+                        days: (data.days || []).map((day) => ({
+                            ...day,
+                            meals: String(day.meals_text || '')
+                                .split(',')
+                                .map((m) => m.trim())
+                                .filter(Boolean),
+                        })),
+                    }));
+                    form.post(route('studio.itineraries.update', itinerary.id));
                 }}
             >
                 <section className="atlas-panel grid gap-3 p-4 md:grid-cols-2">

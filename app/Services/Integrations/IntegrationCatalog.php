@@ -90,6 +90,7 @@ class IntegrationCatalog
                     // Workspace's own Meta Cloud API credentials (from developers.facebook.com)
                     ['key' => 'phone_number_id', 'label' => 'Phone number ID', 'required' => true, 'placeholder' => 'Meta → WhatsApp → API Setup'],
                     ['key' => 'waba_id', 'label' => 'WhatsApp Business Account ID', 'placeholder' => 'Needed to submit templates'],
+                    ['key' => 'app_id', 'label' => 'Meta App ID', 'placeholder' => 'Needed for media template headers (optional if configured globally)'],
                     ['key' => 'access_token', 'label' => 'Permanent access token', 'secret' => true, 'required' => true, 'placeholder' => 'System user token'],
                     ['key' => 'app_secret', 'label' => 'App secret', 'secret' => true, 'placeholder' => 'Meta app → Settings → Basic (webhook signature)'],
                     ['key' => 'verify_token', 'label' => 'Webhook verify token', 'required' => true, 'placeholder' => 'Auto-generated if left blank'],

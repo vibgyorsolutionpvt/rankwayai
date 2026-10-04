@@ -98,7 +98,6 @@ class BrochureService
     /**
      * Normalize sections payload from the editor.
      *
-     * @param  mixed  $sections
      * @return list<array{key: string, title: string, body: string, items: list<string>, enabled: bool}>
      */
     public function normalizeSections(mixed $sections): array

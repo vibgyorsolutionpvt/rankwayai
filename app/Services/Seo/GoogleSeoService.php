@@ -4,6 +4,7 @@ namespace App\Services\Seo;
 
 use App\Models\SeoSite;
 use App\Services\Integrations\WorkspaceIntegrationService;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -375,7 +376,7 @@ class GoogleSeoService
                 'strategy' => $strategy,
                 'issues' => $snapshot['issues'],
             ];
-        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+        } catch (ConnectionException $e) {
             $site->update([
                 'pagespeed_error' => 'Timed out waiting for Google PageSpeed',
                 'pagespeed_checked_at' => now(),

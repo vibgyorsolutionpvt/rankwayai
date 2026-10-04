@@ -4,7 +4,6 @@ namespace App\Services\Admin;
 
 use App\Models\ActivityLog;
 use App\Models\User;
-use App\Models\Workspace;
 use App\Services\Audit\UserLoginLogger;
 use App\Services\Workspaces\VisibleWorkspaceService;
 use Illuminate\Http\RedirectResponse;

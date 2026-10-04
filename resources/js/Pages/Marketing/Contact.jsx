@@ -49,7 +49,7 @@ export default function Contact({
             }}
         >
             <section className="relative overflow-hidden border-b border-line">
-                <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_50%_at_100%_0%,rgba(14,159,144,0.14),transparent_50%)]" />
+                <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_50%_at_100%_0%,rgba(37,99,235,0.14),transparent_50%)]" />
                 <div className="relative mx-auto max-w-6xl px-6 py-16 sm:py-20">
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-signal-strong">
                         Contact us

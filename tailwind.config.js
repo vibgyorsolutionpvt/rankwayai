@@ -23,9 +23,9 @@ export default {
                     deep: '#E6EAF0',
                 },
                 signal: {
-                    DEFAULT: '#0E9F90',
-                    soft: '#D7F3EF',
-                    strong: '#0B7F73',
+                    DEFAULT: '#2563EB',
+                    soft: '#DBEAFE',
+                    strong: '#1D4ED8',
                 },
                 line: '#D5DCE6',
                 danger: {
@@ -39,7 +39,7 @@ export default {
             },
             boxShadow: {
                 panel: '0 18px 50px rgba(11, 18, 32, 0.08)',
-                lift: '0 12px 28px rgba(14, 159, 144, 0.22)',
+                lift: '0 12px 28px rgba(37, 99, 235, 0.22)',
             },
             keyframes: {
                 'fade-up': {

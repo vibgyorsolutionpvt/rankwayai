@@ -195,7 +195,7 @@ class WorkspaceIntegrationService
      * Workspace-owned credentials only. There is deliberately no server .env fallback:
      * each customer sends from their own WhatsApp number and pays Meta on their own account.
      *
-     * @return array{phone_number_id:string,waba_id:?string,access_token:string,app_secret:?string,verify_token:string,api_version:string}|null
+     * @return array{phone_number_id:string,waba_id:?string,access_token:string,app_id:?string,app_secret:?string,verify_token:string,api_version:string}|null
      */
     public function whatsappMetaConfig(Workspace $workspace): ?array
     {
@@ -215,6 +215,9 @@ class WorkspaceIntegrationService
             'phone_number_id' => $phoneId,
             'waba_id' => filled($row->credential('waba_id')) ? (string) $row->credential('waba_id') : null,
             'access_token' => $token,
+            'app_id' => filled($row->credential('app_id'))
+                ? (string) $row->credential('app_id')
+                : (filled(config('services.meta.app_id')) ? (string) config('services.meta.app_id') : null),
             'app_secret' => filled($row->credential('app_secret')) ? (string) $row->credential('app_secret') : null,
             'verify_token' => $verify,
             'api_version' => (string) ($row->credential('api_version') ?: 'v21.0'),

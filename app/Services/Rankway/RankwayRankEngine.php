@@ -3,7 +3,6 @@
 namespace App\Services\Rankway;
 
 use App\Models\RankwayDomain;
-use App\Models\RankwayDomainMetric;
 use Illuminate\Support\Facades\DB;
 
 /**

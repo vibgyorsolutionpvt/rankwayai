@@ -3,11 +3,13 @@
 namespace App\Models;
 
 use App\Enums\WorkspaceRole;
+use App\Support\BusinessTypes;
 use Database\Factories\WorkspaceFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Str;
 
@@ -37,6 +39,7 @@ class Workspace extends Model
         'target_audience',
         'working_hours',
         'social_links',
+        'crm_lead_custom_fields',
         'enabled_modules',
         'enabled_social_platforms',
     ];
@@ -49,6 +52,7 @@ class Workspace extends Model
             'services' => 'array',
             'products' => 'array',
             'social_links' => 'array',
+            'crm_lead_custom_fields' => 'array',
         ];
     }
 
@@ -115,7 +119,7 @@ class Workspace extends Model
     /**
      * Active brand kit for SMM / Channels / AI / Funnels.
      */
-    public function brandKit(): \Illuminate\Database\Eloquent\Relations\HasOne
+    public function brandKit(): HasOne
     {
         return $this->hasOne(BrandKit::class)->where('is_active', true);
     }
@@ -186,7 +190,7 @@ class Workspace extends Model
         return $this->hasMany(WorkspaceIntegration::class);
     }
 
-    public function subscription(): \Illuminate\Database\Eloquent\Relations\HasOne
+    public function subscription(): HasOne
     {
         return $this->hasOne(WorkspaceSubscription::class);
     }
@@ -220,7 +224,7 @@ class Workspace extends Model
             return $value;
         }
 
-        $fromType = \App\Support\BusinessTypes::label($this->business_type);
+        $fromType = BusinessTypes::label($this->business_type);
 
         return $fromType;
     }
@@ -296,7 +300,7 @@ class Workspace extends Model
         return [
             'business_name' => $this->name,
             'business_type' => $this->business_type,
-            'business_type_label' => \App\Support\BusinessTypes::label($this->business_type),
+            'business_type_label' => BusinessTypes::label($this->business_type),
             'industry' => $this->resolvedIndustry(),
             'tagline' => $this->tagline,
             'description' => $this->description,

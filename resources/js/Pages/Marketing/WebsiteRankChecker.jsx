@@ -73,7 +73,7 @@ export default function WebsiteRankChecker({
             }}
         >
             <section className="relative overflow-hidden border-b border-line">
-                <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_55%_at_50%_0%,rgba(14,159,144,0.16),transparent_55%)]" />
+                <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_55%_at_50%_0%,rgba(37,99,235,0.16),transparent_55%)]" />
                 <div className="relative mx-auto max-w-3xl px-6 py-16 sm:py-20">
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-signal-strong">
                         Free rank checker

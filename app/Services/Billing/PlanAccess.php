@@ -7,6 +7,7 @@ use App\Models\BillingAccount;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceSubscription;
+use App\Services\Access\ModuleAccess;
 use App\Support\NavModules;
 
 class PlanAccess
@@ -76,7 +77,7 @@ class PlanAccess
             : self::FREE_MODULES;
 
         // Respect platform-admin menu kills (same source as the client sidebar).
-        $global = app(\App\Services\Access\ModuleAccess::class)->globallyEnabledKeys();
+        $global = app(ModuleAccess::class)->globallyEnabledKeys();
 
         return array_values(array_intersect($keys, $global));
     }

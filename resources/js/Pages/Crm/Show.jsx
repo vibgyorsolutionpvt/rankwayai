@@ -41,7 +41,14 @@ function formatBytes(bytes) {
     return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function Show({ workspace, lead, activities = [], conversations = [], attachments = [] }) {
+export default function Show({
+    workspace,
+    lead,
+    activities = [],
+    conversations = [],
+    attachments = [],
+    customFieldDefinitions = [],
+}) {
     const noteForm = useForm({ body: '', files: [] });
     const detailsForm = useForm({
         name: lead.name || '',
@@ -50,6 +57,7 @@ export default function Show({ workspace, lead, activities = [], conversations =
         company: lead.company || '',
         value_cents: lead.value_cents || 0,
         notes: lead.notes || '',
+        custom_fields: { ...(lead.custom_fields || {}) },
     });
 
     const canSubmitNote = Boolean(noteForm.data.body?.trim()) || Boolean(noteForm.data.files?.length);
@@ -251,6 +259,21 @@ export default function Show({ workspace, lead, activities = [], conversations =
                                         }
                                     />
                                 </div>
+                                {customFieldDefinitions.map((field) => (
+                                    <div key={field.key}>
+                                        <InputLabel value={field.label} />
+                                        <TextInput
+                                            className="mt-1.5 w-full"
+                                            value={detailsForm.data.custom_fields[field.key] || ''}
+                                            onChange={(e) =>
+                                                detailsForm.setData('custom_fields', {
+                                                    ...detailsForm.data.custom_fields,
+                                                    [field.key]: e.target.value,
+                                                })
+                                            }
+                                        />
+                                    </div>
+                                ))}
                                 <PrimaryButton processing={detailsForm.processing}>Save details</PrimaryButton>
                             </form>
                             <div className="mt-3 border-t border-line pt-3 text-xs text-ink-muted">

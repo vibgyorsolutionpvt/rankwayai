@@ -385,8 +385,8 @@ export default function Index({
                                             locked={!usage.channel_sends.allowed}
                                             hint={
                                                 usage.channel_sends.allowed
-                                                    ? 'WhatsApp / Email / RCS messages sent this month.'
-                                                    : 'Upgrade to unlock channel sending.'
+                                                ? 'Email and RCS messages sent this month. WhatsApp delivery is billed by your connected provider.'
+                                                : 'Upgrade to unlock Email / RCS sending. WhatsApp delivery is billed by your connected provider.'
                                             }
                                         />
                                     </div>

@@ -11,6 +11,8 @@ class SendChannelCampaignJob implements ShouldQueue
 {
     use Queueable;
 
+    public int $timeout = 80;
+
     public function __construct(public int $campaignId) {}
 
     public function handle(ChannelCampaignService $service): void
@@ -20,6 +22,14 @@ class SendChannelCampaignJob implements ShouldQueue
             return;
         }
 
-        $service->send($campaign);
+        $service->send($campaign, 25);
+
+        $campaign->refresh();
+        if (
+            $campaign->status === 'sending'
+            && $campaign->recipients()->where('status', 'pending')->exists()
+        ) {
+            self::dispatch($campaign->id);
+        }
     }
 }

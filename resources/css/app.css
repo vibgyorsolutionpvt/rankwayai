@@ -8,9 +8,9 @@
     --ink-muted: #5b667a;
     --mist: #f3f5f8;
     --mist-deep: #e6eaf0;
-    --signal: #0e9f90;
-    --signal-soft: #d7f3ef;
-    --signal-strong: #0b7f73;
+    --signal: #2563eb;
+    --signal-soft: #dbeafe;
+    --signal-strong: #1d4ed8;
     --line: #d5dce6;
     --surface: #ffffff;
     --danger: #c0392b;
@@ -20,14 +20,14 @@
     body {
         @apply bg-mist text-ink antialiased;
         background-image:
-            radial-gradient(ellipse 80% 50% at 10% -10%, rgba(14, 159, 144, 0.12), transparent 55%),
+            radial-gradient(ellipse 80% 50% at 10% -10%, rgba(37, 99, 235, 0.12), transparent 55%),
             radial-gradient(ellipse 60% 40% at 100% 0%, rgba(11, 18, 32, 0.06), transparent 50%),
             linear-gradient(180deg, #f7f8fb 0%, var(--mist) 100%);
         background-attachment: fixed;
     }
 
     ::selection {
-        background: rgba(14, 159, 144, 0.22);
+        background: rgba(37, 99, 235, 0.22);
         color: var(--ink);
     }
 }
@@ -153,7 +153,7 @@
     }
 
     .rich-content a {
-        color: #0b7f73;
+        color: #1d4ed8;
         text-decoration: underline;
         text-underline-offset: 2px;
     }
@@ -169,7 +169,7 @@
     }
 
     .rich-content blockquote {
-        border-left: 3px solid rgba(14, 159, 144, 0.55);
+        border-left: 3px solid rgba(37, 99, 235, 0.55);
         padding-left: 0.9rem;
         color: #5b667a;
         font-style: italic;
@@ -194,7 +194,7 @@
 
     .rich-content mark {
         border-radius: 0.2rem;
-        background: #d7f3ef;
+        background: #dbeafe;
         padding: 0 0.15rem;
     }
 
@@ -217,7 +217,7 @@
 
     .tiptap img.ProseMirror-selectednode,
     .tiptap .ProseMirror-selectednode img {
-        outline: 3px solid rgba(14, 159, 144, 0.7);
+        outline: 3px solid rgba(37, 99, 235, 0.7);
         outline-offset: 2px;
     }
 

@@ -67,6 +67,7 @@ class SocialPublisherService
             if (! $account) {
                 $errors[$platform] = 'No connected '.$platform.' account';
                 $this->writeLog($post, $platform, 'failed', null, $errors[$platform]);
+
                 continue;
             }
 
@@ -76,18 +77,21 @@ class SocialPublisherService
                     : ($account->last_error ?: 'Token missing — reconnect account');
                 $this->writeLog($post, $platform, 'failed', null, $errors[$platform]);
                 $account->update(['health' => 'warning', 'last_error' => $errors[$platform]]);
+
                 continue;
             }
 
             if ($platform === 'instagram' && ! $this->hasPublicImage($post)) {
                 $errors[$platform] = 'Instagram requires a public https image.';
                 $this->writeLog($post, $platform, 'failed', null, $errors[$platform]);
+
                 continue;
             }
 
             if ($this->hasAttachedMedia($post) && ! $this->hasPublicImage($post)) {
                 $errors[$platform] = 'Attached image must be a public https URL for '.$platform.' (Meta cannot reach localhost).';
                 $this->writeLog($post, $platform, 'failed', null, $errors[$platform]);
+
                 continue;
             }
 
@@ -109,6 +113,7 @@ class SocialPublisherService
                 $errors[$platform] = $result['message'] ?? 'Publish failed';
                 $this->writeLog($post, $platform, 'failed', null, $errors[$platform]);
                 $account->update(['health' => 'error', 'last_error' => $errors[$platform]]);
+
                 continue;
             }
 
@@ -697,6 +702,7 @@ class SocialPublisherService
                 if ($attempt < 4) {
                     // Sleep 2.5s, 4s, 6s across retries while container finishes propagating on Meta's cluster
                     sleep($attempt * 2);
+
                     continue;
                 }
             }

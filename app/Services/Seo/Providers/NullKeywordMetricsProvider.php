@@ -3,7 +3,6 @@
 namespace App\Services\Seo\Providers;
 
 use App\Services\Seo\Contracts\KeywordMetricsProvider;
-use App\Services\Seo\DataTransfer\KeywordMetric;
 
 /**
  * Used when DataForSEO is not configured — returns no metrics (never invents volume/KD).

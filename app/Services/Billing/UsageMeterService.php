@@ -41,7 +41,7 @@ class UsageMeterService
     public function forWorkspace(Workspace $workspace, WorkspaceSubscription $subscription): array
     {
         $limits = $subscription->limits ?? [];
-        $sendLimit = (int) ($limits['channel_sends_month'] ?? 0);
+        $sendLimit = (int) ($limits['email_rcs_sends_month'] ?? $limits['channel_sends_month'] ?? 0);
         $aiAllowed = (bool) ($limits['ai'] ?? false);
         $apiAllowed = (bool) ($limits['api'] ?? false);
 
@@ -55,6 +55,7 @@ class UsageMeterService
 
         $sendsUsed = (int) ChannelCampaign::query()
             ->where('workspace_id', $workspace->id)
+            ->whereIn('channel', ['email', 'rcs'])
             ->where('created_at', '>=', $periodStart)
             ->sum('sent_count');
 
@@ -79,7 +80,7 @@ class UsageMeterService
                 'used' => $sendsUsed,
                 'limit' => $sendLimit,
                 'pct' => $sendLimit > 0 ? min(100, round(($sendsUsed / $sendLimit) * 100, 1)) : 0,
-                'label' => 'Channel sends',
+                'label' => 'Email / RCS sends',
                 'allowed' => $apiAllowed,
             ],
         ];

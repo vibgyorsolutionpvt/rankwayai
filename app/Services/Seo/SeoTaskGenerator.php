@@ -9,6 +9,8 @@ use App\Models\SeoSite;
 use App\Models\SeoSuggestion;
 use App\Models\SeoTask;
 use App\Models\Workspace;
+use Carbon\Carbon;
+use Carbon\CarbonInterface;
 
 class SeoTaskGenerator
 {
@@ -76,6 +78,7 @@ class SeoTaskGenerator
                         'source' => 'audit',
                     ]);
                 }
+
                 continue;
             }
 
@@ -245,7 +248,7 @@ class SeoTaskGenerator
     }
 
     /**
-     * @return array{0:\Carbon\CarbonInterface,1:\Carbon\CarbonInterface,2:string}
+     * @return array{0:CarbonInterface,1:CarbonInterface,2:string}
      */
     private function resolveReportPeriod(string $period, ?string $start, ?string $end): array
     {
@@ -256,8 +259,8 @@ class SeoTaskGenerator
             'today' => [$today->copy(), $today->copy(), 'today'],
             'monthly' => [$today->copy()->subMonth(), $today->copy(), 'monthly'],
             'custom' => (function () use ($start, $end, $today) {
-                $from = $start ? \Carbon\Carbon::parse($start)->startOfDay() : $today->copy()->subWeek();
-                $to = $end ? \Carbon\Carbon::parse($end)->startOfDay() : $today->copy();
+                $from = $start ? Carbon::parse($start)->startOfDay() : $today->copy()->subWeek();
+                $to = $end ? Carbon::parse($end)->startOfDay() : $today->copy();
                 if ($from->greaterThan($to)) {
                     [$from, $to] = [$to, $from];
                 }

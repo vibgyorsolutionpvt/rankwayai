@@ -5,10 +5,14 @@ namespace App\Services\WhatsApp;
 use App\Models\ChannelMessageTemplate;
 use App\Models\Workspace;
 use App\Services\Integrations\WorkspaceIntegrationService;
+use GuzzleHttp\Psr7\Utils;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class MetaWhatsAppCloudService
@@ -26,6 +30,7 @@ class MetaWhatsAppCloudService
         ?ChannelMessageTemplate $template = null,
         bool $asTemplate = false,
         array $bodyParamValues = [],
+        array $headerParamValues = [],
     ): array {
         $cfg = $this->integrations->whatsappMetaConfig($workspace);
         if (! $cfg) {
@@ -79,6 +84,74 @@ class MetaWhatsAppCloudService
                         'parameters' => $params,
                     ],
                 ];
+            }
+
+            $savedComponents = $template->components ?? [];
+            $header = $savedComponents['header'] ?? [];
+            $headerMessageComponent = null;
+            if (($header['format'] ?? null) === 'TEXT' && filled($header['text'] ?? null)) {
+                $headerParams = [];
+                if (preg_match_all('/\{\{\s*[a-z0-9_]+\s*\}\}/i', $header['text'], $matches)) {
+                    foreach ($matches[0] as $index => $_placeholder) {
+                        $headerParams[] = [
+                            'type' => 'text',
+                            'text' => (string) ($headerParamValues[$index] ?? 'Customer'),
+                        ];
+                    }
+                }
+                if ($headerParams !== []) {
+                    $headerMessageComponent = [
+                        'type' => 'header',
+                        'parameters' => $headerParams,
+                    ];
+                }
+            } elseif (in_array($header['format'] ?? null, ['IMAGE', 'VIDEO', 'DOCUMENT'], true)) {
+                $path = $header['media_path'] ?? null;
+                if (! is_string($path) || ! Storage::disk('local')->exists($path)) {
+                    return [
+                        'ok' => false,
+                        'id' => null,
+                        'error' => 'The media attached to this template is no longer available. Edit the template and upload the header again.',
+                        'conversation_id' => null,
+                    ];
+                }
+
+                $mediaResult = $this->uploadStoredMessageMedia(
+                    $workspace,
+                    $path,
+                    $header['filename'] ?? basename($path),
+                );
+                if (! $mediaResult['ok']) {
+                    return [
+                        'ok' => false,
+                        'id' => null,
+                        'error' => $mediaResult['error'],
+                        'conversation_id' => null,
+                    ];
+                }
+
+                $headerType = strtolower($header['format']);
+                $mediaParameter = ['id' => $mediaResult['id']];
+                if ($headerType === 'document') {
+                    $mediaParameter['filename'] = $header['filename'] ?? 'document.pdf';
+                }
+                $headerMessageComponent = [
+                    'type' => 'header',
+                    'parameters' => [
+                        [
+                            'type' => $headerType,
+                            $headerType => $mediaParameter,
+                        ],
+                    ],
+                ];
+                $savedComponents['header']['media_id'] = $mediaResult['id'];
+                $template->update(['components' => $savedComponents]);
+            }
+            if ($headerMessageComponent !== null) {
+                $templatePayload['components'] = array_merge(
+                    [$headerMessageComponent],
+                    $templatePayload['components'] ?? [],
+                );
             }
 
             $payload = [
@@ -329,6 +402,8 @@ class MetaWhatsAppCloudService
         string $body,
         string $category = 'UTILITY',
         string $language = 'en_US',
+        array $components = [],
+        ?string $headerHandle = null,
     ): array {
         $cfg = $this->integrations->whatsappMetaConfig($workspace);
         $wabaId = $cfg['waba_id'] ?? null;
@@ -347,6 +422,18 @@ class MetaWhatsAppCloudService
         if (! in_array($category, ['UTILITY', 'MARKETING', 'AUTHENTICATION'], true)) {
             $category = 'UTILITY';
         }
+        $headerFormat = $components['header']['format'] ?? 'NONE';
+        if (
+            in_array($headerFormat, ['IMAGE', 'VIDEO', 'DOCUMENT'], true)
+            && blank($headerHandle)
+        ) {
+            return [
+                'ok' => false,
+                'id' => null,
+                'status' => null,
+                'error' => 'Upload the header media again before submitting this template to Meta.',
+            ];
+        }
 
         $url = sprintf(
             'https://graph.facebook.com/%s/%s/message_templates',
@@ -359,7 +446,7 @@ class MetaWhatsAppCloudService
             'language' => $language,
             'category' => $category,
             'allow_category_change' => true,
-            'components' => $this->bodyToMetaComponents($body),
+            'components' => $this->templateToMetaComponents($body, $components, $headerHandle),
         ];
 
         try {
@@ -422,6 +509,268 @@ class MetaWhatsAppCloudService
                 'error' => Str::limit($e->getMessage(), 240),
             ];
         }
+    }
+
+    /**
+     * Upload one sample file both as a WhatsApp media object for sends and as a
+     * resumable upload handle for Meta's template header example.
+     *
+     * @return array{ok:bool, handle:?string, id:?string, error:?string}
+     */
+    public function uploadTemplateMedia(Workspace $workspace, UploadedFile $file): array
+    {
+        $cfg = $this->integrations->whatsappMetaConfig($workspace);
+        if (! $cfg || blank($cfg['app_id'] ?? null)) {
+            return [
+                'ok' => false,
+                'handle' => null,
+                'id' => null,
+                'error' => 'A Meta App ID is required to upload a media header. Add it in WhatsApp setup or configure META_APP_ID.',
+            ];
+        }
+
+        $mime = (string) $file->getMimeType();
+        $size = (int) $file->getSize();
+        $name = $file->getClientOriginalName();
+        $version = ltrim($cfg['api_version'], '/');
+        $base = "https://graph.facebook.com/{$version}";
+
+        try {
+            $start = $this->graph($cfg['access_token'], 30)->post(
+                "{$base}/{$cfg['app_id']}/uploads?file_length={$size}&file_type=".rawurlencode($mime).'&file_name='.rawurlencode($name)
+            );
+            if (! $start->successful() || blank($start->json('id'))) {
+                return [
+                    'ok' => false,
+                    'handle' => null,
+                    'id' => null,
+                    'error' => $this->metaUploadError($start),
+                ];
+            }
+
+            $fileStream = fopen($file->getRealPath(), 'rb');
+            if ($fileStream === false) {
+                return [
+                    'ok' => false,
+                    'handle' => null,
+                    'id' => null,
+                    'error' => 'Unable to read the uploaded header file.',
+                ];
+            }
+
+            try {
+                $finish = $this->graph($cfg['access_token'], 60)
+                    ->withHeaders(['file_offset' => '0'])
+                    ->withBody(Utils::streamFor($fileStream), $mime)
+                    ->post("{$base}/{$start->json('id')}");
+            } finally {
+                fclose($fileStream);
+            }
+            if (! $finish->successful() || blank($finish->json('h'))) {
+                return [
+                    'ok' => false,
+                    'handle' => null,
+                    'id' => null,
+                    'error' => $this->metaUploadError($finish),
+                ];
+            }
+
+            $media = $this->uploadWhatsAppMedia(
+                $workspace,
+                $file->getRealPath(),
+                $name,
+                $mime,
+            );
+            if (! $media['ok']) {
+                return [
+                    'ok' => false,
+                    'handle' => null,
+                    'id' => null,
+                    'error' => $media['error'],
+                ];
+            }
+
+            return [
+                'ok' => true,
+                'handle' => (string) $finish->json('h'),
+                'id' => $media['id'],
+                'error' => null,
+            ];
+        } catch (\Throwable $e) {
+            Log::channel('whatsapp')->warning('whatsapp.meta.template.media_upload.failed', [
+                'workspace_id' => $workspace->id,
+                'mime_type' => $mime,
+                'reason' => $e->getMessage(),
+            ]);
+
+            return [
+                'ok' => false,
+                'handle' => null,
+                'id' => null,
+                'error' => Str::limit($e->getMessage(), 240),
+            ];
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $options
+     * @return list<array<string, mixed>>
+     */
+    public function templateToMetaComponents(
+        string $body,
+        array $options = [],
+        ?string $headerHandle = null,
+    ): array {
+        $components = [];
+        $header = $options['header'] ?? [];
+        $format = $header['format'] ?? 'NONE';
+        if ($format === 'TEXT' && filled($header['text'] ?? null)) {
+            $text = $this->replaceNamedPlaceholders($header['text'], $headerExamples);
+            $component = ['type' => 'HEADER', 'format' => 'TEXT', 'text' => $text];
+            if ($headerExamples !== []) {
+                $component['example'] = ['header_text' => $headerExamples];
+            }
+            $components[] = $component;
+        } elseif (in_array($format, ['IMAGE', 'VIDEO', 'DOCUMENT'], true)) {
+            if (blank($headerHandle)) {
+                throw new \InvalidArgumentException('A Meta media upload handle is required for media headers.');
+            }
+            $components[] = [
+                'type' => 'HEADER',
+                'format' => $format,
+                'example' => ['header_handle' => [$headerHandle]],
+            ];
+        }
+
+        array_push($components, ...$this->bodyToMetaComponents($body));
+
+        if (filled($options['footer'] ?? null)) {
+            $components[] = [
+                'type' => 'FOOTER',
+                'text' => trim((string) $options['footer']),
+            ];
+        }
+
+        $buttons = [];
+        foreach (($options['buttons'] ?? []) as $button) {
+            $type = strtoupper((string) ($button['type'] ?? ''));
+            $item = [
+                'type' => $type,
+                'text' => trim((string) ($button['text'] ?? '')),
+            ];
+            if ($type === 'URL') {
+                $item['url'] = trim((string) ($button['url'] ?? ''));
+            } elseif ($type === 'PHONE_NUMBER') {
+                $item['phone_number'] = trim((string) ($button['phone_number'] ?? ''));
+            }
+            $buttons[] = $item;
+        }
+        if ($buttons !== []) {
+            $components[] = ['type' => 'BUTTONS', 'buttons' => $buttons];
+        }
+
+        return $components;
+    }
+
+    /**
+     * @return array{ok:bool,id:?string,error:?string}
+     */
+    private function uploadStoredMessageMedia(
+        Workspace $workspace,
+        string $path,
+        string $name,
+    ): array {
+        $absolutePath = Storage::disk('local')->path($path);
+        $mime = mime_content_type($absolutePath) ?: 'application/octet-stream';
+
+        return $this->uploadWhatsAppMedia($workspace, $absolutePath, $name, $mime);
+    }
+
+    /**
+     * @return array{ok:bool,id:?string,error:?string}
+     */
+    private function uploadWhatsAppMedia(
+        Workspace $workspace,
+        string $path,
+        string $name,
+        string $mime,
+    ): array {
+        $cfg = $this->integrations->whatsappMetaConfig($workspace);
+        if (! $cfg) {
+            return ['ok' => false, 'id' => null, 'error' => WorkspaceIntegrationService::whatsappNotConnectedMessage()];
+        }
+
+        try {
+            $fileStream = fopen($path, 'rb');
+            if ($fileStream === false) {
+                return ['ok' => false, 'id' => null, 'error' => 'Unable to read the uploaded header file.'];
+            }
+
+            try {
+                $response = $this->graph($cfg['access_token'], 60)
+                    ->attach('file', $fileStream, $name, ['Content-Type' => $mime])
+                    ->post(
+                        sprintf(
+                            'https://graph.facebook.com/%s/%s/media',
+                            ltrim($cfg['api_version'], '/'),
+                            $cfg['phone_number_id'],
+                        ),
+                        ['messaging_product' => 'whatsapp', 'type' => $mime],
+                    );
+            } finally {
+                fclose($fileStream);
+            }
+
+            if (! $response->successful() || blank($response->json('id'))) {
+                return ['ok' => false, 'id' => null, 'error' => $this->metaUploadError($response)];
+            }
+
+            return ['ok' => true, 'id' => (string) $response->json('id'), 'error' => null];
+        } catch (\Throwable $e) {
+            Log::channel('whatsapp')->warning('whatsapp.meta.media_upload.failed', [
+                'workspace_id' => $workspace->id,
+                'mime_type' => $mime,
+                'reason' => $e->getMessage(),
+            ]);
+
+            return ['ok' => false, 'id' => null, 'error' => Str::limit($e->getMessage(), 240)];
+        }
+    }
+
+    private function metaUploadError(Response $response): string
+    {
+        $message = (string) (
+            $response->json('error.message')
+            ?? $response->json('error.error_user_msg')
+            ?? $response->body()
+        );
+
+        return Str::limit($message !== '' ? $message : 'Meta media upload failed.', 400);
+    }
+
+    /**
+     * @param  list<string>  $examples
+     */
+    private function replaceNamedPlaceholders(string $text, ?array &$examples = null): string
+    {
+        $examples = [];
+        $index = 0;
+
+        return preg_replace_callback(
+            '/\{\{\s*([a-z0-9_]+)\s*\}\}/i',
+            function (array $match) use (&$examples, &$index) {
+                $index++;
+                $examples[] = match (strtolower($match[1])) {
+                    'name' => 'Anil',
+                    'brand' => 'RankwayAI',
+                    'phone' => '9889995999',
+                    default => 'Sample'.$index,
+                };
+
+                return '{{'.$index.'}}';
+            },
+            $text,
+        ) ?? $text;
     }
 
     /**

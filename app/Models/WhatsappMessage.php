@@ -10,6 +10,7 @@ class WhatsappMessage extends Model
     protected $fillable = [
         'whatsapp_conversation_id',
         'user_id',
+        'channel_campaign_id',
         'direction',
         'body',
         'status',
@@ -51,6 +52,8 @@ class WhatsappMessage extends Model
             'template_name' => $this->template_name,
             'error_message' => $this->error_message,
             'user_id' => $this->user_id,
+            'user_name' => $this->user_id ? $this->user?->name : null,
+            'campaign_name' => $this->meta['campaign_name'] ?? null,
             'sent_at' => ($this->sent_at ?? $this->created_at)?->timezone(config('app.timezone'))->format('d M Y, g:i A'),
             'created_at' => $this->created_at?->timezone(config('app.timezone'))->format('d M Y, g:i A'),
         ];

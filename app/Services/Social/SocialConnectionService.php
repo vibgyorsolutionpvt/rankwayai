@@ -4,6 +4,7 @@ namespace App\Services\Social;
 
 use App\Models\SocialAccount;
 use App\Models\Workspace;
+use App\Services\Integrations\ProviderStatus;
 use App\Services\Integrations\WorkspaceIntegrationService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -22,7 +23,7 @@ class SocialConnectionService
             return $this->integrations->socialModes($workspace);
         }
 
-        $p = \App\Services\Integrations\ProviderStatus::snapshot();
+        $p = ProviderStatus::snapshot();
 
         return [
             'facebook' => $p['meta'] ? 'oauth' : 'sandbox',

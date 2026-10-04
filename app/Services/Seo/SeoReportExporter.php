@@ -8,6 +8,8 @@ use App\Models\SeoReport;
 use App\Models\SeoTask;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Response;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class SeoReportExporter
@@ -112,7 +114,7 @@ class SeoReportExporter
         $filename = $this->filename($report, 'xlsx');
 
         return response()->streamDownload(function () use ($spreadsheet) {
-            $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+            $writer = new Xlsx($spreadsheet);
             $writer->save('php://output');
             $spreadsheet->disconnectWorksheets();
         }, $filename, [
@@ -123,9 +125,9 @@ class SeoReportExporter
     /**
      * @param  array<string, mixed>  $data
      */
-    private function buildSpreadsheet(array $data): \PhpOffice\PhpSpreadsheet\Spreadsheet
+    private function buildSpreadsheet(array $data): Spreadsheet
     {
-        $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet;
+        $spreadsheet = new Spreadsheet;
         $summarySheet = $spreadsheet->getActiveSheet();
         $summarySheet->setTitle('Summary');
 

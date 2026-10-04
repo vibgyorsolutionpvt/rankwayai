@@ -2,6 +2,8 @@
 
 namespace App\Services\Integrations;
 
+use App\Services\Seo\Providers\LocalChromeJsRenderProvider;
+
 class ProviderStatus
 {
     public static function snapshot(): array
@@ -15,10 +17,10 @@ class ProviderStatus
             'dataforseo' => filled(config('services.dataforseo.login')) && filled(config('services.dataforseo.password')),
             'browserless' => filled(config('services.browserless.token')) || filled(config('services.browserless.url')),
             // JS crawl works with free local Chrome/Chromium OR paid Browserless.
-            'js_render' => app(\App\Services\Seo\Providers\LocalChromeJsRenderProvider::class)->configured()
+            'js_render' => app(LocalChromeJsRenderProvider::class)->configured()
                 || filled(config('services.browserless.token'))
                 || filled(config('services.browserless.url')),
-            'js_render_driver' => app(\App\Services\Seo\Providers\LocalChromeJsRenderProvider::class)->configured()
+            'js_render_driver' => app(LocalChromeJsRenderProvider::class)->configured()
                 ? 'local_chrome'
                 : ((filled(config('services.browserless.token')) || filled(config('services.browserless.url')))
                     ? 'browserless'

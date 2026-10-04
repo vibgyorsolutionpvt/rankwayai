@@ -4,6 +4,7 @@ namespace App\Services\Seo;
 
 use App\Models\SeoBlogPost;
 use App\Models\SeoSite;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 
@@ -88,7 +89,7 @@ class SeoBlogDiscoveryService
     /**
      * Temporary dummy posts for UI / share testing until the site has a real feed.
      *
-     * @return list<array{url: string, title: string, excerpt: string, published_at: \Carbon\Carbon}>
+     * @return list<array{url: string, title: string, excerpt: string, published_at: Carbon}>
      */
     public function demoPosts(SeoSite $site): array
     {
@@ -123,7 +124,7 @@ class SeoBlogDiscoveryService
     }
 
     /**
-     * @return array{posts: list<array{url: string, title: ?string, excerpt: ?string, published_at: ?\Carbon\Carbon}>, feed_url: ?string}
+     * @return array{posts: list<array{url: string, title: ?string, excerpt: ?string, published_at: ?Carbon}>, feed_url: ?string}
      */
     private function discoverFromRss(SeoSite $site): array
     {
@@ -164,7 +165,7 @@ class SeoBlogDiscoveryService
     }
 
     /**
-     * @return list<array{url: string, title: ?string, excerpt: ?string, published_at: ?\Carbon\Carbon}>
+     * @return list<array{url: string, title: ?string, excerpt: ?string, published_at: ?Carbon}>
      */
     private function discoverFromSitemap(SeoSite $site): array
     {
@@ -208,7 +209,7 @@ class SeoBlogDiscoveryService
     }
 
     /**
-     * @return list<array{url: string, title: ?string, excerpt: ?string, published_at: ?\Carbon\Carbon}>
+     * @return list<array{url: string, title: ?string, excerpt: ?string, published_at: ?Carbon}>
      */
     private function parseFeedXml(string $xml): array
     {
@@ -345,14 +346,14 @@ class SeoBlogDiscoveryService
         return Str::limit(Str::headline(str_replace(['-', '_'], ' ', $slug)), 180);
     }
 
-    private function parseDate(string $value): ?\Carbon\Carbon
+    private function parseDate(string $value): ?Carbon
     {
         if ($value === '') {
             return null;
         }
 
         try {
-            return \Carbon\Carbon::parse($value);
+            return Carbon::parse($value);
         } catch (\Throwable) {
             return null;
         }
