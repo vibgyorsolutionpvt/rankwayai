@@ -8,6 +8,7 @@ use App\Services\Seo\SeoCrawlerService;
 use App\Services\Seo\SeoTaskGenerator;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Str;
 
 class CrawlAndAuditSeoSiteJob implements ShouldQueue
 {
@@ -17,7 +18,7 @@ class CrawlAndAuditSeoSiteJob implements ShouldQueue
 
     public int $tries = 1;
 
-    public function __construct(public int $seoSiteId) {}
+    public function __construct(public string $seoSiteId) {}
 
     public function handle(
         SeoCrawlerService $crawler,
@@ -41,7 +42,7 @@ class CrawlAndAuditSeoSiteJob implements ShouldQueue
         } catch (\Throwable $e) {
             $site->update([
                 'crawl_status' => 'failed',
-                'last_crawl_error' => \Illuminate\Support\Str::limit($e->getMessage(), 1000),
+                'last_crawl_error' => Str::limit($e->getMessage(), 1000),
             ]);
             throw $e;
         }

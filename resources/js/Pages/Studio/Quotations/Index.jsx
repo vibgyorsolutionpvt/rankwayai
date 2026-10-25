@@ -16,13 +16,11 @@ const money = (n, currency = 'INR') => {
 export default function Index({
     workspace,
     quotations = [],
-    itineraries = [],
     leads = [],
     defaults = {},
 }) {
     const form = useForm({
         title: '',
-        itinerary_id: '',
         crm_lead_id: '',
         customer_name: '',
         customer_email: '',
@@ -65,26 +63,9 @@ export default function Index({
                     <div className="md:col-span-2">
                         <h3 className="font-display text-lg font-bold text-ink">New quotation</h3>
                         <p className="text-sm text-ink-muted">
-                            Generate from an itinerary or start blank — then edit line items, PDF &amp;
-                            share.
+                            Create a quotation from verified services and prices, then edit line items,
+                            PDF &amp; share.
                         </p>
-                    </div>
-                    <div>
-                        <InputLabel value="From itinerary" />
-                        <div className="mt-1">
-                            <SelectMenu
-                                value={form.data.itinerary_id}
-                                onChange={(v) => form.setData('itinerary_id', v)}
-                                options={[
-                                    { value: '', label: 'Blank quotation' },
-                                    ...itineraries.map((i) => ({
-                                        value: String(i.id),
-                                        label: i.title,
-                                        meta: `${i.destination || '—'} · ${i.duration_days || '?'}D`,
-                                    })),
-                                ]}
-                            />
-                        </div>
                     </div>
                     <div>
                         <InputLabel value="Link CRM lead" />
@@ -109,7 +90,7 @@ export default function Index({
                             className="mt-1 w-full"
                             value={form.data.title}
                             onChange={(e) => form.setData('title', e.target.value)}
-                            placeholder="Auto from itinerary if empty"
+                            placeholder="e.g. Jaipur weekend package"
                         />
                     </div>
                     <div>

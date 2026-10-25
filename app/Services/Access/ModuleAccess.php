@@ -12,20 +12,61 @@ use Illuminate\Support\Facades\Cache;
 
 class ModuleAccess
 {
+    private const PLATFORM_MENU_GROUP_DEFAULTS = [
+        'business_section' => true,
+        'marketing' => true,
+        'leads' => false,
+        'sales' => false,
+        'business_studio' => true,
+    ];
+
     /**
-     * @return list<array{key:string,label:string,enabled:bool}>
+     * @return list<array{key:string,label:string,tone:string,enabled:bool}>
      */
     public function platformMenuStates(): array
     {
         $this->ensurePlatformRows();
         $rows = PlatformMenu::query()->pluck('enabled', 'key');
 
-        return collect(NavModules::catalog())
+        $modules = collect(NavModules::catalog())
             ->map(fn (array $meta, string $key) => [
                 'key' => $key,
                 'label' => $meta['label'],
                 'tone' => $meta['tone'],
                 'enabled' => (bool) ($rows[$key] ?? true),
+            ]);
+        $parentMenus = collect(NavModules::menuGroups())
+            ->map(fn (array $meta, string $key) => [
+                'key' => $key,
+                'label' => $meta['label'],
+                'tone' => $meta['tone'],
+                'enabled' => (bool) ($rows[$key] ?? self::PLATFORM_MENU_GROUP_DEFAULTS[$key]),
+            ]);
+
+        return $modules
+            ->concat($parentMenus)
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return list<array{key:string,label:string,tone:string,enabled:bool,children:list<array{key:string,label:string,tone:string,enabled:bool}>}>
+     */
+    public function platformMenuGroups(): array
+    {
+        $states = collect($this->platformMenuStates())->keyBy('key');
+
+        return collect(NavModules::menuGroups())
+            ->map(fn (array $group, string $key) => [
+                'key' => $key,
+                'label' => $group['label'],
+                'tone' => $group['tone'],
+                'enabled' => (bool) ($states[$key]['enabled'] ?? self::PLATFORM_MENU_GROUP_DEFAULTS[$key]),
+                'children' => collect($group['children'])
+                    ->map(fn (string $childKey) => $states[$childKey] ?? null)
+                    ->filter()
+                    ->values()
+                    ->all(),
             ])
             ->values()
             ->all();
@@ -36,19 +77,26 @@ class ModuleAccess
     {
         // No short-lived cache: admin toggles must hide menus on the next client request.
         $this->ensurePlatformRows();
-
-        return PlatformMenu::query()
+        $keys = PlatformMenu::query()
             ->where('enabled', true)
             ->whereIn('key', NavModules::keys())
             ->orderBy('id')
             ->pluck('key')
             ->values()
             ->all();
+
+        foreach (NavModules::menuGroups() as $groupKey => $group) {
+            if (! $this->isPlatformMenuEnabled($groupKey)) {
+                $keys = array_values(array_diff($keys, $group['children']));
+            }
+        }
+
+        return $keys;
     }
 
     public function setPlatformMenu(string $key, bool $enabled): void
     {
-        abort_unless(in_array($key, NavModules::keys(), true), 422);
+        abort_unless($this->supportsPlatformMenu($key), 422);
 
         PlatformMenu::query()->updateOrCreate(
             ['key' => $key],
@@ -57,6 +105,25 @@ class ModuleAccess
 
         // Drop any legacy cached copies from older deploys.
         Cache::forget('platform_menus.enabled');
+    }
+
+    public function supportsPlatformMenu(string $key): bool
+    {
+        return in_array($key, $this->platformMenuKeys(), true);
+    }
+
+    public function isRouteMenuEnabled(string $routeName): bool
+    {
+        $menuKey = NavModules::fromRouteName($routeName);
+
+        return $menuKey === null || in_array($menuKey, $this->globallyEnabledKeys(), true);
+    }
+
+    public function isPlatformMenuEnabled(string $key): bool
+    {
+        $this->ensurePlatformRows();
+
+        return (bool) PlatformMenu::query()->where('key', $key)->value('enabled');
     }
 
     /**
@@ -135,10 +202,16 @@ class ModuleAccess
         ])->save();
     }
 
+    /** @return list<string>|null */
+    public function normalizeModuleKeys(mixed $keys): ?array
+    {
+        return $this->normalizeKeys($keys);
+    }
+
     /**
      * @param  list<string>|null  $keys  null = all workspace modules
      */
-    public function setMemberModules(Workspace $workspace, int $userId, ?array $keys): void
+    public function setMemberModules(Workspace $workspace, string $userId, ?array $keys): void
     {
         $normalized = $keys === null ? null : ($this->normalizeKeys($keys) ?? []);
 
@@ -174,6 +247,7 @@ class ModuleAccess
                             'tone' => $meta['tone'],
                             'group' => $meta['group'] ?? 'Work',
                             'params' => $meta['params'] ?? null,
+                            'comingSoon' => $meta['comingSoon'] ?? false,
                         ];
                     })
                     ->filter()
@@ -280,6 +354,7 @@ class ModuleAccess
                     'tone' => $meta['tone'],
                     'group' => $meta['group'] ?? 'Work',
                     'params' => $meta['params'] ?? null,
+                    'comingSoon' => $meta['comingSoon'] ?? false,
                 ];
             })
             ->filter()
@@ -289,7 +364,11 @@ class ModuleAccess
 
     public function firstAllowedRoute(User $user, ?Workspace $workspace): string
     {
-        $items = $this->navItemsFor($user, $workspace);
+        $catalog = NavModules::catalog();
+        $items = collect($this->navItemsFor($user, $workspace))
+            ->reject(fn (array $item) => $catalog[$item['key']]['comingSoon'] ?? false)
+            ->values()
+            ->all();
 
         if ($workspace && ! $user->is_superadmin) {
             $planKeys = app(PlanAccess::class)->modulesFor($workspace);
@@ -307,14 +386,30 @@ class ModuleAccess
     private function ensurePlatformRows(): void
     {
         $existing = PlatformMenu::query()->pluck('key')->all();
-        $missing = array_diff(NavModules::keys(), $existing);
+        $defaults = array_merge(
+            array_fill_keys(NavModules::keys(), true),
+            ['email' => false],
+            self::PLATFORM_MENU_GROUP_DEFAULTS,
+        );
+        $legacyStudioEnabled = (bool) PlatformMenu::query()->where('key', 'studio')->value('enabled');
+        if (in_array('studio', $existing, true)) {
+            $defaults['business_card'] = $legacyStudioEnabled;
+            $defaults['brochure'] = $legacyStudioEnabled;
+        }
+        $missing = array_diff(array_keys($defaults), $existing);
 
         foreach ($missing as $key) {
             PlatformMenu::query()->create([
                 'key' => $key,
-                'enabled' => true,
+                'enabled' => $defaults[$key],
             ]);
         }
+    }
+
+    /** @return list<string> */
+    private function platformMenuKeys(): array
+    {
+        return [...NavModules::keys(), ...array_keys(NavModules::menuGroups())];
     }
 
     /**
@@ -334,6 +429,10 @@ class ModuleAccess
         if (! is_array($keys)) {
             return [];
         }
+
+        $keys = collect($keys)
+            ->flatMap(fn ($key) => $key === 'studio' ? ['business_card', 'brochure'] : [$key])
+            ->all();
 
         return array_values(array_unique(array_filter(
             $keys,

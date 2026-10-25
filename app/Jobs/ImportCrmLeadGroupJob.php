@@ -9,6 +9,7 @@ use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Throwable;
 
@@ -20,7 +21,7 @@ class ImportCrmLeadGroupJob implements ShouldQueue
 
     public int $tries = 1;
 
-    public function __construct(public int $groupId, public string $path) {}
+    public function __construct(public string $groupId, public string $path) {}
 
     public function handle(): void
     {
@@ -341,6 +342,7 @@ class ImportCrmLeadGroupJob implements ShouldQueue
                 $leadCache->put($lead->id, $lead);
                 $phoneLookup[$phoneDigits] = $lead->id;
                 $memberRows[] = [
+                    'id' => (string) Str::uuid7(),
                     'crm_lead_group_id' => $group->id,
                     'crm_lead_id' => $lead->id,
                     'created_at' => $now,

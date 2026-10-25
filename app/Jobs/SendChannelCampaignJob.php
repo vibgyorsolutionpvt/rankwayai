@@ -13,7 +13,7 @@ class SendChannelCampaignJob implements ShouldQueue
 
     public int $timeout = 80;
 
-    public function __construct(public int $campaignId) {}
+    public function __construct(public string $campaignId) {}
 
     public function handle(ChannelCampaignService $service): void
     {

@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Storage;
 
 class CrmLeadAttachment extends Model
 {
+    use HasUuids;
+
     protected $fillable = [
         'workspace_id',
         'crm_lead_id',

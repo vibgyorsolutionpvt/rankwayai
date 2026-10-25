@@ -2,6 +2,14 @@
 
 namespace App\Providers;
 
+use App\Models\PersonalAccessToken;
+use App\Services\Seo\Contracts\KeywordMetricsProvider;
+use App\Services\Seo\Contracts\SerpRankProvider;
+use App\Services\Seo\Providers\DataForSeoClient;
+use App\Services\Seo\Providers\DataForSeoKeywordMetricsProvider;
+use App\Services\Seo\Providers\DataForSeoSerpRankProvider;
+use App\Services\Seo\Providers\NullKeywordMetricsProvider;
+use App\Services\Seo\Providers\StubSerpRankProvider;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Routing\Middleware\ValidateSignature;
 use Illuminate\Support\Carbon;
@@ -9,6 +17,7 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Sanctum\Sanctum;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -18,30 +27,30 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(
-            \App\Services\Seo\Contracts\KeywordMetricsProvider::class,
+            KeywordMetricsProvider::class,
             function () {
                 if (config('seo.providers.metrics') === 'dataforseo'
-                    && \App\Services\Seo\Providers\DataForSeoClient::configured()
+                    && DataForSeoClient::configured()
                 ) {
-                    return $this->app->make(\App\Services\Seo\Providers\DataForSeoKeywordMetricsProvider::class);
+                    return $this->app->make(DataForSeoKeywordMetricsProvider::class);
                 }
 
-                return $this->app->make(\App\Services\Seo\Providers\NullKeywordMetricsProvider::class);
+                return $this->app->make(NullKeywordMetricsProvider::class);
             }
         );
 
         $this->app->bind(
-            \App\Services\Seo\Contracts\SerpRankProvider::class,
+            SerpRankProvider::class,
             function () {
                 $driver = (string) config('seo.providers.ranks', 'auto');
                 $live = $driver === 'dataforseo'
-                    || ($driver === 'auto' && \App\Services\Seo\Providers\DataForSeoClient::configured());
+                    || ($driver === 'auto' && DataForSeoClient::configured());
 
-                if ($live && \App\Services\Seo\Providers\DataForSeoClient::configured()) {
-                    return $this->app->make(\App\Services\Seo\Providers\DataForSeoSerpRankProvider::class);
+                if ($live && DataForSeoClient::configured()) {
+                    return $this->app->make(DataForSeoSerpRankProvider::class);
                 }
 
-                return $this->app->make(\App\Services\Seo\Providers\StubSerpRankProvider::class);
+                return $this->app->make(StubSerpRankProvider::class);
             }
         );
     }
@@ -51,6 +60,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Sanctum::usePersonalAccessTokenModel(PersonalAccessToken::class);
+
         Vite::prefetch(concurrency: 3);
 
         $root = rtrim((string) config('app.url'), '/');

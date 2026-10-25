@@ -150,7 +150,7 @@ class PlanCatalog
                 '5 workspaces',
                 'Higher AI budget',
                 '5,000 Email / RCS sends/mo · WhatsApp billed by provider',
-                'Backlinks, local pack, CMS & JS crawl',
+                'Backlinks, Google Maps rank, CMS & JS crawl',
             ],
             'agency' => [
                 'Everything in Growth',

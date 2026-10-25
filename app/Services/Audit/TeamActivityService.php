@@ -21,7 +21,7 @@ class TeamActivityService
      *   action_logs:list<array<string,mixed>>
      * }
      */
-    public function forWorkspace(Workspace $workspace, ?int $userId = null, int $limit = 40): array
+    public function forWorkspace(Workspace $workspace, ?string $userId = null, int $limit = 40): array
     {
         $memberIds = $workspace->users()->pluck('users.id');
 

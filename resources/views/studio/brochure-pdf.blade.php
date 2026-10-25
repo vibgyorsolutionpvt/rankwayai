@@ -6,14 +6,15 @@
     <style>
         @page { margin: 28px 32px; }
         body { font-family: DejaVu Sans, sans-serif; font-size: 11px; color: #0b1220; }
-        h1 { font-size: 26px; margin: 0 0 6px; color: {{ $brochure['styles']['secondary_color'] }}; }
+        h1 { font-size: 34px; margin: 0 0 6px; color: {{ $brochure['styles']['secondary_color'] }}; }
         h2 { font-size: 16px; margin: 0 0 8px; color: {{ $brochure['styles']['primary_color'] }}; border-bottom: 2px solid {{ $brochure['styles']['accent_color'] }}; padding-bottom: 4px; }
-        .cover { page-break-after: always; padding-top: 160px; text-align: center; }
+        .cover { page-break-after: always; padding: 150px 30px 0; text-align: left; border-left: 10px solid {{ $brochure['styles']['primary_color'] }}; height: 700px; }
         .cover .tag { display: inline-block; margin-top: 14px; padding: 4px 10px; background: {{ $brochure['styles']['accent_color'] }}; color: #0b1220; font-size: 10px; font-weight: bold; }
         .muted { color: #5b667a; }
         .section { page-break-inside: avoid; margin-bottom: 22px; }
         ul { margin: 8px 0 0 16px; padding: 0; }
-        li { margin: 3px 0; }
+        li { margin: 4px 0; font-size: 12px; }
+        .box { background: #f1f5f9; border-left: 4px solid {{ $brochure['styles']['primary_color'] }}; padding: 10px 14px; }
         .footer { position: fixed; bottom: 0; left: 0; right: 0; font-size: 9px; color: #5b667a; text-align: center; }
     </style>
 </head>
@@ -36,7 +37,7 @@
     @if(($section['key'] ?? '') === 'cover')
         @continue
     @endif
-    <div class="section">
+    <div class="section {{ in_array($section['key'] ?? '', ['why_us', 'contact'], true) ? 'box' : '' }}">
         <h2>{{ $section['title'] ?? 'Section' }}</h2>
         @if(!empty($section['body']))
             <p>{{ $section['body'] }}</p>

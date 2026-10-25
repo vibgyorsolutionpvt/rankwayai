@@ -9,9 +9,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('channel_message_templates', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('created_by')->nullable()->constrained('users')->nullOnDelete();
             $table->string('name');
             $table->string('channel'); // whatsapp, email
             $table->string('subject')->nullable();

@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class RankwayDomainMetric extends Model
 {
+    use HasUuids;
+
     protected $fillable = [
         'rankway_domain_id',
         'organic_traffic',

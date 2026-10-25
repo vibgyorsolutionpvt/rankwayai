@@ -2,10 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Models\BrandKit;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\Access\ModuleAccess;
 use App\Support\BusinessTypes;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class BusinessProfileTest extends TestCase
@@ -26,7 +30,7 @@ class BusinessProfileTest extends TestCase
             ])
             ->assertRedirect();
 
-        $access = app(\App\Services\Access\ModuleAccess::class);
+        $access = app(ModuleAccess::class);
         $keys = $access->userEnabledKeys($user, $workspace->fresh());
         $this->assertNotContains('business', $keys);
         $this->assertContains('settings', $keys);
@@ -93,6 +97,49 @@ class BusinessProfileTest extends TestCase
         $this->assertSame('https://instagram.com/vibgyor', $workspace->social_links['instagram']);
         $this->assertTrue($workspace->hasBusinessProfile());
         $this->assertSame('Travel Agency', $workspace->businessProfile()['business_type_label']);
+    }
+
+    public function test_owner_can_upload_and_replace_business_logo_for_generated_posters(): void
+    {
+        $user = User::factory()->create();
+        $workspace = Workspace::factory()->create(['name' => 'Vibgyor Holidays']);
+        $workspace->users()->attach($user->id, ['role' => 'owner']);
+        Storage::fake('public');
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->from(route('business.edit'))
+            ->post(route('business.logo.store'), [
+                'logo' => UploadedFile::fake()->image('business-logo.png'),
+            ])
+            ->assertRedirect(route('business.edit'))
+            ->assertSessionHas('success', 'Business logo saved and ready for generated posters.');
+
+        $brand = BrandKit::query()->where('workspace_id', $workspace->id)->firstOrFail();
+        $this->assertTrue($brand->is_active);
+        $previousLogo = $brand->logo_path;
+        Storage::disk('public')->assertExists($previousLogo);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->from(route('business.edit'))
+            ->post(route('business.logo.store'), [
+                'logo' => UploadedFile::fake()->image('updated-logo.png'),
+            ])
+            ->assertRedirect(route('business.edit'))
+            ->assertSessionHas('success');
+
+        $brand->refresh();
+        $this->assertNotSame($previousLogo, $brand->logo_path);
+        Storage::disk('public')->assertMissing($previousLogo);
+        Storage::disk('public')->assertExists($brand->logo_path);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('business.edit'))
+            ->assertInertia(fn ($page) => $page
+                ->component('Business/Profile')
+                ->where('activeWorkspace.logo_url', Storage::disk('public')->url($brand->logo_path)));
     }
 
     public function test_other_business_type_requires_custom_industry(): void

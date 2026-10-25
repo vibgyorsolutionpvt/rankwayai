@@ -92,6 +92,62 @@ export default function WorkspacePanel({
         saveWorkspaceModules([...set]);
     };
 
+    const toggleWorkspaceGroup = (group, enabled) => {
+        const set = new Set(workspaceSelected);
+        group.children.forEach((key) => {
+            if (enabled) set.add(key);
+            else set.delete(key);
+        });
+        saveWorkspaceModules([...set]);
+    };
+
+    const groupedModuleKeys = new Set(
+        (moduleCatalog?.groups || []).flatMap((group) => group.children),
+    );
+    const ungroupedModuleItems = (moduleCatalog?.items || []).filter(
+        (item) => !groupedModuleKeys.has(item.key),
+    );
+
+    const renderWorkspaceModule = (item) => {
+        const on = workspaceSelected.includes(item.key);
+        const locked = !item.globally_enabled;
+        const tone = moduleTone(toneForModule(item));
+
+        return (
+            <div
+                key={item.key}
+                className={
+                    'flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 shadow-sm transition ' +
+                    (locked || !on ? tone.off : tone.card)
+                }
+            >
+                <div className="min-w-0">
+                    <span
+                        className={
+                            'inline-flex truncate rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ' +
+                            tone.chip
+                        }
+                    >
+                        {item.label}
+                    </span>
+                    {locked ? (
+                        <div className="mt-0.5 text-[9px] font-medium text-rose-600">Locked</div>
+                    ) : null}
+                </div>
+                <div className="flex shrink-0 flex-col items-center gap-0.5">
+                    <Toggle
+                        checked={on && !locked}
+                        disabled={locked}
+                        onChange={(enabled) => toggleWorkspaceModule(item.key, enabled)}
+                    />
+                    <span className="text-[9px] font-semibold uppercase tracking-wide text-ink-muted">
+                        {locked ? 'Off' : on ? 'Show' : 'Hide'}
+                    </span>
+                </div>
+            </div>
+        );
+    };
+
     const saveSocialPlatforms = (nextKeys) => {
         if (!activeWorkspace) return;
         router.put(
@@ -209,49 +265,68 @@ export default function WorkspacePanel({
                             Other workspaces keep their own menus and API keys.
                         </p>
                     </div>
-                    <div className="grid gap-2 p-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-                        {moduleCatalog.items.map((item) => {
-                            const on = workspaceSelected.includes(item.key);
-                            const locked = !item.globally_enabled;
-                            const tone = moduleTone(toneForModule(item));
+                    <div className="space-y-3 p-4">
+                        {moduleCatalog.groups?.map((group) => {
+                            const activeChildren = group.children.filter((key) =>
+                                workspaceSelected.includes(key),
+                            );
+                            const on = activeChildren.length > 0;
+                            const locked = !group.globally_enabled;
+                            const tone = moduleTone(group.tone);
                             return (
                                 <div
-                                    key={item.key}
+                                    key={group.key}
                                     className={
-                                        'flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 shadow-sm transition ' +
+                                        'overflow-hidden rounded-lg border shadow-sm ' +
                                         (locked || !on ? tone.off : tone.card)
                                     }
                                 >
-                                    <div className="min-w-0">
-                                        <span
-                                            className={
-                                                'inline-flex truncate rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ' +
-                                                tone.chip
-                                            }
-                                        >
-                                            {item.label}
-                                        </span>
-                                        {locked ? (
-                                            <div className="mt-0.5 text-[9px] font-medium text-rose-600">
-                                                Locked
-                                            </div>
-                                        ) : null}
+                                    <div className="flex items-center justify-between gap-3 border-b border-current/10 px-3 py-2.5">
+                                        <div>
+                                            <span
+                                                className={
+                                                    'rounded px-2 py-1 text-xs font-bold uppercase tracking-wide ' +
+                                                    tone.chip
+                                                }
+                                            >
+                                                {group.label}
+                                            </span>
+                                            {locked ? (
+                                                <div className="mt-1 text-[9px] font-medium text-rose-600">
+                                                    Disabled globally by Super Admin
+                                                </div>
+                                            ) : null}
+                                        </div>
+                                        <div className="flex shrink-0 flex-col items-center gap-0.5">
+                                            <Toggle
+                                                checked={on && !locked}
+                                                disabled={locked}
+                                                onChange={(enabled) =>
+                                                    toggleWorkspaceGroup(group, enabled)
+                                                }
+                                            />
+                                            <span className="text-[9px] font-semibold uppercase tracking-wide text-ink-muted">
+                                                {locked ? 'Locked' : on ? 'Show' : 'Hide'}
+                                            </span>
+                                        </div>
                                     </div>
-                                    <div className="flex shrink-0 flex-col items-center gap-0.5">
-                                        <Toggle
-                                            checked={on && !locked}
-                                            disabled={locked}
-                                            onChange={(enabled) =>
-                                                toggleWorkspaceModule(item.key, enabled)
-                                            }
-                                        />
-                                        <span className="text-[9px] font-semibold uppercase tracking-wide text-ink-muted">
-                                            {locked ? 'Off' : on ? 'Show' : 'Hide'}
-                                        </span>
-                                    </div>
+                                    {!locked && on ? (
+                                        <div className="grid gap-2 p-3 sm:grid-cols-2 xl:grid-cols-3">
+                                            {moduleCatalog.items
+                                                .filter((item) =>
+                                                    group.children.includes(item.key),
+                                                )
+                                                .map(renderWorkspaceModule)}
+                                        </div>
+                                    ) : null}
                                 </div>
                             );
                         })}
+                        {ungroupedModuleItems.length > 0 ? (
+                            <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+                                {ungroupedModuleItems.map(renderWorkspaceModule)}
+                            </div>
+                        ) : null}
                     </div>
                 </section>
             ) : null}
@@ -699,7 +774,7 @@ export default function WorkspacePanel({
                                     value={historyUserId ? String(historyUserId) : ''}
                                     onChange={(value) =>
                                         visitHistory({
-                                            user_id: value ? Number(value) : undefined,
+                                            user_id: value || undefined,
                                         })
                                     }
                                     options={[

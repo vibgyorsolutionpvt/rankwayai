@@ -3,9 +3,12 @@ import InputLabel from '@/Components/InputLabel';
 import PrimaryButton from '@/Components/PrimaryButton';
 import SelectMenu from '@/Components/SelectMenu';
 import TextInput from '@/Components/TextInput';
+import BrochureView from '@/Components/Studio/BrochureView';
+import ColorPicker from '@/Components/ColorPicker';
 import Toggle from '@/Components/Toggle';
 import { toast } from '@/Components/ToastProvider';
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Head, Link, router, useForm } from '@inertiajs/react';
+import { useState } from 'react';
 
 function sectionItemsText(section) {
     return Array.isArray(section.items) ? section.items.join('\n') : '';
@@ -20,11 +23,21 @@ export default function Edit({ workspace, brochure, templates = [], brandKits = 
         subheadline: brochure.subheadline || '',
         brand_kit_id: brochure.brand_kit_id ? String(brochure.brand_kit_id) : '',
         is_public: brochure.is_public !== false,
+        logo: null,
+        remove_logo: false,
+        colors: {
+            primary_color: brochure.custom_colors?.primary_color || '',
+            secondary_color: brochure.custom_colors?.secondary_color || '',
+            accent_color: brochure.custom_colors?.accent_color || '',
+        },
         sections: (brochure.sections || []).map((s) => ({
             ...s,
             items_text: sectionItemsText(s),
         })),
     });
+
+    const [logoPreview, setLogoPreview] = useState(brochure.logo_url || null);
+    const [logoKey, setLogoKey] = useState(0);
 
     const updateSection = (index, patch) => {
         const next = form.data.sections.map((section, i) =>
@@ -32,6 +45,17 @@ export default function Edit({ workspace, brochure, templates = [], brandKits = 
         );
         form.setData('sections', next);
     };
+
+    const colorFields = [
+        ['primary_color', 'Main color'],
+        ['secondary_color', 'Dark color'],
+        ['accent_color', 'Accent color'],
+    ];
+    const hasCustomColors = Object.values(form.data.colors).some(Boolean);
+    const previewStyles = { ...brochure.styles };
+    colorFields.forEach(([key]) => {
+        if (form.data.colors[key]) previewStyles[key] = form.data.colors[key];
+    });
 
     const copyLink = async () => {
         try {
@@ -41,10 +65,6 @@ export default function Edit({ workspace, brochure, templates = [], brandKits = 
             toast.error('Could not copy link');
         }
     };
-
-    const primary = brochure.styles?.primary_color || '#0E9F90';
-    const secondary = brochure.styles?.secondary_color || '#0B1220';
-    const accent = brochure.styles?.accent_color || '#F59E0B';
 
     return (
         <AuthenticatedLayout
@@ -155,6 +175,80 @@ export default function Edit({ workspace, brochure, templates = [], brandKits = 
                     </div>
 
                     <div className="space-y-3 border-t border-line pt-4">
+                        <h3 className="font-display text-sm font-bold text-ink">Brochure logo</h3>
+                        <div className="flex flex-wrap items-center gap-4">
+                            <div className="flex h-16 w-24 items-center justify-center overflow-hidden rounded-md border border-line bg-mist/40">
+                                {logoPreview ? (
+                                    <img src={logoPreview} alt="Logo" className="max-h-full max-w-full object-contain" />
+                                ) : (
+                                    <span className="text-[10px] font-semibold text-ink-muted">No logo</span>
+                                )}
+                            </div>
+                            <div className="space-y-1.5">
+                                <input
+                                    key={logoKey}
+                                    type="file"
+                                    accept="image/png,image/jpeg,image/webp"
+                                    onChange={(e) => {
+                                        const file = e.target.files?.[0] || null;
+                                        form.setData((d) => ({ ...d, logo: file, remove_logo: false }));
+                                        setLogoPreview(file ? URL.createObjectURL(file) : brochure.logo_url || null);
+                                    }}
+                                    className="block text-xs"
+                                />
+                                <div className="text-[11px] text-ink-muted">
+                                    {brochure.has_custom_logo || form.data.logo
+                                        ? 'Custom logo for this brochure.'
+                                        : 'Using the Brand kit logo. Upload to override.'}
+                                </div>
+                                {(brochure.has_custom_logo || form.data.logo) && !form.data.remove_logo ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            form.setData((d) => ({ ...d, logo: null, remove_logo: !!brochure.has_custom_logo }));
+                                            setLogoPreview(null);
+                                            setLogoKey((k) => k + 1);
+                                        }}
+                                        className="text-xs font-semibold text-red-600 hover:underline"
+                                    >
+                                        Remove custom logo
+                                    </button>
+                                ) : null}
+                            </div>
+                        </div>
+                        {form.errors.logo ? <div className="text-xs text-red-600">{form.errors.logo}</div> : null}
+                    </div>
+
+                    <div className="space-y-3 border-t border-line pt-4">
+                        <div className="flex items-center justify-between">
+                            <h3 className="font-display text-sm font-bold text-ink">Brochure colors</h3>
+                            {hasCustomColors ? (
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        form.setData('colors', { primary_color: '', secondary_color: '', accent_color: '' })
+                                    }
+                                    className="text-xs font-semibold text-ink-muted hover:text-ink"
+                                >
+                                    Reset to brand kit
+                                </button>
+                            ) : null}
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-3">
+                            {colorFields.map(([key, label]) => (
+                                <div key={key}>
+                                    <InputLabel value={label} />
+                                    <ColorPicker
+                                        className="mt-1"
+                                        value={form.data.colors[key] || previewStyles[key]}
+                                        onChange={(hex) => form.setData('colors', { ...form.data.colors, [key]: hex })}
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="space-y-3 border-t border-line pt-4">
                         <h3 className="font-display text-sm font-bold text-ink">Sections</h3>
                         {form.data.sections.map((section, index) => (
                             <div key={`${section.key}-${index}`} className="rounded-lg border border-line p-3">
@@ -200,63 +294,21 @@ export default function Edit({ workspace, brochure, templates = [], brandKits = 
                 </form>
 
                 <div className="space-y-4">
-                    <div
-                        className="atlas-panel overflow-hidden"
-                        style={{ borderTop: `4px solid ${primary}` }}
-                    >
-                        <div
-                            className="px-4 py-8 text-center text-white"
-                            style={{
-                                background: `linear-gradient(145deg, ${secondary}, ${primary})`,
+                    <div className="atlas-panel max-h-[640px] overflow-y-auto overflow-x-hidden">
+                        <BrochureView
+                            compact
+                            brochure={{
+                                ...brochure,
+                                headline: form.data.headline || workspace.name,
+                                subheadline: form.data.subheadline,
+                                styles: previewStyles,
+                                logo_url: logoPreview,
                             }}
-                        >
-                            {brochure.logo_url ? (
-                                <img
-                                    src={brochure.logo_url}
-                                    alt=""
-                                    className="mx-auto mb-3 h-10 w-auto object-contain"
-                                />
-                            ) : null}
-                            <div className="font-display text-2xl font-bold">
-                                {form.data.headline || workspace.name}
-                            </div>
-                            <div className="mt-1 text-sm opacity-90">
-                                {form.data.subheadline || 'Brochure preview'}
-                            </div>
-                            <span
-                                className="mt-3 inline-block rounded px-2 py-1 text-[10px] font-bold text-ink"
-                                style={{ background: accent }}
-                            >
-                                {form.data.title}
-                            </span>
-                        </div>
-                        <div className="max-h-[420px] space-y-3 overflow-y-auto p-4">
-                            {form.data.sections
-                                .filter((s) => s.enabled && s.key !== 'cover')
-                                .map((section, i) => (
-                                    <div key={`${section.key}-prev-${i}`}>
-                                        <div
-                                            className="text-sm font-bold"
-                                            style={{ color: primary }}
-                                        >
-                                            {section.title}
-                                        </div>
-                                        {section.body ? (
-                                            <p className="mt-1 text-xs text-ink-muted">{section.body}</p>
-                                        ) : null}
-                                        {section.items_text ? (
-                                            <ul className="mt-1 list-disc pl-4 text-xs text-ink">
-                                                {section.items_text
-                                                    .split('\n')
-                                                    .filter(Boolean)
-                                                    .map((line) => (
-                                                        <li key={line}>{line}</li>
-                                                    ))}
-                                            </ul>
-                                        ) : null}
-                                    </div>
-                                ))}
-                        </div>
+                            sections={form.data.sections.map((sec) => ({
+                                ...sec,
+                                items: sec.items_text.split('\n').map((l) => l.trim()).filter(Boolean),
+                            }))}
+                        />
                     </div>
 
                     <div className="atlas-panel space-y-3 p-4">
@@ -286,6 +338,17 @@ export default function Edit({ workspace, brochure, templates = [], brandKits = 
                             >
                                 Download PDF
                             </a>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (window.confirm('Replace all sections with details from your workspace profile?')) {
+                                        router.post(route('studio.brochures.sync', brochure.id), {}, { preserveScroll: true });
+                                    }
+                                }}
+                                className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold hover:bg-mist"
+                            >
+                                Refresh from workspace
+                            </button>
                         </div>
                         {brochure.qr_url ? (
                             <img

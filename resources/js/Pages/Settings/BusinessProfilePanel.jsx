@@ -4,7 +4,7 @@ import PrimaryButton from '@/Components/PrimaryButton';
 import SelectMenu from '@/Components/SelectMenu';
 import TextInput from '@/Components/TextInput';
 import { useForm } from '@inertiajs/react';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 function emptySocialLinks() {
     return {
@@ -45,12 +45,18 @@ export default function BusinessProfilePanel({
     businessTypes = [],
 }) {
     const profileForm = useForm(profileFromWorkspace(activeWorkspace));
+    const logoForm = useForm({ logo: null });
+    const logoInputRef = useRef(null);
     const canManage =
         activeWorkspace?.role === 'owner' || activeWorkspace?.role === 'admin';
 
     useEffect(() => {
         profileForm.setData(profileFromWorkspace(activeWorkspace));
         profileForm.clearErrors();
+        logoForm.reset();
+        if (logoInputRef.current) {
+            logoInputRef.current.value = '';
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeWorkspace?.id]);
 
@@ -71,7 +77,7 @@ export default function BusinessProfilePanel({
                         {activeWorkspace?.name || 'this workspace'}
                     </span>
                     . Used across AI, documents, cards, and marketing. Logo & colors live in Brand
-                    Kit.
+                    Kit; upload the logo here to use it on AI-generated posters.
                 </p>
             </div>
             <div className="p-4">
@@ -91,6 +97,62 @@ export default function BusinessProfilePanel({
                             );
                         }}
                     >
+                        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-line bg-mist/30 p-3">
+                            {activeWorkspace.logo_url ? (
+                                <img
+                                    src={activeWorkspace.logo_url}
+                                    alt={`${activeWorkspace.name} logo`}
+                                    className="h-14 w-14 rounded-md border border-line bg-white object-contain p-1"
+                                />
+                            ) : (
+                                <div className="flex h-14 w-14 items-center justify-center rounded-md border border-dashed border-line bg-white text-[10px] text-ink-muted">
+                                    No logo
+                                </div>
+                            )}
+                            <div className="min-w-[180px] flex-1">
+                                <InputLabel value="Business logo" />
+                                <input
+                                    ref={logoInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    onChange={(event) =>
+                                        logoForm.setData(
+                                            'logo',
+                                            event.target.files?.[0] || null,
+                                        )
+                                    }
+                                    className="mt-1 block w-full text-xs text-ink-muted file:me-3 file:rounded-md file:border file:border-line file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-ink"
+                                />
+                                {logoForm.data.logo ? (
+                                    <p className="mt-1 truncate text-[11px] text-ink-muted">
+                                        Selected: {logoForm.data.logo.name}
+                                    </p>
+                                ) : null}
+                                <InputError message={logoForm.errors.logo} className="mt-1" />
+                            </div>
+                            <PrimaryButton
+                                type="button"
+                                processing={logoForm.processing}
+                                disabled={!logoForm.data.logo}
+                                onClick={() =>
+                                    logoForm.post(route('business.logo.store'), {
+                                        forceFormData: true,
+                                        preserveScroll: true,
+                                        onSuccess: () => {
+                                            logoForm.reset();
+                                            if (logoInputRef.current) {
+                                                logoInputRef.current.value = '';
+                                            }
+                                        },
+                                    })
+                                }
+                            >
+                                Save logo
+                            </PrimaryButton>
+                            <p className="w-full text-[11px] text-ink-muted">
+                                Image file · up to 4 MB. Saving replaces the current workspace logo.
+                            </p>
+                        </div>
                         <div className="grid gap-3 sm:grid-cols-2">
                             <div>
                                 <InputLabel value="Business type *" />

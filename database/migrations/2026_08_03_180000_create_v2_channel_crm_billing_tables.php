@@ -9,8 +9,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('crm_leads', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
             $table->string('name');
             $table->string('email')->nullable();
             $table->string('phone')->nullable();
@@ -25,9 +25,9 @@ return new class extends Migration
         });
 
         Schema::create('channel_campaigns', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('created_by')->nullable()->constrained('users')->nullOnDelete();
             $table->string('name');
             $table->string('channel'); // whatsapp, email
             $table->string('subject')->nullable(); // email
@@ -46,9 +46,9 @@ return new class extends Migration
         });
 
         Schema::create('channel_campaign_recipients', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('channel_campaign_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('crm_lead_id')->nullable()->constrained('crm_leads')->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('channel_campaign_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('crm_lead_id')->nullable()->constrained('crm_leads')->nullOnDelete();
             $table->string('to'); // E.164 or email
             $table->string('status')->default('pending'); // pending, sent, failed, skipped
             $table->string('provider_message_id')->nullable();
@@ -59,8 +59,8 @@ return new class extends Migration
         });
 
         Schema::create('workspace_subscriptions', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete()->unique();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete()->unique();
             $table->string('plan')->default('starter'); // starter, growth, agency
             $table->string('status')->default('trialing'); // trialing, active, past_due, cancelled
             $table->string('billing_provider')->default('manual'); // manual stub — Stripe later

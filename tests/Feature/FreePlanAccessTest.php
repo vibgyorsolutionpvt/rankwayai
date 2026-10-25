@@ -17,6 +17,15 @@ class FreePlanAccessTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $menus = app(ModuleAccess::class);
+        $menus->setPlatformMenu('leads', true);
+        $menus->setPlatformMenu('sales', true);
+        $menus->setPlatformMenu('email', true);
+    }
+
     public function test_free_plan_only_allows_seo_audit_modules(): void
     {
         $user = User::factory()->create(['is_superadmin' => false]);
@@ -160,7 +169,7 @@ class FreePlanAccessTest extends TestCase
         $this->assertTrue($plans->hasUnlockedAccess($workspace));
         $this->assertTrue($plans->allows($workspace, 'social_publish'));
 
-        $access = app(\App\Services\Access\ModuleAccess::class);
+        $access = app(ModuleAccess::class);
         $this->assertTrue($access->canAccess($member, $workspace, 'social'));
         $this->assertTrue($access->canAccess($member, $workspace, 'today'));
 

@@ -19,6 +19,7 @@ use App\Services\Workspaces\VisibleWorkspaceService;
 use App\Support\BusinessTypes;
 use App\Support\DomainNormalizer;
 use App\Support\NavModules;
+use App\Support\PublicId;
 use App\Support\SocialPlatforms;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -44,7 +45,7 @@ class WorkspacePageController extends Controller
                 'city' => $workspace->resolvedCity(),
             ]);
 
-        $activeId = (int) $request->session()->get('active_workspace_id');
+        $activeId = PublicId::normalize($request->session()->get('active_workspace_id'));
         $active = $workspaces->firstWhere('id', $activeId) ?? $workspaces->first();
 
         $members = [];
@@ -56,7 +57,8 @@ class WorkspacePageController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'role' => $user->pivot->role,
-                'enabled_modules' => $this->decodeModules($user->pivot->enabled_modules ?? null),
+                'enabled_modules' => app(ModuleAccess::class)
+                    ->normalizeModuleKeys($user->pivot->enabled_modules ?? null),
             ]);
         }
 
@@ -190,7 +192,7 @@ class WorkspacePageController extends Controller
             // Studio resource deep links → module indexes
             '#^/studio/cards/[^/]+#' => 'studio.cards.index',
             '#^/studio/brochures/[^/]+#' => 'studio.brochures.index',
-            '#^/studio/itineraries/[^/]+#' => 'studio.itineraries.index',
+            '#^/studio/itineraries(?:/.*)?$#' => 'studio.cards.index',
             '#^/studio/quotations/[^/]+#' => 'studio.quotations.index',
             // CRM lead detail
             '#^/crm/\d+#' => 'crm.index',
@@ -416,7 +418,7 @@ class WorkspacePageController extends Controller
     public function updateMember(
         UpdateWorkspaceMemberRequest $request,
         Workspace $workspace,
-        int $userId,
+        string $userId,
     ): RedirectResponse {
         $this->authorize('manageMembers', $workspace);
 
@@ -515,7 +517,7 @@ class WorkspacePageController extends Controller
     public function updateMemberModules(
         Request $request,
         Workspace $workspace,
-        int $userId,
+        string $userId,
         ModuleAccess $modules,
     ): RedirectResponse {
         $this->authorize('manageMembers', $workspace);
@@ -540,7 +542,7 @@ class WorkspacePageController extends Controller
         return back()->with('success', 'Member access updated');
     }
 
-    public function destroyMember(Request $request, Workspace $workspace, int $userId): RedirectResponse
+    public function destroyMember(Request $request, Workspace $workspace, string $userId): RedirectResponse
     {
         $this->authorize('manageMembers', $workspace);
 
@@ -579,24 +581,6 @@ class WorkspacePageController extends Controller
     }
 
     /**
-     * @return list<string>|null
-     */
-    private function decodeModules(mixed $value): ?array
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        if (is_string($value)) {
-            $decoded = json_decode($value, true);
-
-            return is_array($decoded) ? array_values($decoded) : [];
-        }
-
-        return is_array($value) ? array_values($value) : [];
-    }
-
-    /**
      * @return array{keys: list<string>, items: list<array{key:string,label:string,globally_enabled:bool,workspace_enabled:bool}>, workspace_modules: list<string>|null}
      */
     private function moduleCatalogPayload(ModuleAccess $modules, ?Workspace $workspace): array
@@ -606,7 +590,17 @@ class WorkspacePageController extends Controller
 
         return [
             'keys' => NavModules::keys(),
-            'workspace_modules' => $workspace?->enabled_modules,
+            'workspace_modules' => $modules->normalizeModuleKeys($workspace?->enabled_modules),
+            'groups' => collect(NavModules::menuGroups())
+                ->map(fn (array $group, string $key) => [
+                    'key' => $key,
+                    'label' => $group['label'],
+                    'tone' => $group['tone'],
+                    'globally_enabled' => $modules->isPlatformMenuEnabled($key),
+                    'children' => $group['children'],
+                ])
+                ->values()
+                ->all(),
             'items' => collect(NavModules::catalog())
                 ->map(fn (array $meta, string $key) => [
                     'key' => $key,

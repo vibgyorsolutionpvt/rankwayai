@@ -3,12 +3,19 @@ import DateTimePicker from '@/Components/DateTimePicker';
 import HelpGuide, { HELP } from '@/Components/HelpGuide';
 import InputLabel from '@/Components/InputLabel';
 import PrimaryButton from '@/Components/PrimaryButton';
+import RichTextEditor from '@/Components/RichTextEditor';
 import SelectMenu from '@/Components/SelectMenu';
 import TextInput from '@/Components/TextInput';
 import { toast } from '@/Components/ToastProvider';
 import { confirmAsk } from '@/Components/ConfirmProvider';
 import { Head, Link, router, useForm } from '@inertiajs/react';
 import { useMemo, useState } from 'react';
+
+const stripMarkup = (value) =>
+    String(value ?? '')
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
 
 const deliveryOptions = [
     { id: 'now', label: 'Send now', hint: 'Deliver immediately' },
@@ -42,8 +49,11 @@ const channelOptions = [
 
 export default function Index({
     workspace,
+    email_only = false,
+    initial_channel = 'whatsapp',
     provider,
     providers = {},
+    email_providers = [],
     rcs_providers = [],
     campaigns = [],
     templates = [],
@@ -54,13 +64,18 @@ export default function Index({
     plan = null,
 }) {
     const [editingTemplateId, setEditingTemplateId] = useState(null);
+    const [activeEmailTab, setActiveEmailTab] = useState('campaigns');
+    const [activeEmailCampaignView, setActiveEmailCampaignView] = useState('list');
+    const [activeEmailTemplateView, setActiveEmailTemplateView] = useState('list');
     const sendLocked = plan && !plan.features?.channel_send;
     const defaultRcsProvider =
         rcs_providers.find((p) => p.ready)?.id || rcs_providers[0]?.id || 'sandbox';
 
     const form = useForm({
         name: '',
-        channel: 'whatsapp',
+        channel: initial_channel,
+        email_provider:
+            providers.email && providers.email !== 'none' ? providers.email : 'auto',
         rcs_provider: defaultRcsProvider,
         subject: '',
         body: '',
@@ -71,7 +86,7 @@ export default function Index({
 
     const templateForm = useForm({
         name: '',
-        channel: 'whatsapp',
+        channel: initial_channel,
         subject: '',
         body: '',
     });
@@ -97,6 +112,10 @@ export default function Index({
             body: tpl.body || '',
         });
         toast.success(`Loaded template: ${tpl.name}`);
+        if (email_only) {
+            setActiveEmailTab('campaigns');
+            setActiveEmailCampaignView('create');
+        }
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
@@ -115,7 +134,7 @@ export default function Index({
         setEditingTemplateId(null);
         templateForm.setData({
             name: '',
-            channel: 'whatsapp',
+            channel: initial_channel,
             subject: '',
             body: '',
         });
@@ -157,20 +176,21 @@ export default function Index({
                         {workspace.name}
                     </div>
                     <div className="flex items-center gap-1.5">
-                        <h2 className="font-display text-2xl font-bold text-ink">Channels</h2>
+                        <h2 className="font-display text-2xl font-bold text-ink">
+                            {email_only ? 'Email Campaigns' : 'Channels'}
+                        </h2>
                         <HelpGuide help={HELP.channels} />
                     </div>
                 </div>
             }
         >
-            <Head title="Channels" />
+            <Head title={email_only ? 'Email Campaigns' : 'Channels'} />
             <div className="atlas-shell space-y-2.5">
                 {sendLocked ? (
                     <section className="atlas-panel border border-amber-200 bg-amber-50/80 p-3.5">
                         <div className="font-semibold text-ink">Sending locked on Free</div>
                         <p className="mt-1 text-sm text-ink-muted">
-                            You can save drafts and templates. WhatsApp / Email / RCS send needs a
-                            paid plan (messaging API).
+                            You can save drafts and templates. Sending needs a paid plan (messaging API).
                         </p>
                         <a
                             href={route('billing.index')}
@@ -180,7 +200,7 @@ export default function Index({
                         </a>
                     </section>
                 ) : null}
-                <section className="atlas-panel flex flex-wrap items-center justify-between gap-3 p-3">
+                {!email_only ? <section className="atlas-panel flex flex-wrap items-center justify-between gap-3 p-3">
                     <div>
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
                             WhatsApp · Email · RCS
@@ -204,17 +224,18 @@ export default function Index({
                             {' · '}
                             Email:{' '}
                             <span className="font-semibold text-ink">
-                                {providers.email === 'smtp'
-                                    ? 'Custom SMTP'
-                                    : providers.email === 'zavu'
-                                      ? 'Zavu'
-                                      : 'test mode'}
+                                {providers.email === 'auto'
+                                    ? 'Automatic free-provider rotation'
+                                    : providers.email === 'none'
+                                      ? 'No provider connected'
+                                      : providers.email === 'smtp'
+                                      ? 'Custom SMTP'
+                                      : providers.email === 'zavu'
+                                        ? 'Zavu'
+                                        : providers.email}
                             </span>
                             {' · '}
                             RCS: Jio / Airtel / Vi / test
-                            {provider === 'sandbox' && providers.email === 'sandbox'
-                                ? ' — configure Integrations for live sends.'
-                                : ''}
                         </p>
                     </div>
                     <div className="flex gap-4 text-sm">
@@ -243,35 +264,141 @@ export default function Index({
                             <span className="ms-1 text-ink-muted">RCS</span>
                         </div>
                     </div>
-                </section>
+                </section> : (
+                    <section className="atlas-panel flex flex-wrap items-center justify-between gap-3 p-3">
+                        <div>
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                                Email campaigns
+                            </div>
+                            <p className="mt-0.5 text-sm text-ink-muted">
+                                This page sends email only. Select CRM contacts with email addresses.
+                            </p>
+                        </div>
+                        <span className="text-sm font-semibold text-ink">
+                            Provider:{' '}
+                            {providers.email === 'auto'
+                                ? 'Automatic free-provider rotation'
+                                : providers.email === 'none'
+                                  ? 'No provider connected'
+                                  : providers.email === 'smtp'
+                                  ? 'Custom SMTP'
+                                  : providers.email === 'zavu'
+                                    ? 'Zavu'
+                                    : providers.email}
+                        </span>
+                    </section>
+                )}
 
-                <div className="grid gap-2.5 xl:grid-cols-[0.95fr_1.05fr]">
-                    <section className="atlas-panel space-y-3 p-3">
+                {email_only ? (
+                    <nav
+                        className="flex flex-wrap gap-1 rounded-lg border border-line bg-white p-1 shadow-sm"
+                        aria-label="Email sections"
+                    >
+                        {[
+                            { id: 'campaigns', label: 'Campaigns', count: campaigns.length },
+                            { id: 'templates', label: 'Templates', count: templates.length },
+                        ].map((tab) => (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setActiveEmailTab(tab.id)}
+                                className={
+                                    'rounded-md border px-3 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-signal/30 ' +
+                                    (activeEmailTab === tab.id
+                                        ? 'border-signal bg-signal text-white shadow-sm'
+                                        : 'border-line bg-mist/60 text-ink-soft hover:border-signal/40 hover:bg-signal-soft/50 hover:text-signal-strong')
+                                }
+                                aria-pressed={activeEmailTab === tab.id}
+                            >
+                                {tab.label}
+                                <span className="ms-2 rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-ink">
+                                    {tab.count}
+                                </span>
+                            </button>
+                        ))}
+                    </nav>
+                ) : null}
+
+                <div
+                    className={
+                        email_only
+                            ? 'space-y-2.5'
+                            : 'grid gap-2.5 xl:grid-cols-[0.95fr_1.05fr]'
+                    }
+                >
+                    {(!email_only || activeEmailTab === 'templates') ? (
+                    <section className="space-y-4">
+                        {email_only ? (
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="flex flex-wrap gap-1 rounded-lg border border-line bg-white p-1 shadow-sm">
+                                    {[
+                                        { id: 'list', label: `List${templates.length ? ` · ${templates.length}` : ''}` },
+                                        { id: 'create', label: editingTemplateId ? 'Edit template' : 'Create template' },
+                                    ].map((tab) => (
+                                        <button
+                                            key={tab.id}
+                                            type="button"
+                                            aria-pressed={activeEmailTemplateView === tab.id}
+                                            onClick={() => setActiveEmailTemplateView(tab.id)}
+                                            className={
+                                                'rounded-md border px-3 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-signal/30 ' +
+                                                (activeEmailTemplateView === tab.id
+                                                    ? 'border-signal bg-signal text-white shadow-sm'
+                                                    : 'border-line bg-mist/60 text-ink-soft hover:border-signal/40 hover:bg-signal-soft/50 hover:text-signal-strong')
+                                            }
+                                        >
+                                            {tab.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                {activeEmailTemplateView === 'list' ? (
+                                    <PrimaryButton
+                                        type="button"
+                                        className="!px-3 !py-1.5 !text-xs"
+                                        onClick={() => {
+                                            cancelEditTemplate();
+                                            setActiveEmailTemplateView('create');
+                                        }}
+                                    >
+                                        + New email template
+                                    </PrimaryButton>
+                                ) : null}
+                            </div>
+                        ) : null}
+                        {(!email_only || activeEmailTemplateView === 'create') ? (
+                    <section className="atlas-panel space-y-3 overflow-hidden rounded-2xl border border-violet-100 p-0 shadow-sm">
+                        {email_only ? <div className="h-1 bg-gradient-to-r from-violet-400 via-fuchsia-400 to-pink-400" /> : null}
                         <div className="flex flex-wrap items-start justify-between gap-2">
-                            <div>
+                            <div className="p-4 pb-0">
                                 <div className="flex items-center gap-1">
                                     <h3 className="font-display text-base font-bold text-ink">
                                         {editingTemplateId
                                             ? `Edit template #${editingTemplateId}`
-                                            : 'Message templates'}
+                                            : email_only
+                                              ? 'Email templates'
+                                              : 'Message templates'}
                                     </h3>
                                     <HelpGuide help={HELP.channels} className="!h-6 !w-6" />
                                 </div>
                                 <p className="text-[11px] text-ink-muted">
-                                    Save WhatsApp / Email / RCS copy. Brand kit fills{' '}
+                                    {email_only
+                                        ? 'Save email copy. Brand kit fills '
+                                        : 'Save WhatsApp / Email / RCS copy. Brand kit fills '}
                                     <code className="text-ink">{'{{cta}}'}</code>,{' '}
                                     <code className="text-ink">{'{{phone}}'}</code>, etc. Lead name uses{' '}
                                     <code className="text-ink">{'{{name}}'}</code> on send.
                                 </p>
                             </div>
-                            <div className="flex flex-wrap gap-1.5">
-                                <button
-                                    type="button"
-                                    className="rounded-md border border-line px-2 py-1 text-xs font-semibold text-ink hover:border-signal/40"
-                                    onClick={() => insertStarter('whatsapp')}
-                                >
-                                    WA starter
-                                </button>
+                            {!email_only ? <div className="flex flex-wrap gap-1.5">
+                                {!email_only ? (
+                                    <button
+                                        type="button"
+                                        className="rounded-md border border-line px-2 py-1 text-xs font-semibold text-ink hover:border-signal/40"
+                                        onClick={() => insertStarter('whatsapp')}
+                                    >
+                                        WA starter
+                                    </button>
+                                ) : null}
                                 <button
                                     type="button"
                                     className="rounded-md border border-line px-2 py-1 text-xs font-semibold text-ink hover:border-signal/40"
@@ -279,18 +406,20 @@ export default function Index({
                                 >
                                     Email starter
                                 </button>
-                                <button
-                                    type="button"
-                                    className="rounded-md border border-line px-2 py-1 text-xs font-semibold text-ink hover:border-signal/40"
-                                    onClick={() => insertStarter('rcs')}
-                                >
-                                    RCS starter
-                                </button>
-                            </div>
+                                {!email_only ? (
+                                    <button
+                                        type="button"
+                                        className="rounded-md border border-line px-2 py-1 text-xs font-semibold text-ink hover:border-signal/40"
+                                        onClick={() => insertStarter('rcs')}
+                                    >
+                                        RCS starter
+                                    </button>
+                                ) : null}
+                            </div> : null}
                         </div>
 
                         <form
-                            className="space-y-2 rounded-md border border-line bg-mist/40 p-3"
+                            className="space-y-4 p-4 pt-2"
                             onSubmit={(e) => {
                                 e.preventDefault();
                                 if (
@@ -302,19 +431,25 @@ export default function Index({
                                 }
                                 const opts = {
                                     preserveScroll: true,
-                                    onSuccess: () => cancelEditTemplate(),
+                                    onSuccess: () => {
+                                        cancelEditTemplate();
+                                        if (email_only) setActiveEmailTemplateView('list');
+                                    },
                                 };
                                 if (editingTemplateId) {
                                     templateForm.patch(
-                                        route('channels.templates.update', editingTemplateId),
+                                        route(email_only ? 'email.templates.update' : 'channels.templates.update', editingTemplateId),
                                         opts,
                                     );
                                 } else {
-                                    templateForm.post(route('channels.templates.store'), opts);
+                                    templateForm.post(
+                                        route(email_only ? 'email.templates.store' : 'channels.templates.store'),
+                                        opts,
+                                    );
                                 }
                             }}
                         >
-                            <div className="grid gap-2 sm:grid-cols-2">
+                            <div className="grid gap-3 sm:grid-cols-2">
                                 <div>
                                     <InputLabel value="Template name" />
                                     <TextInput
@@ -326,17 +461,19 @@ export default function Index({
                                         required
                                     />
                                 </div>
-                                <div>
-                                    <InputLabel value="Channel" />
-                                    <div className="mt-1">
-                                        <SelectMenu
-                                            value={templateForm.data.channel}
-                                            onChange={(v) => templateForm.setData('channel', v)}
-                                            buttonClassName="!py-2"
-                                            options={channelOptions}
-                                        />
+                                {!email_only ? (
+                                    <div>
+                                        <InputLabel value="Channel" />
+                                        <div className="mt-1">
+                                            <SelectMenu
+                                                value={templateForm.data.channel}
+                                                onChange={(v) => templateForm.setData('channel', v)}
+                                                buttonClassName="!py-2"
+                                                options={channelOptions}
+                                            />
+                                        </div>
                                     </div>
-                                </div>
+                                ) : null}
                             </div>
                             {templateForm.data.channel === 'email' ? (
                                 <div>
@@ -352,15 +489,47 @@ export default function Index({
                                 </div>
                             ) : null}
                             <div>
-                                <InputLabel value="Message body" />
-                                <textarea
-                                    className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
-                                    rows={5}
-                                    value={templateForm.data.body}
-                                    onChange={(e) => templateForm.setData('body', e.target.value)}
-                                    required
-                                />
-                                <div className="mt-1.5 flex flex-wrap gap-1">
+                                <InputLabel value={email_only ? 'Email content' : 'Message body'} />
+                                {email_only ? (
+                                    <div className="mt-1 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(280px,0.7fr)]">
+                                        <div className="overflow-hidden rounded-lg border border-line bg-white">
+                                            <RichTextEditor
+                                                id="email-template-body"
+                                                value={templateForm.data.body}
+                                                onChange={(html) => templateForm.setData('body', html)}
+                                                placeholder="Design your email. Add headings, links, lists, and formatting."
+                                                compact
+                                            />
+                                        </div>
+                                        <div className="rounded-xl border border-line bg-mist/50 p-3">
+                                            <div className="mb-2 flex items-center justify-between">
+                                                <span className="text-xs font-bold uppercase tracking-wide text-ink-muted">Live preview</span>
+                                                <span className="text-[10px] text-ink-muted">Desktop email</span>
+                                            </div>
+                                            <div className="overflow-hidden rounded-lg border border-line bg-white shadow-sm">
+                                                <div className="border-b border-line bg-mist/40 px-4 py-3">
+                                                    <div className="text-[10px] uppercase tracking-wide text-ink-muted">Subject</div>
+                                                    <div className="mt-0.5 truncate text-sm font-semibold text-ink">{templateForm.data.subject || 'Your email subject'}</div>
+                                                </div>
+                                                <iframe
+                                                    title="Email template preview"
+                                                    sandbox=""
+                                                    className="h-64 w-full bg-white"
+                                                    srcDoc={`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font-family:Arial,sans-serif;color:#293244;font-size:14px;line-height:1.65;padding:20px;margin:0}img{max-width:100%;height:auto}a{color:#5145cd}h2,h3{line-height:1.25}</style></head><body>${templateForm.data.body || '<p style="color:#98a2b3">Your formatted email content will appear here.</p>'}</body></html>`}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <textarea
+                                        className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+                                        rows={5}
+                                        value={templateForm.data.body}
+                                        onChange={(e) => templateForm.setData('body', e.target.value)}
+                                        required
+                                    />
+                                )}
+                                <div className="mt-2 flex flex-wrap gap-1">
                                     {placeholders.map((p) => (
                                         <button
                                             key={p.token}
@@ -387,48 +556,89 @@ export default function Index({
                                     <button
                                         type="button"
                                         className="text-sm font-semibold text-ink-muted"
-                                        onClick={cancelEditTemplate}
+                                        onClick={() => {
+                                            cancelEditTemplate();
+                                            if (email_only) setActiveEmailTemplateView('list');
+                                        }}
                                     >
                                         Cancel
                                     </button>
                                 ) : null}
                             </div>
                         </form>
+                    </section>
+                        ) : null}
 
-                        <ul className="max-h-[280px] divide-y divide-line overflow-y-auto rounded-md border border-line">
+                        {(!email_only || activeEmailTemplateView === 'list') ? (
+                        <section className="atlas-panel overflow-hidden rounded-2xl border border-line shadow-sm">
+                            <div className="flex items-center justify-between border-b border-line px-4 py-3">
+                                <div>
+                                    <h3 className="font-display text-lg font-bold text-ink">{email_only ? 'Saved email templates' : 'Saved message templates'}</h3>
+                                    <p className="mt-0.5 text-xs text-ink-muted">{email_only ? 'Reuse a design in a campaign or keep editing it.' : 'Reuse a saved message in your next campaign.'}</p>
+                                </div>
+                                {email_only ? (
+                                    <PrimaryButton
+                                        type="button"
+                                        className="!px-3 !py-1.5 !text-xs"
+                                        onClick={() => {
+                                            cancelEditTemplate();
+                                            setActiveEmailTemplateView('create');
+                                        }}
+                                    >
+                                        + Create template
+                                    </PrimaryButton>
+                                ) : null}
+                            </div>
+                        <ul className="divide-y divide-line">
                             {templates.length === 0 ? (
-                                <li className="px-3 py-5 text-sm text-ink-muted">
-                                    No templates yet. Use a starter or write your own.
+                                <li className="p-8 text-center">
+                                    <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-xl text-violet-700">✉</div>
+                                    <p className="font-semibold text-ink">No email templates yet</p>
+                                    <p className="mt-1 text-sm text-ink-muted">Create a branded email once, then reuse it in future campaigns.</p>
+                                    {email_only ? (
+                                        <button
+                                            type="button"
+                                            className="mt-3 text-sm font-semibold text-signal-strong hover:underline"
+                                            onClick={() => setActiveEmailTemplateView('create')}
+                                        >
+                                            Create your first template →
+                                        </button>
+                                    ) : null}
                                 </li>
                             ) : (
                                 templates.map((tpl) => (
                                     <li
                                         key={tpl.id}
-                                        className="flex items-start justify-between gap-2 px-3 py-2"
+                                        className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between"
                                     >
-                                        <div className="min-w-0">
-                                            <div className="truncate text-sm font-semibold text-ink">
-                                                {tpl.name}
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <h4 className="font-display font-bold text-ink">{tpl.name}</h4>
+                                                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-700">{email_only ? 'Email' : tpl.channel}</span>
                                             </div>
-                                            <div className="text-[10px] font-bold uppercase text-ink-muted">
-                                                {tpl.channel}
+                                            {tpl.subject ? <p className="mt-1 text-sm font-semibold text-ink-soft">{tpl.subject}</p> : null}
+                                            <div className="mt-2 max-w-3xl rounded-xl border border-line bg-mist/40 p-4">
+                                                <div className="mx-auto max-w-xl rounded-lg border border-line bg-white p-5 shadow-sm">
+                                                    <div className="mb-3 border-b border-line pb-3 text-xs font-semibold uppercase tracking-wide text-ink-muted">{workspace.name}</div>
+                                                    <div className="line-clamp-5 whitespace-pre-wrap text-sm leading-6 text-ink-soft">{stripMarkup(tpl.body)}</div>
+                                                </div>
                                             </div>
-                                            <p className="mt-0.5 line-clamp-2 text-[11px] text-ink-muted">
-                                                {tpl.body}
-                                            </p>
                                         </div>
-                                        <div className="flex shrink-0 flex-col items-end gap-1">
+                                        <div className="flex shrink-0 flex-wrap items-center gap-2">
                                             <button
                                                 type="button"
-                                                className="text-xs font-semibold text-signal-strong"
+                                                className="rounded-md border border-signal/20 bg-signal-soft px-3 py-1.5 text-xs font-semibold text-signal-strong"
                                                 onClick={() => applyTemplate(tpl)}
                                             >
-                                                Use
+                                                Use in campaign
                                             </button>
                                             <button
                                                 type="button"
-                                                className="text-xs font-semibold text-ink-muted"
-                                                onClick={() => beginEditTemplate(tpl)}
+                                                className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-ink-muted"
+                                                onClick={() => {
+                                                    beginEditTemplate(tpl);
+                                                    if (email_only) setActiveEmailTemplateView('create');
+                                                }}
                                             >
                                                 Edit
                                             </button>
@@ -458,11 +668,50 @@ export default function Index({
                                 ))
                             )}
                         </ul>
+                        </section>
+                        ) : null}
                     </section>
+                    ) : null}
 
+                    {(!email_only || activeEmailTab === 'campaigns') ? (
                     <div className="space-y-2.5">
+                        {email_only ? (
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="flex flex-wrap gap-1 rounded-lg border border-line bg-white p-1 shadow-sm">
+                                    {[
+                                        { id: 'list', label: `Campaigns${campaigns.length ? ` · ${campaigns.length}` : ''}` },
+                                        { id: 'create', label: 'Create campaign' },
+                                    ].map((tab) => (
+                                        <button
+                                            key={tab.id}
+                                            type="button"
+                                            aria-pressed={activeEmailCampaignView === tab.id}
+                                            onClick={() => setActiveEmailCampaignView(tab.id)}
+                                            className={
+                                                'rounded-md border px-3 py-1.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-signal/30 ' +
+                                                (activeEmailCampaignView === tab.id
+                                                    ? 'border-signal bg-signal text-white shadow-sm'
+                                                    : 'border-line bg-mist/60 text-ink-soft hover:border-signal/40 hover:bg-signal-soft/50 hover:text-signal-strong')
+                                            }
+                                        >
+                                            {tab.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                {activeEmailCampaignView === 'list' ? (
+                                    <PrimaryButton
+                                        type="button"
+                                        className="!px-3 !py-1.5 !text-xs"
+                                        onClick={() => setActiveEmailCampaignView('create')}
+                                    >
+                                        + New campaign
+                                    </PrimaryButton>
+                                ) : null}
+                            </div>
+                        ) : null}
+                        {(!email_only || activeEmailCampaignView === 'create') ? (
                         <form
-                            className="atlas-panel space-y-3 p-3"
+                            className="atlas-panel space-y-4 overflow-hidden rounded-2xl border border-line p-0"
                             onSubmit={(e) => {
                                 e.preventDefault();
                                 if (form.data.delivery === 'schedule' && !form.data.scheduled_at) {
@@ -477,23 +726,28 @@ export default function Index({
                                             : null,
                                     lead_ids: data.lead_ids || [],
                                 }));
-                                form.post(route('channels.store'), {
+                                form.post(route(email_only ? 'email.store' : 'channels.store'), {
                                     preserveScroll: true,
-                                    onSuccess: () =>
+                                    onSuccess: () => {
                                         form.reset(
                                             'name',
                                             'body',
                                             'subject',
                                             'scheduled_at',
                                             'lead_ids',
-                                        ),
+                                        );
+                                        if (email_only) setActiveEmailCampaignView('list');
+                                    },
                                 });
                             }}
                         >
+                            {email_only ? <div className="h-1 bg-gradient-to-r from-sky-400 via-violet-400 to-fuchsia-400" /> : null}
+                            <div className="space-y-4 p-4">
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                                <h3 className="font-display text-base font-bold text-ink">
-                                    New campaign
-                                </h3>
+                                <div>
+                                    <h3 className="font-display text-lg font-bold text-ink">{email_only ? 'Create email campaign' : 'New campaign'}</h3>
+                                    <p className="mt-0.5 text-xs text-ink-muted">Design the email, select contacts with email addresses, and choose when to send.</p>
+                                </div>
                                 {filteredTemplates.length > 0 ? (
                                     <div className="min-w-[180px]">
                                         <SelectMenu
@@ -524,17 +778,19 @@ export default function Index({
                                 />
                             </div>
                             <div className="grid gap-2 sm:grid-cols-2">
-                                <div>
-                                    <InputLabel value="Channel" />
-                                    <div className="mt-1">
-                                        <SelectMenu
-                                            value={form.data.channel}
-                                            onChange={(v) => form.setData('channel', v)}
-                                            buttonClassName="!py-2"
-                                            options={channelOptions}
-                                        />
+                                {!email_only ? (
+                                    <div>
+                                        <InputLabel value="Channel" />
+                                        <div className="mt-1">
+                                            <SelectMenu
+                                                value={form.data.channel}
+                                                onChange={(v) => form.setData('channel', v)}
+                                                buttonClassName="!py-2"
+                                                options={channelOptions}
+                                            />
+                                        </div>
                                     </div>
-                                </div>
+                                ) : null}
                                 {form.data.channel === 'rcs' ? (
                                     <div>
                                         <InputLabel value="RCS provider" />
@@ -556,17 +812,45 @@ export default function Index({
                                         </p>
                                     </div>
                                 ) : form.data.channel === 'email' ? (
-                                    <div>
-                                        <InputLabel value="Subject" />
-                                        <TextInput
-                                            className="mt-1 w-full"
-                                            value={form.data.subject}
-                                            onChange={(e) =>
-                                                form.setData('subject', e.target.value)
-                                            }
-                                            required
-                                        />
-                                    </div>
+                                    <>
+                                        <div>
+                                            <InputLabel value="Email provider" />
+                                            {email_providers.length > 0 ? <div className="mt-1">
+                                                <SelectMenu
+                                                    value={form.data.email_provider}
+                                                    onChange={(v) => form.setData('email_provider', v)}
+                                                    buttonClassName="!py-2"
+                                                    options={email_providers.map((p) => ({
+                                                        value: p.id,
+                                                        label: p.label,
+                                                    }))}
+                                                />
+                                            </div> : (
+                                                <p className="mt-1 text-sm text-rose-700">
+                                                    No live email provider is connected.{' '}
+                                                    <Link href={route('settings.index', { tab: 'providers' })} className="font-semibold underline">
+                                                        Connect one in Settings → Providers
+                                                    </Link>.
+                                                </p>
+                                            )}
+                                            {form.data.email_provider === 'auto' ? (
+                                                <p className="mt-1 text-[11px] text-ink-muted">
+                                                    Automatically switches to another connected free provider when one reaches its documented cap.
+                                                </p>
+                                            ) : null}
+                                        </div>
+                                        <div>
+                                            <InputLabel value="Subject" />
+                                            <TextInput
+                                                className="mt-1 w-full"
+                                                value={form.data.subject}
+                                                onChange={(e) =>
+                                                    form.setData('subject', e.target.value)
+                                                }
+                                                required
+                                            />
+                                        </div>
+                                    </>
                                 ) : (
                                     <div className="flex items-end">
                                         <p className="pb-2 text-xs text-ink-muted">
@@ -581,15 +865,47 @@ export default function Index({
                                 </p>
                             ) : null}
                             <div>
-                                <InputLabel value="Message" />
-                                <textarea
-                                    className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
-                                    rows={5}
-                                    value={form.data.body}
-                                    onChange={(e) => form.setData('body', e.target.value)}
-                                    required
-                                />
-                                {form.data.body ? (
+                                <InputLabel value={email_only ? 'Email body' : 'Message'} />
+                                {email_only ? (
+                                    <div className="mt-1 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(280px,0.7fr)]">
+                                        <div className="overflow-hidden rounded-lg border border-line bg-white">
+                                            <RichTextEditor
+                                                id="email-campaign-body"
+                                                value={form.data.body}
+                                                onChange={(html) => form.setData('body', html)}
+                                                placeholder="Create a polished email for your audience."
+                                                compact
+                                            />
+                                        </div>
+                                        <div className="rounded-xl border border-line bg-mist/50 p-3">
+                                            <div className="mb-2 flex items-center justify-between">
+                                                <span className="text-xs font-bold uppercase tracking-wide text-ink-muted">Email preview</span>
+                                                <span className="text-[10px] text-ink-muted">Sample lead · Ravi</span>
+                                            </div>
+                                            <div className="overflow-hidden rounded-lg border border-line bg-white shadow-sm">
+                                                <div className="border-b border-line bg-mist/40 px-4 py-3">
+                                                    <div className="text-[10px] uppercase tracking-wide text-ink-muted">Subject</div>
+                                                    <div className="mt-0.5 truncate text-sm font-semibold text-ink">{form.data.subject || 'Your email subject'}</div>
+                                                </div>
+                                                <iframe
+                                                    title="Email campaign preview"
+                                                    sandbox=""
+                                                    className="h-64 w-full bg-white"
+                                                    srcDoc={`<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{font-family:Arial,sans-serif;color:#293244;font-size:14px;line-height:1.65;padding:20px;margin:0}img{max-width:100%;height:auto}a{color:#5145cd}h2,h3{line-height:1.25}</style></head><body>${previewBody || '<p style="color:#98a2b3">Your formatted email content will appear here.</p>'}</body></html>`}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <textarea
+                                        className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink"
+                                        rows={5}
+                                        value={form.data.body}
+                                        onChange={(e) => form.setData('body', e.target.value)}
+                                        required
+                                    />
+                                )}
+                                {!email_only && form.data.body ? (
                                     <div className="mt-2 rounded-md border border-dashed border-line bg-mist/40 px-3 py-2">
                                         <div className="text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
                                             Preview (sample lead “Ravi” + Brand kit)
@@ -688,32 +1004,47 @@ export default function Index({
                             ) : null}
 
                             <PrimaryButton processing={form.processing}>{submitLabel}</PrimaryButton>
-                        </form>
-
-                        <div className="atlas-panel overflow-hidden">
-                            <div className="border-b border-line px-3 py-2 font-display text-base font-bold text-ink">
-                                Campaigns
                             </div>
-                            <ul className="max-h-[280px] divide-y divide-line overflow-y-auto">
+                        </form>
+                        ) : null}
+
+                        {(!email_only || activeEmailCampaignView === 'list') ? (
+                        <div className="atlas-panel overflow-hidden rounded-2xl border border-line">
+                            <div className="border-b border-line px-4 py-3">
+                                <h3 className="font-display text-lg font-bold text-ink">{email_only ? 'Email campaigns' : 'Campaigns'}</h3>
+                                <p className="mt-0.5 text-xs text-ink-muted">{email_only ? 'Review delivery status and manage your email sends.' : 'Review campaign status and manage your sends.'}</p>
+                            </div>
+                            <ul className="divide-y divide-line">
                                 {campaigns.length === 0 ? (
-                                    <li className="px-3 py-5 text-sm text-ink-muted">
-                                        No campaigns yet.
+                                    <li className="p-8 text-center">
+                                        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-50 text-xl text-sky-700">✉</div>
+                                        <p className="font-semibold text-ink">{email_only ? 'No email campaigns yet' : 'No campaigns yet'}</p>
+                                        <p className="mt-1 text-sm text-ink-muted">Your drafts and delivery history will appear here.</p>
+                                        {email_only ? (
+                                            <button
+                                                type="button"
+                                                className="mt-3 text-sm font-semibold text-signal-strong hover:underline"
+                                                onClick={() => setActiveEmailCampaignView('create')}
+                                            >
+                                                Create your first campaign →
+                                            </button>
+                                        ) : null}
                                     </li>
                                 ) : (
                                     campaigns.map((c) => (
-                                        <li key={c.id} className="px-3 py-2">
+                                        <li key={c.id} className="p-4">
                                             <div className="flex flex-wrap items-start justify-between gap-2">
                                                 <div className="min-w-0">
                                                     <div className="font-semibold text-ink">
                                                         {c.name}
                                                     </div>
-                                                    <div className="mt-0.5 text-[10px] font-bold uppercase tracking-wide text-ink-muted">
+                                                    <div className="mt-1 text-[10px] font-bold uppercase tracking-wide text-ink-muted">
                                                         {c.channel} · {c.status} · {c.provider} ·{' '}
                                                         {c.sent_count}/{c.recipient_count}
                                                         {c.scheduled_at ? ` · ${c.scheduled_at}` : ''}
                                                     </div>
-                                                    <p className="mt-0.5 line-clamp-2 text-[11px] text-ink-muted">
-                                                        {c.body}
+                                                    <p className="mt-2 line-clamp-2 text-xs text-ink-muted">
+                                                        {stripMarkup(c.body)}
                                                     </p>
                                                 </div>
                                                 <div className="flex gap-2">
@@ -766,7 +1097,9 @@ export default function Index({
                                 )}
                             </ul>
                         </div>
+                        ) : null}
                     </div>
+                    ) : null}
                 </div>
             </div>
         </AuthenticatedLayout>

@@ -13,6 +13,7 @@ use App\Services\Seo\Providers\WordpressCmsPublisher;
 use App\Services\Seo\SeoBlogDiscoveryService;
 use App\Services\Seo\SeoBlogShareService;
 use App\Services\Seo\SeoCmsPublishService;
+use App\Support\PublicId;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -33,7 +34,7 @@ class BlogController extends Controller
             ->orderBy('domain')
             ->get(['id', 'domain', 'status', 'blog_feed_url', 'blog_posts_synced_at']);
 
-        $siteId = (int) $request->query('site', $sites->first()?->id ?? 0);
+        $siteId = PublicId::normalize($request->query('site', $sites->first()?->id));
         $site = $sites->firstWhere('id', $siteId) ?: $sites->first();
         $perPage = min(24, max(6, (int) $request->integer('per_page', 9)));
 
@@ -173,7 +174,7 @@ class BlogController extends Controller
 
             foreach ($sites as $site) {
                 $pageName = Str::limit($workspace->name.' — '.$site->domain, 80, '');
-                $username = $this->usernameFromDomain((string) $site->domain, (int) $site->id, $usedUsernames);
+                $username = $this->usernameFromDomain((string) $site->domain, (string) $site->id, $usedUsernames);
                 $usedUsernames[] = $username;
 
                 $existing = collect($existingPages)->first(
@@ -260,7 +261,7 @@ class BlogController extends Controller
     /**
      * @param  list<string>  $used
      */
-    private function usernameFromDomain(string $domain, int $siteId, array $used): string
+    private function usernameFromDomain(string $domain, string $siteId, array $used): string
     {
         $host = strtolower(preg_replace('/^www\./', '', $domain) ?? $domain);
         $slug = preg_replace('/[^a-z0-9]+/', '_', $host) ?? '';
@@ -431,7 +432,7 @@ class BlogController extends Controller
 
         $data = $request->validate([
             'keyword' => ['required', 'string', 'min:8', 'max:2000'],
-            'seo_keyword_id' => ['nullable', 'integer'],
+            'seo_keyword_id' => ['nullable', 'uuid'],
             'audience' => ['nullable', 'string', 'max:160'],
             'intent' => ['nullable', 'string', 'in:guide,howto,listicle,comparison,local'],
             'length' => ['nullable', 'string', 'in:short,standard,long'],
@@ -530,7 +531,7 @@ class BlogController extends Controller
         $this->authorize('update', $workspace);
 
         $data = $request->validate([
-            'cms_connection_id' => ['required', 'integer'],
+            'cms_connection_id' => ['required', 'uuid'],
         ]);
 
         $connection = CmsConnection::query()
@@ -555,7 +556,7 @@ class BlogController extends Controller
     /**
      * @return array{connected:bool,connection_id:?int,base_url:?string,page_slug:?string,page_name:?string,email:?string,label:?string}
      */
-    private function paginatedContentDrafts(int $workspaceId, Request $request)
+    private function paginatedContentDrafts(string $workspaceId, Request $request)
     {
         $status = (string) $request->query('draft_status', 'all');
 
@@ -591,7 +592,7 @@ class BlogController extends Controller
     /**
      * @return array{connected:bool,connection_id:?int,base_url:?string,page_slug:?string,page_name:?string,email:?string,label:?string}
      */
-    private function askefyConnectionSummary(int $workspaceId): array
+    private function askefyConnectionSummary(string $workspaceId): array
     {
         $connection = CmsConnection::query()
             ->where('workspace_id', $workspaceId)

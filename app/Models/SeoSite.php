@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SeoSite extends Model
 {
+    use HasUuids;
+
     protected $fillable = [
         'workspace_id',
         'domain',
@@ -24,6 +27,15 @@ class SeoSite extends Model
         'gsc_summary',
         'gsc_queries',
         'gsc_last_error',
+        'gbp_connected',
+        'gbp_token',
+        'gbp_account_name',
+        'gbp_location_name',
+        'gbp_location_title',
+        'gbp_locations',
+        'gbp_profile',
+        'gbp_reviews',
+        'gbp_last_error',
         'crawl_frequency',
         'next_crawl_at',
         'crawl_status',
@@ -56,6 +68,11 @@ class SeoSite extends Model
             'gsc_synced_at' => 'datetime',
             'gsc_summary' => 'array',
             'gsc_queries' => 'array',
+            'gbp_connected' => 'boolean',
+            'gbp_token' => 'encrypted',
+            'gbp_locations' => 'array',
+            'gbp_profile' => 'array',
+            'gbp_reviews' => 'array',
             'last_crawled_at' => 'datetime',
             'next_crawl_at' => 'datetime',
             'pagespeed_checked_at' => 'datetime',

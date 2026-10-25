@@ -11,6 +11,7 @@ use App\Models\CrmLeadGroup;
 use App\Models\WhatsappConversation;
 use App\Models\Workspace;
 use App\Services\Billing\PlanAccess;
+use App\Services\Billing\WhatsAppCreditService;
 use App\Services\Channels\ChannelCampaignService;
 use App\Services\Channels\ChannelTemplateService;
 use App\Services\Integrations\IntegrationCatalog;
@@ -18,6 +19,7 @@ use App\Services\Integrations\WorkspaceIntegrationService;
 use App\Services\WhatsApp\MetaEmbeddedSignupService;
 use App\Services\WhatsApp\MetaWhatsAppCloudService;
 use App\Services\WhatsApp\WhatsAppConversationService;
+use App\Support\PublicId;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -70,7 +72,7 @@ class WhatsAppController extends Controller
         $view = in_array($request->query('view'), ['conversations', 'templates', 'campaigns', 'setup'], true)
             ? $request->query('view')
             : ($integrations->whatsappConnected($workspace) ? 'conversations' : 'setup');
-        $activeId = (int) $request->query('conversation', 0);
+        $activeId = PublicId::normalize($request->query('conversation'));
         $inbox = in_array($request->query('inbox'), ['mine', 'unassigned'], true)
             ? $request->query('inbox')
             : 'all';
@@ -81,8 +83,8 @@ class WhatsAppController extends Controller
             ->visibleTo($user, $workspace);
 
         $seesAll = WhatsappConversation::seesAllFor($user, $workspace);
-        $memberFilter = $seesAll ? max(0, (int) $request->query('member', 0)) : 0;
-        $campaignFilter = $seesAll ? max(0, (int) $request->query('campaign', 0)) : 0;
+        $memberFilter = $seesAll ? PublicId::normalize($request->query('member')) : null;
+        $campaignFilter = $seesAll ? PublicId::normalize($request->query('campaign')) : null;
         $search = Str::limit(trim((string) $request->query('q', '')), 80, '');
         $filtered = fn () => $visible()
             ->when($search !== '', function ($q) use ($search) {
@@ -111,7 +113,7 @@ class WhatsAppController extends Controller
 
         $active = null;
         $messages = [];
-        if ($activeId > 0) {
+        if ($activeId) {
             $activeModel = $visible()->whereKey($activeId)->first();
             if ($activeModel) {
                 $conversations->markRead($activeModel);
@@ -127,7 +129,7 @@ class WhatsAppController extends Controller
             }
         }
 
-        $importedGroupId = (int) session()->pull('whatsapp_imported_group_id', 0);
+        $importedGroupId = PublicId::normalize(session()->pull('whatsapp_imported_group_id'));
 
         return Inertia::render('WhatsApp/Index', [
             'workspace' => ['id' => $workspace->id, 'name' => $workspace->name],
@@ -145,6 +147,7 @@ class WhatsAppController extends Controller
             'inboxTotal' => $filtered()->count(),
             'currentUserId' => $user->id,
             'seesAllConversations' => $seesAll,
+            'creditsAvailable' => app(WhatsAppCreditService::class)->available($workspace),
             'teamMembers' => $workspace->users()
                 ->orderBy('name')
                 ->get(['users.id', 'users.name'])
@@ -284,14 +287,18 @@ class WhatsAppController extends Controller
         $workspace = $this->workspace($request);
 
         $data = $request->validate([
-            'recipient_mode' => ['required', 'in:all,selected,group'],
+            'recipient_mode' => ['required', 'in:all,selected,group,numbers'],
+            'phones' => ['nullable', 'string', 'max:2000'],
             'lead_ids' => ['nullable', 'array', 'max:5000'],
-            'lead_ids.*' => ['integer'],
-            'crm_lead_group_id' => ['nullable', 'integer'],
+            'lead_ids.*' => ['uuid'],
+            'crm_lead_group_id' => ['nullable', 'uuid'],
             ...ChannelsController::audienceFilterRules(),
         ]);
 
         $empty = ['matched' => 0, 'recipients' => 0, 'duplicates' => 0, 'opted_out' => 0];
+        if ($data['recipient_mode'] === 'numbers') {
+            return response()->json($channels->directPhoneSummary($workspace->id, (string) ($data['phones'] ?? '')));
+        }
         $groupId = null;
         $leadIds = null;
         if ($data['recipient_mode'] === 'group') {
@@ -316,6 +323,157 @@ class WhatsAppController extends Controller
             $leadIds,
             $data['recipient_mode'] === 'all' ? ChannelsController::audienceFilters($data) : [],
         ));
+    }
+
+    public function campaignLeadGroupMembers(Request $request, CrmLeadGroup $group): JsonResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+        abort_unless($group->workspace_id === $workspace->id, 404);
+
+        $search = Str::limit(trim((string) $request->query('q', '')), 80, '');
+        $members = $group->leads()
+            ->select(['crm_leads.id', 'crm_leads.name', 'crm_leads.phone'])
+            ->when($search !== '', function ($query) use ($search) {
+                $like = '%'.addcslashes($search, '%_\\').'%';
+                $digits = preg_replace('/\D+/', '', $search) ?: '';
+                $query->where(fn ($q) => $q
+                    ->where('crm_leads.name', 'like', $like)
+                    ->when(strlen($digits) >= 3, fn ($q) => $q->orWhere('crm_leads.phone', 'like', '%'.$digits.'%')));
+            })
+            ->orderBy('crm_leads.name')
+            ->orderBy('crm_leads.id')
+            ->paginate(40)
+            ->withQueryString();
+
+        return response()->json([
+            'data' => collect($members->items())->map(fn (CrmLead $lead) => [
+                'id' => $lead->id,
+                'name' => $lead->name,
+                'phone' => $lead->phone,
+            ])->values(),
+            'total' => $members->total(),
+            'page' => $members->currentPage(),
+            'last_page' => $members->lastPage(),
+        ]);
+    }
+
+    public function storeCampaignLeadGroupMember(Request $request, CrmLeadGroup $group): JsonResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+        abort_unless($group->workspace_id === $workspace->id, 404);
+        $this->guardGroupEditable($group);
+
+        $lead = $this->resolveGroupLead($workspace, $request, null);
+        if (! $lead->wasRecentlyCreated && $group->leads()->whereKey($lead->id)->exists()) {
+            throw ValidationException::withMessages([
+                'phone' => 'This number is already in the group.',
+            ]);
+        }
+        if (! $lead->wasRecentlyCreated) {
+            $lead->update([
+                'name' => trim((string) $request->input('name')),
+                'phone' => '+'.preg_replace('/\D+/', '', (string) $request->input('phone')),
+            ]);
+            $lead = $lead->fresh();
+        }
+
+        $group->leads()->syncWithoutDetaching([$lead->id]);
+
+        return response()->json([
+            'member' => ['id' => $lead->id, 'name' => $lead->name, 'phone' => $lead->phone],
+            'total' => $group->leads()->count(),
+        ]);
+    }
+
+    public function updateCampaignLeadGroupMember(Request $request, CrmLeadGroup $group, CrmLead $lead): JsonResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+        abort_unless($group->workspace_id === $workspace->id && $lead->workspace_id === $workspace->id, 404);
+        abort_unless($group->leads()->whereKey($lead->id)->exists(), 404);
+        $this->guardGroupEditable($group);
+
+        $lead = $this->resolveGroupLead($workspace, $request, $lead);
+
+        return response()->json([
+            'member' => ['id' => $lead->id, 'name' => $lead->name, 'phone' => $lead->phone],
+        ]);
+    }
+
+    public function destroyCampaignLeadGroupMember(Request $request, CrmLeadGroup $group, CrmLead $lead): JsonResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+        abort_unless($group->workspace_id === $workspace->id && $lead->workspace_id === $workspace->id, 404);
+        abort_unless($group->leads()->whereKey($lead->id)->exists(), 404);
+        $this->guardGroupEditable($group);
+
+        $group->leads()->detach($lead->id);
+
+        return response()->json([
+            'total' => $group->leads()->count(),
+        ]);
+    }
+
+    private function guardGroupEditable(CrmLeadGroup $group): void
+    {
+        if ($group->status === 'processing') {
+            throw ValidationException::withMessages([
+                'phone' => 'This group is still importing. Wait for the import to finish.',
+            ]);
+        }
+    }
+
+    private function resolveGroupLead(Workspace $workspace, Request $request, ?CrmLead $existing): CrmLead
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:120'],
+            'phone' => ['required', 'string', 'max:32'],
+        ]);
+        $digits = preg_replace('/\D+/', '', $data['phone']) ?: '';
+        if (strlen($digits) < 7 || strlen($digits) > 15) {
+            throw ValidationException::withMessages([
+                'phone' => 'Enter a phone number with country code, 7 to 15 digits.',
+            ]);
+        }
+
+        $match = $this->findLeadByPhoneDigits($workspace->id, $digits);
+        if ($match && $match->id !== $existing?->id) {
+            if ($existing) {
+                throw ValidationException::withMessages([
+                    'phone' => 'This number already belongs to another contact.',
+                ]);
+            }
+
+            return $match;
+        }
+
+        $phone = '+'.$digits;
+        if ($existing) {
+            $existing->update(['name' => trim($data['name']), 'phone' => $phone]);
+
+            return $existing->fresh();
+        }
+
+        return CrmLead::query()->create([
+            'workspace_id' => $workspace->id,
+            'name' => trim($data['name']),
+            'phone' => $phone,
+            'stage' => 'new',
+            'source' => 'manual',
+        ]);
+    }
+
+    private function findLeadByPhoneDigits(string $workspaceId, string $digits): ?CrmLead
+    {
+        $normalized = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', ''), '(', ''), ')', '')";
+
+        return CrmLead::query()
+            ->where('workspace_id', $workspaceId)
+            ->whereRaw($normalized.' = ?', [$digits])
+            ->first();
     }
 
     public function destroyCampaignLeadGroup(Request $request, CrmLeadGroup $group): RedirectResponse
@@ -344,10 +502,10 @@ class WhatsAppController extends Controller
 
         $data = $request->validate([
             'phone' => ['nullable', 'string', 'max:32'],
-            'crm_lead_id' => ['nullable', 'integer'],
+            'crm_lead_id' => ['nullable', 'uuid'],
             'contact_name' => ['nullable', 'string', 'max:120'],
             'body' => ['required', 'string', 'max:4000'],
-            'template_id' => ['nullable', 'integer'],
+            'template_id' => ['nullable', 'uuid'],
             'as_template' => ['sometimes', 'boolean'],
         ]);
 
@@ -429,7 +587,7 @@ class WhatsAppController extends Controller
 
         $data = $request->validate([
             'body' => ['nullable', 'string', 'max:4000'],
-            'template_id' => ['nullable', 'integer'],
+            'template_id' => ['nullable', 'uuid'],
             'as_template' => ['sometimes', 'boolean'],
         ]);
 
@@ -489,10 +647,10 @@ class WhatsAppController extends Controller
         abort_unless($conversation->isVisibleTo($user, $workspace), 404);
 
         $data = $request->validate([
-            'user_id' => ['nullable', 'integer'],
+            'user_id' => ['nullable', 'uuid'],
         ]);
 
-        $userId = isset($data['user_id']) ? (int) $data['user_id'] : null;
+        $userId = $data['user_id'] ?? null;
         if ($userId && ! $workspace->users()->whereKey($userId)->exists()) {
             throw ValidationException::withMessages(['user_id' => 'Choose a member of this workspace.']);
         }
@@ -523,6 +681,11 @@ class WhatsAppController extends Controller
             'wa_status' => ['required', 'in:draft,ready,pending'],
             'submit_to_meta' => ['sometimes', 'boolean'],
         ] + $this->templateComponentRules($request));
+
+        $credits = app(WhatsAppCreditService::class);
+        if ($request->boolean('submit_to_meta') && ! $credits->canSubmitTemplate($workspace)) {
+            return back()->withInput()->with('error', $credits->templateCreditError($workspace));
+        }
 
         $prepared = $this->prepareTemplateComponents($request, $workspace, $meta);
         if ($prepared['error']) {
@@ -562,6 +725,10 @@ class WhatsAppController extends Controller
             $template->update([
                 'wa_status' => strtolower((string) ($result['status'] ?: 'pending')),
                 'subject' => $result['id'] ? 'meta:'.$result['id'] : $template->subject,
+            ]);
+            $credits->chargeTemplate($workspace, $request->user()->id, [
+                'template_id' => $template->id,
+                'template_name' => $name,
             ]);
 
             return redirect()

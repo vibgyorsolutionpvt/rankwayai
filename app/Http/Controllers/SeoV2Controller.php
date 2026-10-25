@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\ResolvesWorkspace;
 use App\Jobs\CrawlAndAuditSeoSiteJob;
 use App\Models\SeoLocalTarget;
 use App\Models\SeoSite;
+use App\Services\Billing\PlanAccess;
 use App\Services\Seo\SeoBacklinkService;
 use App\Services\Seo\SeoLocalPackService;
 use Illuminate\Http\RedirectResponse;
@@ -39,7 +40,7 @@ class SeoV2Controller extends Controller
             'keyword' => ['required', 'string', 'max:120'],
             'location_name' => ['required', 'string', 'max:120'],
             'business_name' => ['nullable', 'string', 'max:160'],
-            'site_id' => ['nullable', 'integer'],
+            'site_id' => ['nullable', 'uuid'],
         ]);
 
         SeoLocalTarget::query()->updateOrCreate(
@@ -70,8 +71,8 @@ class SeoV2Controller extends Controller
         }
 
         $msg = $snap->our_rank
-            ? 'Local pack rank #'.$snap->our_rank
-            : 'Local pack checked (business not found in top results)';
+            ? 'Google Maps rank #'.$snap->our_rank
+            : 'Checked. This business was not in the top Google Maps results.';
 
         return back()->with('success', $msg);
     }
@@ -86,8 +87,8 @@ class SeoV2Controller extends Controller
             'crawl_mode' => ['required', 'in:static,js'],
         ]);
 
-        if ($data['crawl_mode'] === 'js' && ! app(\App\Services\Billing\PlanAccess::class)->allows($workspace, 'seo_js_crawl')) {
-            return back()->with('error', app(\App\Services\Billing\PlanAccess::class)->denyMessage('seo_js_crawl'));
+        if ($data['crawl_mode'] === 'js' && ! app(PlanAccess::class)->allows($workspace, 'seo_js_crawl')) {
+            return back()->with('error', app(PlanAccess::class)->denyMessage('seo_js_crawl'));
         }
 
         $site->update([

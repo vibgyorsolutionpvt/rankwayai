@@ -9,8 +9,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('seo_blog_posts', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('seo_site_id')->constrained('seo_sites')->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('seo_site_id')->constrained('seo_sites')->cascadeOnDelete();
             $table->string('url', 2048);
             $table->string('url_hash', 64);
             $table->string('title')->nullable();
@@ -26,9 +26,9 @@ return new class extends Migration
         });
 
         Schema::create('seo_blog_shares', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('seo_blog_post_id')->constrained('seo_blog_posts')->cascadeOnDelete();
-            $table->foreignId('workspace_id')->constrained('workspaces')->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('seo_blog_post_id')->constrained('seo_blog_posts')->cascadeOnDelete();
+            $table->foreignUuid('workspace_id')->constrained('workspaces')->cascadeOnDelete();
             $table->string('channel', 40);
             $table->string('share_url', 2048)->nullable();
             $table->string('status', 20)->default('opened'); // opened|done

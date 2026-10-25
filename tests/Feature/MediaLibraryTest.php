@@ -71,7 +71,8 @@ class MediaLibraryTest extends TestCase
             ->get(route('media.picker', ['q' => 'hero']))
             ->assertOk()
             ->assertJsonPath('assets.0.id', $asset->id)
-            ->assertJsonPath('assets.0.name', $asset->original_name);
+            ->assertJsonPath('assets.0.name', $asset->original_name)
+            ->assertJsonPath('assets.0.full_url', $asset->url());
 
         $this->actingAs($user)
             ->withSession(['active_workspace_id' => $workspace->id])

@@ -1010,6 +1010,13 @@ export default function Index({
                                             Search
                                         </SecondaryButton>
                                     </form>
+                                    <PrimaryButton
+                                        type="button"
+                                        className="!px-3 !py-1.5 !text-sm"
+                                        onClick={() => setMode('upload')}
+                                    >
+                                        + Add new
+                                    </PrimaryButton>
                                 </div>
 
                                 <div className="flex-1 overflow-y-auto p-3">
@@ -1134,19 +1141,12 @@ export default function Index({
                                     )}
                                 </div>
 
-                                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-3">
+                                <div className="border-t border-line px-4 py-3">
                                     <span className="text-sm text-ink-muted">
                                         {atRoot && !isSearching
                                             ? `${visibleFolders.length} folder${visibleFolders.length === 1 ? '' : 's'} · ${assetRows.length} file${assetRows.length === 1 ? '' : 's'}`
                                             : `${assetRows.length} file${assetRows.length === 1 ? '' : 's'}`}
                                     </span>
-                                    <PrimaryButton
-                                        type="button"
-                                        className="px-5 py-2.5 text-sm"
-                                        onClick={() => setMode('upload')}
-                                    >
-                                        + Add new
-                                    </PrimaryButton>
                                 </div>
                             </div>
 

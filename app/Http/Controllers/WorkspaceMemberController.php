@@ -69,7 +69,7 @@ class WorkspaceMemberController extends Controller
     public function update(
         UpdateWorkspaceMemberRequest $request,
         Workspace $workspace,
-        int $userId,
+        string $userId,
     ): JsonResponse {
         $this->authorize('manageMembers', $workspace);
 
@@ -117,7 +117,7 @@ class WorkspaceMemberController extends Controller
         ]);
     }
 
-    public function destroy(Request $request, Workspace $workspace, int $userId): JsonResponse
+    public function destroy(Request $request, Workspace $workspace, string $userId): JsonResponse
     {
         $this->authorize('manageMembers', $workspace);
 

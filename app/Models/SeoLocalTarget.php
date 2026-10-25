@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SeoLocalTarget extends Model
 {
+    use HasUuids;
+
     protected $fillable = [
         'workspace_id', 'seo_site_id', 'keyword', 'location_name', 'business_name',
     ];

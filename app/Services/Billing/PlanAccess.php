@@ -9,6 +9,7 @@ use App\Models\Workspace;
 use App\Models\WorkspaceSubscription;
 use App\Services\Access\ModuleAccess;
 use App\Support\NavModules;
+use App\Support\PublicId;
 
 class PlanAccess
 {
@@ -129,7 +130,7 @@ class PlanAccess
         }
 
         // Team members acting in a shared workspace where they are not the owner cannot create.
-        $activeId = (int) session('active_workspace_id');
+        $activeId = PublicId::normalize(session('active_workspace_id'));
         if ($activeId) {
             $activeRole = $user->workspaces()->where('workspaces.id', $activeId)->value('workspace_user.role');
             if ($activeRole && $activeRole !== WorkspaceRole::Owner->value) {
@@ -151,7 +152,7 @@ class PlanAccess
 
     public function denyCreateWorkspaceMessage(User $user): string
     {
-        $activeId = (int) session('active_workspace_id');
+        $activeId = PublicId::normalize(session('active_workspace_id'));
         $activeRole = $activeId ? $user->workspaces()->where('workspaces.id', $activeId)->value('workspace_user.role') : null;
 
         if (
@@ -175,7 +176,7 @@ class PlanAccess
             'channel_send' => 'Sending WhatsApp / Email / RCS needs a paid plan or credit top-up.',
             'seo_apis' => 'Google Search Console, PageSpeed, and SEO APIs need a paid plan or credit top-up.',
             'seo_metrics' => 'Keyword volume, difficulty, and live SERP ranks need a paid plan or credit top-up.',
-            'seo_local' => 'Local pack / Maps rank tracking needs a paid plan or credit top-up.',
+            'seo_local' => 'Google Maps rank tracking needs a paid plan or credit top-up.',
             'seo_backlinks' => 'Backlink data needs a paid plan or credit top-up.',
             'seo_cms' => 'CMS autopublish needs a paid plan or credit top-up.',
             'seo_js_crawl' => 'JavaScript / advanced crawl needs a paid plan or credit top-up.',

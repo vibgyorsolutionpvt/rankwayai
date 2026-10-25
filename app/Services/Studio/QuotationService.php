@@ -2,7 +2,6 @@
 
 namespace App\Services\Studio;
 
-use App\Models\Itinerary;
 use App\Models\Quotation;
 use App\Models\Workspace;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -12,10 +11,6 @@ use Symfony\Component\HttpFoundation\Response;
 
 class QuotationService
 {
-    public function __construct(
-        private ItineraryService $itineraries,
-    ) {}
-
     /**
      * @return array<string, mixed>
      */
@@ -91,12 +86,9 @@ class QuotationService
     /**
      * @param  array<string, mixed>  $input
      */
-    public function create(Workspace $workspace, ?int $userId, array $input, ?Itinerary $fromItinerary = null): Quotation
+    public function create(Workspace $workspace, ?string $userId, array $input): Quotation
     {
         $lineItems = $this->normalizeLineItems($input['line_items'] ?? []);
-        if ($lineItems === [] && $fromItinerary) {
-            $lineItems = $this->lineItemsFromItinerary($fromItinerary);
-        }
         if ($lineItems === []) {
             $lineItems = [[
                 'description' => 'Package',
@@ -111,9 +103,6 @@ class QuotationService
         $totals = $this->computeTotals($lineItems, $discount, $taxPercent);
 
         $title = trim((string) ($input['title'] ?? ''));
-        if ($title === '' && $fromItinerary) {
-            $title = 'Quotation — '.$fromItinerary->title;
-        }
         if ($title === '') {
             $title = 'Quotation';
         }
@@ -121,7 +110,7 @@ class QuotationService
         return Quotation::query()->create([
             'workspace_id' => $workspace->id,
             'created_by' => $userId,
-            'itinerary_id' => $fromItinerary?->id ?? ($input['itinerary_id'] ?? null),
+            'itinerary_id' => null,
             'crm_lead_id' => $input['crm_lead_id'] ?? null,
             'brand_kit_id' => $input['brand_kit_id'] ?? $workspace->resolveBrandKit()?->id,
             'number' => $this->nextNumber($workspace),
@@ -131,13 +120,13 @@ class QuotationService
             'customer_email' => $input['customer_email'] ?? null,
             'customer_phone' => $input['customer_phone'] ?? null,
             'customer_company' => $input['customer_company'] ?? null,
-            'trip_title' => $input['trip_title'] ?? ($fromItinerary?->title),
-            'destination' => $input['destination'] ?? ($fromItinerary?->destination),
-            'travellers' => max(1, (int) ($input['travellers'] ?? ($fromItinerary?->travellersCount() ?? 1))),
+            'trip_title' => $input['trip_title'] ?? null,
+            'destination' => $input['destination'] ?? null,
+            'travellers' => max(1, (int) ($input['travellers'] ?? 1)),
             'duration_days' => isset($input['duration_days'])
                 ? (int) $input['duration_days']
-                : ($fromItinerary?->duration_days),
-            'currency' => strtoupper((string) ($input['currency'] ?? $fromItinerary?->currency ?? 'INR')),
+                : null,
+            'currency' => strtoupper((string) ($input['currency'] ?? 'INR')),
             'line_items' => $totals['line_items'],
             'subtotal' => $totals['subtotal'],
             'discount_amount' => $totals['discount_amount'],
@@ -147,8 +136,8 @@ class QuotationService
             'payment_terms' => $input['payment_terms'] ?? '50% advance to confirm. Balance before travel.',
             'valid_until' => $input['valid_until'] ?? now()->addDays(14)->toDateString(),
             'notes' => $input['notes'] ?? null,
-            'inclusions' => $this->linesToList($input['inclusions'] ?? $input['inclusions_text'] ?? $fromItinerary?->inclusions),
-            'exclusions' => $this->linesToList($input['exclusions'] ?? $input['exclusions_text'] ?? $fromItinerary?->exclusions),
+            'inclusions' => $this->linesToList($input['inclusions'] ?? $input['inclusions_text'] ?? null),
+            'exclusions' => $this->linesToList($input['exclusions'] ?? $input['exclusions_text'] ?? null),
             'is_public' => array_key_exists('is_public', $input) ? (bool) $input['is_public'] : true,
         ]);
     }
@@ -266,60 +255,6 @@ class QuotationService
         }
 
         return $out;
-    }
-
-    /**
-     * @return list<array{description:string,qty:float,unit_price:float,amount:float}>
-     */
-    public function lineItemsFromItinerary(Itinerary $itinerary): array
-    {
-        $pricing = $this->itineraries->normalizePricing($itinerary->pricing ?? []);
-        $totals = $this->itineraries->calculateTotals($pricing);
-        $travellers = max(1, $itinerary->travellersCount());
-
-        $map = [
-            'hotel_cost' => 'Accommodation',
-            'transport_cost' => 'Transport',
-            'activity_cost' => 'Activities & sightseeing',
-            'meal_cost' => 'Meals',
-            'guide_cost' => 'Guide / escort',
-        ];
-
-        $items = [];
-        foreach ($map as $key => $label) {
-            $amount = (float) ($pricing[$key] ?? 0);
-            if ($amount <= 0) {
-                continue;
-            }
-            $items[] = [
-                'description' => $label,
-                'qty' => 1.0,
-                'unit_price' => $amount,
-                'amount' => $amount,
-            ];
-        }
-
-        $markup = (float) ($pricing['markup'] ?? 0);
-        if ($markup > 0) {
-            $items[] = [
-                'description' => 'Service & coordination',
-                'qty' => 1.0,
-                'unit_price' => $markup,
-                'amount' => $markup,
-            ];
-        }
-
-        if ($items === []) {
-            $selling = (float) ($totals['selling_price'] ?? 0);
-            $items[] = [
-                'description' => ($itinerary->destination ?: 'Trip').' package ('.$travellers.' travellers)',
-                'qty' => 1.0,
-                'unit_price' => $selling,
-                'amount' => $selling,
-            ];
-        }
-
-        return $items;
     }
 
     public function nextNumber(Workspace $workspace): string

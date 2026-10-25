@@ -85,7 +85,7 @@ export default function Index({
         setPreviews([]);
 
         try {
-            const festivalId = form.data.festival_id ? Number(form.data.festival_id) : null;
+            const festivalId = form.data.festival_id || null;
             const { data } = await axios.post(route('ai.preview-today'), {
                 brief: form.data.brief,
                 offer: form.data.offer,

@@ -12,6 +12,7 @@ import { confirmAsk } from '@/Components/ConfirmProvider';
 import Toggle from '@/Components/Toggle';
 import EmbeddedSignupButton from '@/Components/WhatsApp/EmbeddedSignupButton';
 import { Head, Link, router, useForm } from '@inertiajs/react';
+import axios from 'axios';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 const TABS = [
@@ -61,6 +62,8 @@ function insertAtCursor(textarea, value, token, onChange) {
     });
 }
 
+const isMetaApproved = (tpl) => String(tpl?.wa_status || '').toLowerCase() === 'approved';
+
 export default function Index({
     workspace,
     view = 'conversations',
@@ -74,6 +77,7 @@ export default function Index({
     currentUserId = null,
     seesAllConversations = false,
     teamMembers = [],
+    creditsAvailable = 0,
     activeConversation = null,
     messages = [],
     templates = [],
@@ -189,7 +193,7 @@ export default function Index({
         replyForm.setData({
             ...replyForm.data,
             template_id: id,
-            as_template: !!tpl,
+            as_template: isMetaApproved(tpl),
             body: tpl?.body || replyForm.data.body,
         });
     };
@@ -376,6 +380,7 @@ export default function Index({
                         teamMembers={teamMembers}
                         currentUserId={currentUserId}
                         seesAllConversations={seesAllConversations}
+                        creditsAvailable={creditsAvailable}
                     />
                 ) : null}
 
@@ -404,6 +409,7 @@ export default function Index({
                         importedGroupId={importedGroupId}
                         leadImportFields={leadImportFields}
                         audienceOptions={audienceOptions}
+                        creditsAvailable={creditsAvailable}
                     />
                 ) : null}
             </div>
@@ -458,7 +464,7 @@ function Avatar({ name, seed = 0, size = 'h-10 w-10 text-sm' }) {
     return (
         <span
             className={`flex shrink-0 items-center justify-center rounded-full font-semibold ${size} ${
-                AVATAR_TONES[Math.abs(Number(seed) || 0) % AVATAR_TONES.length]
+                AVATAR_TONES[Math.abs(Array.from(String(seed)).reduce((sum, char) => sum + char.charCodeAt(0), 0)) % AVATAR_TONES.length]
             }`}
         >
             {initials(name)}
@@ -525,6 +531,7 @@ function ConversationsView({
     teamMembers = [],
     currentUserId = null,
     seesAllConversations = false,
+    creditsAvailable = 0,
 }) {
     const startBodyRef = useRef(null);
     const threadRef = useRef(null);
@@ -793,7 +800,7 @@ function ConversationsView({
                                                 startForm.setData({
                                                     ...startForm.data,
                                                     template_id: v,
-                                                    as_template: !!tpl,
+                                                    as_template: isMetaApproved(tpl),
                                                     body: tpl?.body || startForm.data.body,
                                                 });
                                             }}
@@ -919,7 +926,7 @@ function ConversationsView({
                                     value={String(activeConversation.assigned_user_id || '')}
                                     onChange={async (value) => {
                                         const handingOff =
-                                            !seesAllConversations && value && Number(value) !== currentUserId;
+                                            !seesAllConversations && value && String(value) !== String(currentUserId);
                                         if (handingOff) {
                                             const member = teamMembers.find((m) => String(m.id) === String(value));
                                             const confirmed = await confirmAsk({
@@ -1046,6 +1053,13 @@ function ConversationsView({
                                     onChange={(v) => replyForm.setData('as_template', v)}
                                     label="Send as template"
                                 />
+                                <span
+                                    className={`ms-auto text-[11px] ${
+                                        creditsAvailable < 1 ? 'font-semibold text-danger' : 'text-ink-muted'
+                                    }`}
+                                >
+                                    1 credit per message · {creditsAvailable.toLocaleString()} left
+                                </span>
                             </div>
                             <div className="flex items-end gap-2">
                                 <textarea
@@ -1528,7 +1542,7 @@ function TemplatesView({
                             <Toggle
                                 checked={!!templateForm.data.submit_to_meta}
                                 onChange={(v) => templateForm.setData('submit_to_meta', v)}
-                                label="Submit to Meta (WABA) now"
+                                label="Submit to Meta (WABA) now · 5 credits"
                             />
                         </div>
                     ) : null}
@@ -1537,7 +1551,7 @@ function TemplatesView({
                             {editingTemplateId
                                 ? 'Update template'
                                 : templateForm.data.submit_to_meta && provider === 'meta'
-                                  ? 'Save & submit to Meta'
+                                  ? 'Save & submit to Meta (5 credits)'
                                   : 'Save template'}
                         </PrimaryButton>
                         {editingTemplateId ? (
@@ -1850,45 +1864,57 @@ function TemplatesView({
     );
 }
 
+function parseDirectPhones(raw) {
+    const phones = new Set();
+    let invalid = 0;
+    let duplicates = 0;
+    for (const part of String(raw || '').split(/[\n,;]+/)) {
+        const trimmed = part.trim();
+        if (!trimmed) {
+            continue;
+        }
+        const digits = trimmed.replace(/\D/g, '');
+        if (digits.length < 7 || digits.length > 15) {
+            invalid += 1;
+            continue;
+        }
+        if (phones.has(digits)) {
+            duplicates += 1;
+            continue;
+        }
+        phones.add(digits);
+    }
+
+    return { count: phones.size, invalid, duplicates };
+}
+
 function CampaignsView({
     campaigns,
     templates,
-    leads,
     provider,
     sendLocked,
     leadGroups,
     importedGroupId,
     leadImportFields,
-    audienceOptions,
+    creditsAvailable = 0,
 }) {
-    const stageOptions = audienceOptions?.stages || [];
-    const sourceOptions = audienceOptions?.sources || [];
-    const customFieldOptions = audienceOptions?.custom_fields || [];
     const form = useForm({
         name: '',
         channel: 'whatsapp',
         body: '',
         whatsapp_template_id: '',
-        lead_ids: [],
-        recipient_mode: importedGroupId ? 'group' : 'all',
+        recipient_mode: 'group',
         crm_lead_group_id: importedGroupId ? String(importedGroupId) : '',
-        stages: audienceOptions?.default_stages || ['new', 'contacted', 'qualified'],
-        sources: [],
-        custom_field: '',
-        custom_value: '',
+        phones: '',
         delivery: sendLocked ? 'draft' : 'now',
         scheduled_at: '',
     });
-    const [activeTab, setActiveTab] = useState(importedGroupId > 0 ? 'create' : 'list');
+    const [activeTab, setActiveTab] = useState(importedGroupId ? 'create' : 'list');
     const [audience, setAudience] = useState(null);
     const [audienceLoading, setAudienceLoading] = useState(false);
     const audienceKey = JSON.stringify([
         form.data.recipient_mode,
-        form.data.recipient_mode === 'selected' ? form.data.lead_ids : [],
-        form.data.recipient_mode === 'group' ? form.data.crm_lead_group_id : '',
-        form.data.recipient_mode === 'all'
-            ? [form.data.stages, form.data.sources, form.data.custom_field, form.data.custom_value]
-            : [],
+        form.data.recipient_mode === 'numbers' ? form.data.phones : form.data.crm_lead_group_id,
         leadGroups.map((group) => `${group.id}:${group.status}:${group.leads_count}`),
     ]);
 
@@ -1898,14 +1924,11 @@ function CampaignsView({
         const timer = window.setTimeout(() => {
             window.axios
                 .post(route('whatsapp.campaigns.audience-preview'), {
-                    recipient_mode: form.data.recipient_mode,
-                    lead_ids: form.data.recipient_mode === 'selected' ? form.data.lead_ids : [],
+                    recipient_mode: form.data.recipient_mode === 'numbers' ? 'numbers' : 'group',
+                    lead_ids: [],
+                    phones: form.data.recipient_mode === 'numbers' ? form.data.phones : '',
                     crm_lead_group_id:
-                        form.data.recipient_mode === 'group' ? form.data.crm_lead_group_id || null : null,
-                    stages: form.data.stages,
-                    sources: form.data.sources,
-                    custom_field: form.data.custom_field || null,
-                    custom_value: form.data.custom_value || null,
+                        form.data.recipient_mode === 'numbers' ? null : form.data.crm_lead_group_id || null,
                 })
                 .then((response) => {
                     if (!cancelled) setAudience(response.data);
@@ -1923,12 +1946,6 @@ function CampaignsView({
         };
     }, [audienceKey]);
 
-    const toggleInList = (key, value) => {
-        const list = new Set(form.data[key]);
-        if (list.has(value)) list.delete(value);
-        else list.add(value);
-        form.setData(key, [...list]);
-    };
     const groupForm = useForm({ name: '' });
     const importForm = useForm({
         crm_lead_group_id: importedGroupId ? String(importedGroupId) : '',
@@ -1937,35 +1954,40 @@ function CampaignsView({
     const importableGroups = leadGroups.filter((group) => group.status !== 'processing');
     const importFileRef = useRef(null);
     const [showCsvImport, setShowCsvImport] = useState(false);
+    const [viewingGroup, setViewingGroup] = useState(null);
+    const openGroupMembers = (group) => {
+        setViewingGroup(group);
+        setShowCsvImport(true);
+    };
     const selectedTemplate = templates.find(
         (template) => String(template.id) === String(form.data.whatsapp_template_id),
     );
     const hasMetaProvider = provider === 'meta';
-    const selectableLeads = leads;
     const selectedGroup = leadGroups.find(
         (group) => String(group.id) === String(form.data.crm_lead_group_id),
     );
+    const typedNumbers = parseDirectPhones(form.data.phones);
+    const typingNumbers = form.data.recipient_mode === 'numbers';
+    const audienceRecipients = audience?.recipients || 0;
+    const bulkRate = audienceRecipients > 2000;
+    const creditsNeeded = bulkRate ? Math.ceil(audienceRecipients / 2) : audienceRecipients;
     const sendableGroups = leadGroups.filter(
         (group) => group.status === 'completed' && group.leads_count > 0,
     );
 
     useEffect(() => {
-        if (importedGroupId > 0) {
+        if (importedGroupId) {
             importForm.setData('crm_lead_group_id', String(importedGroupId));
         }
     }, [importedGroupId]);
 
     useEffect(() => {
-        if (importedGroupId > 0) {
+        if (importedGroupId) {
             const importedGroup = leadGroups.find(
                 (group) => String(group.id) === String(importedGroupId),
             );
-            if (importedGroup && importedGroup.leads_count > 0) {
-                form.setData({
-                    ...form.data,
-                    crm_lead_group_id: String(importedGroup.id),
-                    recipient_mode: importedGroup.status === 'completed' ? 'group' : form.data.recipient_mode,
-                });
+            if (importedGroup && importedGroup.leads_count > 0 && importedGroup.status === 'completed') {
+                form.setData('crm_lead_group_id', String(importedGroup.id));
             }
         }
     }, [importedGroupId, leadGroups]);
@@ -1996,13 +2018,6 @@ function CampaignsView({
         }
     }, [campaigns]);
 
-    const toggleLead = (id) => {
-        const selected = new Set(form.data.lead_ids);
-        if (selected.has(id)) selected.delete(id);
-        else selected.add(id);
-        form.setData('lead_ids', [...selected]);
-    };
-
     const submit = (event) => {
         event.preventDefault();
         if (!selectedTemplate) {
@@ -2013,10 +2028,17 @@ function CampaignsView({
             toast.error('Choose a date and time for the scheduled campaign.');
             return;
         }
-        if (
-            form.data.recipient_mode === 'group' &&
-            (!selectedGroup || selectedGroup.status !== 'completed' || selectedGroup.leads_count === 0)
-        ) {
+        if (form.data.recipient_mode === 'numbers') {
+            const typed = parseDirectPhones(form.data.phones);
+            if (typed.count === 0) {
+                toast.error('Enter at least one phone number, one per line.');
+                return;
+            }
+            if (typed.count > 20) {
+                toast.error('Enter up to 20 numbers. Use a contact group for a longer list.');
+                return;
+            }
+        } else if (!selectedGroup || selectedGroup.status !== 'completed' || selectedGroup.leads_count === 0) {
             toast.error('Choose a completed contact group that contains phone numbers.');
             return;
         }
@@ -2029,24 +2051,21 @@ function CampaignsView({
                 ...data,
                 body: selectedTemplate.body,
                 scheduled_at: data.delivery === 'schedule' ? data.scheduled_at : null,
-                lead_ids: data.recipient_mode === 'selected' ? data.lead_ids || [] : [],
-                crm_lead_group_id: data.recipient_mode === 'group' ? data.crm_lead_group_id : null,
-                custom_field: data.custom_field || null,
-                custom_value: data.custom_value || null,
+                recipient_mode: data.recipient_mode === 'numbers' ? 'numbers' : 'group',
+                phones: data.recipient_mode === 'numbers' ? data.phones : '',
+                lead_ids: [],
+                crm_lead_group_id: data.recipient_mode === 'numbers' ? null : data.crm_lead_group_id || null,
             };
-            if (data.recipient_mode !== 'all') {
-                delete payload.stages;
-                delete payload.sources;
-                delete payload.custom_field;
-                delete payload.custom_value;
-            }
+            delete payload.stages;
+            delete payload.custom_field;
+            delete payload.custom_value;
             return payload;
         });
         form.post(route('channels.store'), {
             preserveScroll: true,
             onSuccess: (page) => {
                 if (page.props.flash?.error) return;
-                form.reset('name', 'body', 'whatsapp_template_id', 'lead_ids', 'scheduled_at');
+                form.reset('name', 'body', 'whatsapp_template_id', 'scheduled_at');
                 setActiveTab('list');
             },
         });
@@ -2081,7 +2100,7 @@ function CampaignsView({
                     <div>
                         <div className="font-display text-lg font-bold text-ink">Create WhatsApp campaign</div>
                         <p className="mt-0.5 text-sm text-ink-muted">
-                            Campaigns are sent using an approved Meta template and each lead’s saved values.
+                            Send an approved Meta template to a contact group, or type a few numbers.
                         </p>
                     </div>
                     <SecondaryButton
@@ -2159,11 +2178,11 @@ function CampaignsView({
                                     <div className="flex items-center gap-2">
                                         <InputLabel value="Recipients" />
                                         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-ink-muted">
-                                            {form.data.recipient_mode === 'all'
-                                                ? 'CRM leads'
-                                                : form.data.recipient_mode === 'group'
-                                                  ? selectedGroup?.name || 'Choose group'
-                                                  : `${form.data.lead_ids.length} selected`}
+                                            {typingNumbers
+                                                ? typedNumbers.count
+                                                    ? `${typedNumbers.count} number${typedNumbers.count === 1 ? '' : 's'}`
+                                                    : 'Type numbers'
+                                                : selectedGroup?.name || 'Choose group'}
                                         </span>
                                     </div>
                                     <button
@@ -2177,49 +2196,49 @@ function CampaignsView({
                                 <div className="mb-2 mt-2 flex flex-wrap gap-2">
                                     <button
                                         type="button"
-                                        onClick={() => form.setData('recipient_mode', 'all')}
+                                        onClick={() => form.setData('recipient_mode', 'group')}
                                         className={`rounded-md border px-2.5 py-1.5 text-xs font-semibold ${
-                                            form.data.recipient_mode === 'all'
-                                                ? 'border-signal bg-signal/10 text-signal-strong'
-                                                : 'border-line bg-white text-ink-muted'
-                                        }`}
-                                    >
-                                        CRM leads (filter)
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => form.setData('recipient_mode', 'selected')}
-                                        className={`rounded-md border px-2.5 py-1.5 text-xs font-semibold ${
-                                            form.data.recipient_mode === 'selected'
-                                                ? 'border-signal bg-signal/10 text-signal-strong'
-                                                : 'border-line bg-white text-ink-muted'
-                                        }`}
-                                    >
-                                        Select specific leads
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            const completedGroup = leadGroups.find(
-                                                (group) => group.status === 'completed' && group.leads_count > 0,
-                                            );
-                                            form.setData({
-                                                ...form.data,
-                                                recipient_mode: 'group',
-                                                crm_lead_group_id: completedGroup ? String(completedGroup.id) : '',
-                                                lead_ids: [],
-                                            });
-                                        }}
-                                        className={`rounded-md border px-2.5 py-1.5 text-xs font-semibold ${
-                                            form.data.recipient_mode === 'group'
+                                            !typingNumbers
                                                 ? 'border-signal bg-signal/10 text-signal-strong'
                                                 : 'border-line bg-white text-ink-muted'
                                         }`}
                                     >
                                         Contact group
                                     </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => form.setData('recipient_mode', 'numbers')}
+                                        className={`rounded-md border px-2.5 py-1.5 text-xs font-semibold ${
+                                            typingNumbers
+                                                ? 'border-signal bg-signal/10 text-signal-strong'
+                                                : 'border-line bg-white text-ink-muted'
+                                        }`}
+                                    >
+                                        Enter numbers
+                                    </button>
                                 </div>
-                                {form.data.recipient_mode === 'group' ? (
+                                {typingNumbers ? (
+                                    <div className="mb-2">
+                                        <textarea
+                                            className="atlas-input min-h-24 w-full"
+                                            value={form.data.phones}
+                                            onChange={(event) => form.setData('phones', event.target.value)}
+                                            placeholder={'+919876543210\n+919811112222'}
+                                            rows={4}
+                                        />
+                                        <p className="mt-1 text-xs text-ink-muted">
+                                            One number per line, with country code. Up to 20. Use a contact group for a longer list.
+                                        </p>
+                                        {typedNumbers.invalid > 0 ? (
+                                            <p className="mt-1 text-xs text-rose-600">
+                                                {typedNumbers.invalid} line{typedNumbers.invalid === 1 ? '' : 's'} {typedNumbers.invalid === 1 ? 'is' : 'are'} not a valid number.
+                                            </p>
+                                        ) : null}
+                                        {form.errors.phones ? (
+                                            <p className="mt-1 text-xs text-rose-600">{form.errors.phones}</p>
+                                        ) : null}
+                                    </div>
+                                ) : (
                                     <div className="mb-2">
                                         <SelectMenu
                                             value={form.data.crm_lead_group_id}
@@ -2248,103 +2267,8 @@ function CampaignsView({
                                             <p className="mt-1 text-xs text-rose-600">{form.errors.crm_lead_group_id}</p>
                                         ) : null}
                                     </div>
-                                ) : null}
-                                {form.data.recipient_mode === 'all' ? (
-                                    <div className="mb-2 space-y-3 rounded-lg border border-line p-3">
-                                        <div>
-                                            <div className="mb-1.5 text-xs font-semibold text-ink">
-                                                CRM stage
-                                            </div>
-                                            <div className="flex flex-wrap gap-1.5">
-                                                {stageOptions.map((stage) => {
-                                                    const on = form.data.stages.includes(stage.value);
-                                                    return (
-                                                        <button
-                                                            key={stage.value}
-                                                            type="button"
-                                                            onClick={() => toggleInList('stages', stage.value)}
-                                                            className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                                                                on
-                                                                    ? 'border-signal bg-signal/10 text-signal-strong'
-                                                                    : 'border-line bg-white text-ink-muted'
-                                                            }`}
-                                                        >
-                                                            {on ? '✓ ' : ''}
-                                                            {stage.label} · {stage.count}
-                                                        </button>
-                                                    );
-                                                })}
-                                            </div>
-                                        </div>
-                                        {sourceOptions.length > 0 ? (
-                                            <div>
-                                                <div className="mb-1.5 text-xs font-semibold text-ink">
-                                                    Source{' '}
-                                                    <span className="font-normal text-ink-muted">
-                                                        (none selected = every source)
-                                                    </span>
-                                                </div>
-                                                <div className="flex flex-wrap gap-1.5">
-                                                    {sourceOptions.map((source) => {
-                                                        const on = form.data.sources.includes(source.value);
-                                                        return (
-                                                            <button
-                                                                key={source.value}
-                                                                type="button"
-                                                                onClick={() => toggleInList('sources', source.value)}
-                                                                className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                                                                    on
-                                                                        ? 'border-signal bg-signal/10 text-signal-strong'
-                                                                        : 'border-line bg-white text-ink-muted'
-                                                                }`}
-                                                            >
-                                                                {on ? '✓ ' : ''}
-                                                                {source.value} · {source.count}
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </div>
-                                        ) : null}
-                                        {customFieldOptions.length > 0 ? (
-                                            <div>
-                                                <div className="mb-1.5 text-xs font-semibold text-ink">
-                                                    Custom field equals
-                                                </div>
-                                                <div className="grid gap-2 sm:grid-cols-2">
-                                                    <SelectMenu
-                                                        value={form.data.custom_field}
-                                                        onChange={(value) => form.setData('custom_field', value)}
-                                                        options={[
-                                                            { value: '', label: 'Any field' },
-                                                            ...customFieldOptions.map((field) => ({
-                                                                value: field.key,
-                                                                label: field.label,
-                                                            })),
-                                                        ]}
-                                                    />
-                                                    <TextInput
-                                                        className="w-full"
-                                                        value={form.data.custom_value}
-                                                        disabled={!form.data.custom_field}
-                                                        onChange={(event) =>
-                                                            form.setData('custom_value', event.target.value)
-                                                        }
-                                                        placeholder="Exact value"
-                                                    />
-                                                </div>
-                                            </div>
-                                        ) : null}
-                                    </div>
-                                ) : (
-                                    <p className="mb-1 text-xs text-ink-muted">
-                                        {form.data.recipient_mode === 'group'
-                                            ? selectedGroup
-                                                ? `${selectedGroup.name} · ${selectedGroup.leads_count.toLocaleString()} contacts`
-                                                : 'Choose a completed contact group above.'
-                                            : 'Only checked leads will receive this campaign.'}
-                                    </p>
                                 )}
+
                                 <div
                                     className={`mb-2 rounded-lg border px-3 py-2 text-sm ${
                                         audience && audience.recipients === 0
@@ -2361,6 +2285,27 @@ function CampaignsView({
                                             <span className="text-ink-muted">will get this campaign</span>
                                             {audienceLoading ? (
                                                 <span className="text-ink-muted"> · updating…</span>
+                                            ) : null}
+                                            <div
+                                                className={`mt-0.5 text-xs ${
+                                                    creditsNeeded > creditsAvailable
+                                                        ? 'font-semibold text-danger'
+                                                        : 'text-ink-muted'
+                                                }`}
+                                            >
+                                                Needs {creditsNeeded.toLocaleString()} credit
+                                                {creditsNeeded === 1 ? '' : 's'} (
+                                                {bulkRate ? '½ credit per message · bulk discount over 2,000' : '1 per message'}) ·{' '}
+                                                {creditsAvailable.toLocaleString()} available
+                                            </div>
+                                            {!typingNumbers && selectedGroup ? (
+                                                <button
+                                                    type="button"
+                                                    className="mt-1 text-xs font-semibold text-signal-strong hover:underline"
+                                                    onClick={() => openGroupMembers(selectedGroup)}
+                                                >
+                                                    View numbers
+                                                </button>
                                             ) : null}
                                             {audience.duplicates > 0 || audience.opted_out > 0 ? (
                                                 <div className="mt-0.5 text-xs text-ink-muted">
@@ -2380,48 +2325,6 @@ function CampaignsView({
                                         </span>
                                     )}
                                 </div>
-                                {form.data.recipient_mode === 'selected' ? (
-                                    <>
-                                        <div className="mb-1 flex gap-3 text-xs">
-                                            <button
-                                                type="button"
-                                                className="font-semibold text-signal-strong hover:underline"
-                                                onClick={() =>
-                                                    form.setData({
-                                                        ...form.data,
-                                                        lead_ids: selectableLeads.map((lead) => lead.id),
-                                                    })
-                                                }
-                                            >
-                                                Select all shown
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="font-semibold text-ink-muted hover:underline"
-                                                onClick={() => form.setData('lead_ids', [])}
-                                            >
-                                                Clear selection
-                                            </button>
-                                        </div>
-                                        <div className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-line p-2">
-                                            {selectableLeads.length ? selectableLeads.map((lead) => (
-                                                <label key={lead.id} className="flex items-center gap-2 rounded px-1 py-1 text-sm hover:bg-mist/60">
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={form.data.lead_ids.includes(lead.id)}
-                                                        onChange={() => toggleLead(lead.id)}
-                                                    />
-                                                    <span className="min-w-0 flex-1 truncate font-medium text-ink">{lead.name}</span>
-                                                    <span className="text-xs text-ink-muted">{lead.phone || 'No phone'}</span>
-                                                </label>
-                                            )) : (
-                                                <p className="px-1 py-3 text-sm text-ink-muted">
-                                                    Add eligible leads with phone numbers in CRM first.
-                                                </p>
-                                            )}
-                                        </div>
-                                    </>
-                                ) : null}
                             </div>
                         </div>
                         <div className="space-y-3">
@@ -2506,10 +2409,11 @@ function CampaignsView({
                                 processing={form.processing}
                                 disabled={
                                     !selectedTemplate ||
-                                    (form.data.recipient_mode === 'group' &&
-                                        (!selectedGroup ||
-                                            selectedGroup.status !== 'completed' ||
-                                            selectedGroup.leads_count === 0))
+                                    (typingNumbers
+                                        ? typedNumbers.count === 0 || typedNumbers.count > 20
+                                        : !selectedGroup ||
+                                          selectedGroup.status !== 'completed' ||
+                                          selectedGroup.leads_count === 0)
                                 }
                             >
                                 {form.data.delivery === 'now'
@@ -2611,21 +2515,36 @@ function CampaignsView({
                 show={showCsvImport}
                 maxWidth="2xl"
                 closeable={!importForm.processing}
-                onClose={() => setShowCsvImport(false)}
+                onClose={() => {
+                    setShowCsvImport(false);
+                    setViewingGroup(null);
+                }}
             >
                 <div className="flex items-center justify-between gap-4 border-b border-line px-5 py-3">
-                    <h2 className="font-display text-lg font-bold text-ink">Contact groups</h2>
+                    <h2 className="font-display text-lg font-bold text-ink">
+                        {viewingGroup ? viewingGroup.name : 'Contact groups'}
+                    </h2>
                     <button
                         type="button"
                         aria-label="Close contact groups"
                         disabled={importForm.processing}
-                        onClick={() => setShowCsvImport(false)}
+                        onClick={() => {
+                            setShowCsvImport(false);
+                            setViewingGroup(null);
+                        }}
                         className="rounded-md px-2 py-1 text-lg leading-none text-ink-muted hover:bg-mist disabled:opacity-50"
                     >
                         ×
                     </button>
                 </div>
                 <div className="max-h-[75vh] space-y-4 overflow-y-auto p-5">
+                    {viewingGroup ? (
+                        <GroupMembers
+                            group={viewingGroup}
+                            onBack={() => setViewingGroup(null)}
+                        />
+                    ) : (
+                    <>
                     <section>
                         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-muted">New group</h3>
                         <form
@@ -2784,6 +2703,13 @@ function CampaignsView({
                                                     </div>
                                                 ) : null}
                                             </div>
+                                            <button
+                                                type="button"
+                                                className="shrink-0 text-xs font-semibold text-signal-strong hover:underline"
+                                                onClick={() => setViewingGroup(group)}
+                                            >
+                                                View
+                                            </button>
                                             {group.status !== 'processing' ? (
                                                 <button
                                                     type="button"
@@ -2801,12 +2727,7 @@ function CampaignsView({
                                                     type="button"
                                                     className="!px-2.5 !py-1 !text-xs"
                                                     onClick={() => {
-                                                        form.setData({
-                                                            ...form.data,
-                                                            recipient_mode: 'group',
-                                                            crm_lead_group_id: String(group.id),
-                                                            lead_ids: [],
-                                                        });
+                                                        form.setData('crm_lead_group_id', String(group.id));
                                                         setShowCsvImport(false);
                                                     }}
                                                 >
@@ -2841,8 +2762,252 @@ function CampaignsView({
                             <p className="text-xs text-ink-muted">No groups yet.</p>
                         )}
                     </section>
+                    </>
+                    )}
                 </div>
             </Modal>
+        </div>
+    );
+}
+
+function GroupMembers({ group, onBack }) {
+    const [query, setQuery] = useState('');
+    const [page, setPage] = useState(1);
+    const [result, setResult] = useState({ data: [], total: group.leads_count || 0, page: 1, last_page: 1 });
+    const [loading, setLoading] = useState(true);
+    const [draft, setDraft] = useState({ name: '', phone: '' });
+    const [saving, setSaving] = useState(false);
+    const [editingId, setEditingId] = useState(null);
+    const [edit, setEdit] = useState({ name: '', phone: '' });
+    const [reloadKey, setReloadKey] = useState(0);
+    const locked = group.status === 'processing';
+
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setLoading(true);
+            axios
+                .get(route('whatsapp.campaigns.lead-groups.members', group.id), {
+                    params: { q: query, page },
+                })
+                .then((response) => setResult(response.data))
+                .catch(() => toast.error('Could not load contacts.'))
+                .finally(() => setLoading(false));
+        }, 300);
+
+        return () => clearTimeout(timer);
+    }, [group.id, query, page, reloadKey]);
+
+    const errorText = (error) =>
+        error?.response?.data?.errors?.phone?.[0] ||
+        error?.response?.data?.errors?.name?.[0] ||
+        'Could not save this contact.';
+
+    const addContact = (event) => {
+        event.preventDefault();
+        setSaving(true);
+        axios
+            .post(route('whatsapp.campaigns.lead-groups.members.store', group.id), draft)
+            .then(() => {
+                setDraft({ name: '', phone: '' });
+                setQuery('');
+                setPage(1);
+                setReloadKey((current) => current + 1);
+                router.reload({ only: ['leadGroups'], preserveScroll: true });
+            })
+            .catch((error) => toast.error(errorText(error)))
+            .finally(() => setSaving(false));
+    };
+
+    const saveContact = (member) => {
+        setSaving(true);
+        axios
+            .patch(route('whatsapp.campaigns.lead-groups.members.update', [group.id, member.id]), edit)
+            .then((response) => {
+                setResult((current) => ({
+                    ...current,
+                    data: current.data.map((row) => (row.id === member.id ? response.data.member : row)),
+                }));
+                setEditingId(null);
+            })
+            .catch((error) => toast.error(errorText(error)))
+            .finally(() => setSaving(false));
+    };
+
+    const removeContact = async (member) => {
+        const confirmed = await confirmAsk({
+            title: 'Remove from this group?',
+            message: `${member.name || member.phone} stays in CRM, but will not get campaigns sent to this group.`,
+            confirmLabel: 'Remove',
+        });
+        if (!confirmed) {
+            return;
+        }
+        setSaving(true);
+        axios
+            .delete(route('whatsapp.campaigns.lead-groups.members.destroy', [group.id, member.id]))
+            .then((response) => {
+                setEditingId(null);
+                setResult((current) => {
+                    const data = current.data.filter((row) => row.id !== member.id);
+                    if (data.length === 0 && page > 1) {
+                        setPage(page - 1);
+                    }
+
+                    return { ...current, data, total: response.data.total };
+                });
+                router.reload({ only: ['leadGroups'], preserveScroll: true });
+            })
+            .catch(() => toast.error('Could not remove this contact.'))
+            .finally(() => setSaving(false));
+    };
+
+    return (
+        <div className="space-y-3">
+            <button type="button" onClick={onBack} className="text-xs font-semibold text-signal-strong hover:underline">
+                ← All groups
+            </button>
+            <form className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-center" onSubmit={addContact}>
+                <TextInput
+                    className="w-full !py-1.5 text-sm"
+                    value={draft.name}
+                    disabled={locked}
+                    onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                    placeholder="Name"
+                    maxLength={120}
+                />
+                <TextInput
+                    className="w-full !py-1.5 text-sm"
+                    value={draft.phone}
+                    disabled={locked}
+                    onChange={(event) => setDraft({ ...draft, phone: event.target.value })}
+                    placeholder="Phone with country code"
+                    maxLength={32}
+                />
+                <PrimaryButton
+                    type="submit"
+                    className="!px-3 !py-2 !text-xs"
+                    processing={saving}
+                    disabled={locked || !draft.name.trim() || !draft.phone.trim()}
+                >
+                    Add
+                </PrimaryButton>
+            </form>
+            <TextInput
+                className="w-full !py-1.5 text-sm"
+                value={query}
+                onChange={(event) => {
+                    setQuery(event.target.value);
+                    setPage(1);
+                }}
+                placeholder="Search name or number"
+            />
+            <div className="text-[11px] text-ink-muted">
+                {loading ? 'Loading…' : `${result.total.toLocaleString()} contacts`}
+                {locked ? ' · import in progress, editing is paused' : ' · editing updates the CRM contact'}
+            </div>
+            {result.data.length > 0 ? (
+                <div className="divide-y divide-line rounded-lg border border-line">
+                    {result.data.map((member) => (
+                        <div key={member.id} className="flex items-center gap-2 px-3 py-2">
+                            {editingId === member.id ? (
+                                <>
+                                    <TextInput
+                                        className="w-full !py-1 text-sm"
+                                        value={edit.name}
+                                        onChange={(event) => setEdit({ ...edit, name: event.target.value })}
+                                    />
+                                    <TextInput
+                                        className="w-full !py-1 text-sm"
+                                        value={edit.phone}
+                                        onChange={(event) => setEdit({ ...edit, phone: event.target.value })}
+                                    />
+                                    <button
+                                        type="button"
+                                        aria-label="Save contact"
+                                        disabled={saving}
+                                        className="shrink-0 rounded-md p-1.5 text-signal hover:bg-signal-soft disabled:opacity-40"
+                                        onClick={() => saveContact(member)}
+                                    >
+                                        <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden>
+                                            <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
+                                        </svg>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        aria-label="Cancel edit"
+                                        className="shrink-0 rounded-md p-1.5 text-ink-muted hover:bg-mist"
+                                        onClick={() => setEditingId(null)}
+                                    >
+                                        <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden>
+                                            <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                                        </svg>
+                                    </button>
+                                </>
+                            ) : (
+                                <>
+                                    <div className="min-w-0 flex-1">
+                                        <div className="truncate text-sm font-semibold text-ink">{member.name}</div>
+                                        <div className="text-xs text-ink-muted">{member.phone}</div>
+                                    </div>
+                                    {locked ? null : (
+                                        <>
+                                            <button
+                                                type="button"
+                                                aria-label={`Edit ${member.name || member.phone}`}
+                                                className="shrink-0 rounded-md p-1.5 text-signal hover:bg-signal-soft"
+                                                onClick={() => {
+                                                    setEditingId(member.id);
+                                                    setEdit({ name: member.name || '', phone: member.phone || '' });
+                                                }}
+                                            >
+                                                <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden>
+                                                    <path d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z" />
+                                                </svg>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                aria-label={`Remove ${member.name || member.phone}`}
+                                                disabled={saving}
+                                                className="shrink-0 rounded-md p-1.5 text-danger hover:bg-danger-soft disabled:opacity-40"
+                                                onClick={() => removeContact(member)}
+                                            >
+                                                <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden>
+                                                    <path fillRule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clipRule="evenodd" />
+                                                </svg>
+                                            </button>
+                                        </>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <p className="text-xs text-ink-muted">{loading ? '' : 'No contacts match.'}</p>
+            )}
+            {result.last_page > 1 ? (
+                <div className="flex items-center justify-between text-xs">
+                    <button
+                        type="button"
+                        disabled={page <= 1}
+                        className="font-semibold text-signal-strong hover:underline disabled:opacity-40"
+                        onClick={() => setPage((current) => Math.max(1, current - 1))}
+                    >
+                        Previous
+                    </button>
+                    <span className="text-ink-muted">
+                        Page {result.page} of {result.last_page}
+                    </span>
+                    <button
+                        type="button"
+                        disabled={page >= result.last_page}
+                        className="font-semibold text-signal-strong hover:underline disabled:opacity-40"
+                        onClick={() => setPage((current) => current + 1)}
+                    >
+                        Next
+                    </button>
+                </div>
+            ) : null}
         </div>
     );
 }

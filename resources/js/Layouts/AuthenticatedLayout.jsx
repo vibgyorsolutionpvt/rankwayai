@@ -14,6 +14,11 @@ const SIDEBAR_SECTIONS = [
         items: [{ label: 'Dashboard', key: 'today', icon: 'today', tone: 'amber' }],
     },
     {
+        title: 'Media',
+        icon: 'media',
+        items: [{ label: 'Media', key: 'media', icon: 'media', tone: 'sky' }],
+    },
+    {
         title: 'Business',
         icon: 'platform',
         items: [
@@ -32,37 +37,54 @@ const SIDEBAR_SECTIONS = [
         items: [
             { label: 'Social Media', key: 'social', icon: 'social', tone: 'fuchsia' },
             { label: 'SEO', key: 'seo', icon: 'seo', tone: 'emerald' },
+            { label: 'Blog', key: 'blog', icon: 'blog', tone: 'sky' },
+            {
+                label: 'Channels',
+                key: 'channels',
+                routeName: 'channels.index',
+                match: 'channels.*',
+                icon: 'channels',
+                tone: 'sky',
+            },
             { label: 'WhatsApp', key: 'whatsapp', icon: 'whatsapp', tone: 'emerald' },
-            { label: 'Email', icon: 'channels', tone: 'sky', comingSoon: true },
-            { label: 'SMS', icon: 'channels', tone: 'sky', comingSoon: true },
+            {
+                label: 'Email',
+                key: 'email',
+                routeName: 'email.index',
+                match: 'email.*',
+                icon: 'channels',
+                tone: 'sky',
+            },
+            { label: 'SMS', key: 'sms', icon: 'channels', tone: 'sky', comingSoon: true },
         ],
     },
     {
         title: 'Leads',
         icon: 'funnels',
         items: [
-            { label: 'Lead Forms', icon: 'funnels', tone: 'fuchsia', comingSoon: true },
+            { label: 'Lead Forms', key: 'lead_forms', icon: 'funnels', tone: 'fuchsia', comingSoon: true },
             { label: 'Landing Pages', key: 'funnels', icon: 'funnels', tone: 'fuchsia' },
             { label: 'Leads', key: 'crm', icon: 'crm', tone: 'amber', match: 'crm.*' },
-            { label: 'Automations', icon: 'crm', tone: 'fuchsia', comingSoon: true },
+            { label: 'Automations', key: 'automations', icon: 'crm', tone: 'fuchsia', comingSoon: true },
         ],
     },
     {
         title: 'Sales',
         icon: 'crm',
         items: [
-            { label: 'Customers', icon: 'crm', tone: 'sky', comingSoon: true },
+            { label: 'Customers', key: 'customers', icon: 'crm', tone: 'sky', comingSoon: true },
             {
                 label: 'Quotations',
-                key: 'studio',
+                key: 'quotations',
                 routeName: 'studio.quotations.index',
                 match: 'studio.quotations.*',
+                experienceExclude: 'travel',
                 icon: 'studio',
                 tone: 'violet',
             },
-            { label: 'Proposals', icon: 'studio', tone: 'fuchsia', comingSoon: true },
-            { label: 'Bookings', icon: 'crm', tone: 'amber', comingSoon: true },
-            { label: 'Payments', icon: 'platform', tone: 'emerald', comingSoon: true },
+            { label: 'Proposals', key: 'proposals', icon: 'studio', tone: 'fuchsia', comingSoon: true },
+            { label: 'Bookings', key: 'bookings', icon: 'crm', tone: 'amber', comingSoon: true },
+            { label: 'Payments', key: 'payments', icon: 'platform', tone: 'emerald', comingSoon: true },
         ],
     },
     {
@@ -71,7 +93,7 @@ const SIDEBAR_SECTIONS = [
         items: [
             {
                 label: 'Business Card',
-                key: 'studio',
+                key: 'business_card',
                 routeName: 'studio.cards.index',
                 match: 'studio.cards.*',
                 icon: 'studio',
@@ -79,22 +101,14 @@ const SIDEBAR_SECTIONS = [
             },
             {
                 label: 'Brochure',
-                key: 'studio',
+                key: 'brochure',
                 routeName: 'studio.brochures.index',
                 match: 'studio.brochures.*',
                 icon: 'media',
                 tone: 'sky',
             },
-            { label: 'Catalogue', icon: 'blog', tone: 'fuchsia', comingSoon: true },
-            {
-                label: 'Itinerary',
-                key: 'studio',
-                routeName: 'studio.itineraries.index',
-                match: 'studio.itineraries.*',
-                icon: 'today',
-                tone: 'emerald',
-            },
-            { label: 'Document Studio', icon: 'studio', tone: 'rose', comingSoon: true },
+            { label: 'Catalogue', key: 'catalogue', icon: 'blog', tone: 'fuchsia', comingSoon: true },
+            { label: 'Document Studio', key: 'document_studio', icon: 'studio', tone: 'rose', comingSoon: true },
         ],
     },
     {
@@ -155,7 +169,8 @@ const MODULE_DEFAULTS = {
     whatsapp: { routeName: 'whatsapp.index', match: 'whatsapp.*' },
     funnels: { routeName: 'funnels.index', match: 'funnels.*' },
     crm: { routeName: 'crm.index', match: 'crm.*' },
-    studio: { routeName: 'studio.cards.index', match: 'studio.*' },
+    email: { routeName: 'email.index', match: 'email.*' },
+    quotations: { routeName: 'studio.quotations.index', match: 'studio.quotations.*' },
     analytics: { routeName: 'analytics.index', match: 'analytics.*' },
     settings: { routeName: 'settings.index', match: 'settings.*' },
 };
@@ -672,36 +687,52 @@ export default function AuthenticatedLayout({ header, children }) {
         }
 
         const byKey = new Map(navItems.map((item) => [item.key, item]));
+        const enabledPlatformMenus = new Set(
+            (page.platformMenus || []).filter((menu) => menu.enabled).map((menu) => menu.key),
+        );
 
-        return SIDEBAR_SECTIONS.map((section) => ({
-            title: section.title,
-            icon: section.icon || 'platform',
-            items: section.items.map((spec) => {
-                const base = spec.key ? byKey.get(spec.key) : null;
-                const defaults = spec.key ? MODULE_DEFAULTS[spec.key] : null;
-                const icon = spec.icon || base?.icon || 'platform';
-                const tone = spec.tone || base?.tone || 'signal';
-                const locked = Boolean(base?.locked);
-                const comingSoon = Boolean(spec.comingSoon);
-                const restricted = Boolean(spec.key && !comingSoon && !base);
+        return SIDEBAR_SECTIONS
+            .filter((section) => {
+                if (section.title === 'Business') return enabledPlatformMenus.has('business_section');
+                if (section.title === 'Marketing') return enabledPlatformMenus.has('marketing');
+                if (section.title === 'Leads') return enabledPlatformMenus.has('leads');
+                if (section.title === 'Sales') return enabledPlatformMenus.has('sales');
+                if (section.title === 'Business Studio') return enabledPlatformMenus.has('business_studio');
+                return true;
+            })
+            .map((section) => ({
+                title: section.title,
+                icon: section.icon || 'platform',
+                items: section.items
+                    .filter((spec) => !spec.key || enabledPlatformMenus.has(spec.key))
+                    .filter((spec) => !spec.comingSoon || byKey.has(spec.key))
+                    .map((spec) => {
+                        const base = spec.key ? byKey.get(spec.key) : null;
+                        const defaults = spec.key ? MODULE_DEFAULTS[spec.key] : null;
+                        const icon = spec.icon || base?.icon || 'platform';
+                        const tone = spec.tone || base?.tone || 'signal';
+                        const locked = Boolean(base?.locked);
+                        const comingSoon = Boolean(spec.comingSoon);
+                        const restricted = Boolean(spec.key && !comingSoon && !base);
 
-                return {
-                    key: spec.key || `${section.title}-${spec.label}`,
-                    label: spec.label,
-                    routeName: spec.routeName || base?.routeName || defaults?.routeName,
-                    routeParams: spec.routeParams || base?.routeParams || defaults?.routeParams,
-                    match: comingSoon ? spec.match : (spec.match || base?.match || defaults?.match),
-                    icon,
-                    tone,
-                    locked,
-                    restricted,
-                    comingSoon,
-                    noHighlight: Boolean(spec.noHighlight),
-                    tabKey: spec.tabKey || base?.tabKey || null,
-                };
-            }),
-        })).filter((section) => section.items.length > 0);
-    }, [navItems]);
+                        return {
+                            key: spec.key || `${section.title}-${spec.label}`,
+                            label: spec.label,
+                            routeName: spec.routeName || base?.routeName || defaults?.routeName,
+                            routeParams: spec.routeParams || base?.routeParams || defaults?.routeParams,
+                            match: comingSoon ? spec.match : (spec.match || base?.match || defaults?.match),
+                            icon,
+                            tone,
+                            locked,
+                            restricted,
+                            comingSoon,
+                            noHighlight: Boolean(spec.noHighlight),
+                            tabKey: spec.tabKey || base?.tabKey || null,
+                        };
+                    }),
+            }))
+            .filter((section) => section.items.length > 0);
+    }, [navItems, page.platformMenus]);
 
     useEffect(() => {
         const activeTitle = sidebarSections.find((section) =>
@@ -773,6 +804,36 @@ export default function AuthenticatedLayout({ header, children }) {
                     </div>
                     <div className="mt-1 truncate text-sm font-semibold text-ink">{user?.name}</div>
                     <div className="truncate text-xs text-ink-muted">{user?.email}</div>
+                    {!user?.is_superadmin || impersonating || simulatingUser ? (
+                        <div className="mt-2.5 flex gap-1.5 border-t border-line/70 pt-2.5">
+                            <Link
+                                href={route('profile.edit')}
+                                onClick={() => setMobileOpen(false)}
+                                className={
+                                    'flex-1 rounded-md border px-2 py-1 text-center text-xs font-semibold transition ' +
+                                    (route().current('profile.*')
+                                        ? 'border-signal bg-signal-soft text-signal-strong'
+                                        : 'border-line bg-white text-ink-soft hover:border-signal/40 hover:text-signal-strong')
+                                }
+                            >
+                                Profile
+                            </Link>
+                            {page.can_manage_billing ? (
+                                <Link
+                                    href={route('billing.index')}
+                                    onClick={() => setMobileOpen(false)}
+                                    className={
+                                        'flex-1 rounded-md border px-2 py-1 text-center text-xs font-semibold transition ' +
+                                        (route().current('billing.*')
+                                            ? 'border-signal bg-signal-soft text-signal-strong'
+                                            : 'border-line bg-white text-ink-soft hover:border-signal/40 hover:text-signal-strong')
+                                    }
+                                >
+                                    Billing
+                                </Link>
+                            ) : null}
+                        </div>
+                    ) : null}
                     {simulatingUser ? (
                         <button
                             type="button"

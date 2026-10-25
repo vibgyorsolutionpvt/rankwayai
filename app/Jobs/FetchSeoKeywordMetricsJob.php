@@ -13,7 +13,7 @@ class FetchSeoKeywordMetricsJob implements ShouldQueue
     use Queueable;
 
     public function __construct(
-        public int $workspaceId,
+        public string $workspaceId,
         public bool $force = false,
     ) {}
 

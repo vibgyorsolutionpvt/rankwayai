@@ -66,7 +66,7 @@ class PublishDueSocialPostsCommand extends Command
         return self::SUCCESS;
     }
 
-    private function publishOne(int $postId, string $label): void
+    private function publishOne(string $postId, string $label): void
     {
         try {
             PublishSocialPostJob::dispatchSync($postId);

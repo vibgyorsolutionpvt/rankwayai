@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ChannelCampaign extends Model
 {
+    use HasUuids;
+
     protected $fillable = [
         'workspace_id',
         'created_by',
@@ -23,6 +26,7 @@ class ChannelCampaign extends Model
         'recipient_count',
         'sent_count',
         'failed_count',
+        'credits_charged',
         'provider',
         'meta',
         'failure_reason',
@@ -33,6 +37,7 @@ class ChannelCampaign extends Model
         return [
             'scheduled_at' => 'datetime',
             'sent_at' => 'datetime',
+            'credits_charged' => 'integer',
             'meta' => 'array',
         ];
     }

@@ -4,7 +4,7 @@ import PrimaryButton from '@/Components/PrimaryButton';
 import ProvidersPanel from '@/Pages/Settings/ProvidersPanel';
 import AgencyTeamPanel from '@/Pages/Settings/AgencyTeamPanel';
 import WorkspacePanel from '@/Pages/Settings/WorkspacePanel';
-import { Head, router } from '@inertiajs/react';
+import { Head, router, usePage } from '@inertiajs/react';
 
 const TABS = [
     { id: 'providers', label: 'Providers', help: HELP.integrations },
@@ -45,6 +45,7 @@ export default function Index({
     billing = {},
     account = {},
 }) {
+    const canManageBilling = Boolean(usePage().props.can_manage_billing);
     const visitTab = (id) => {
         router.get(
             route('settings.index'),
@@ -220,12 +221,18 @@ export default function Index({
                                     </div>
                                 </div>
                             </div>
-                            <PrimaryButton
-                                type="button"
-                                onClick={() => router.visit(route('billing.index'))}
-                            >
-                                Open billing
-                            </PrimaryButton>
+                            {canManageBilling ? (
+                                <PrimaryButton
+                                    type="button"
+                                    onClick={() => router.visit(route('billing.index'))}
+                                >
+                                    Open billing
+                                </PrimaryButton>
+                            ) : (
+                                <p className="text-xs text-ink-muted">
+                                    Only the account owner can change the plan.
+                                </p>
+                            )}
                         </div>
                     </section>
                 ) : null}

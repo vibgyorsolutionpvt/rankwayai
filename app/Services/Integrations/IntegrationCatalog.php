@@ -134,6 +134,50 @@ class IntegrationCatalog
                 ],
             ],
             [
+                'id' => 'brevo',
+                'category' => 'messaging',
+                'label' => 'Brevo Email',
+                'blurb' => 'Send CRM email campaigns using Brevo. Free accounts allow up to 300 emails per day; app sends stop at that cap.',
+                'fields' => [
+                    ['key' => 'api_key', 'label' => 'API key', 'secret' => true, 'required' => true],
+                    ['key' => 'sender_email', 'label' => 'Verified sender email', 'required' => true, 'placeholder' => 'hello@yourdomain.com'],
+                    ['key' => 'sender_name', 'label' => 'Sender name', 'required' => true, 'placeholder' => 'Your brand'],
+                ],
+            ],
+            [
+                'id' => 'resend',
+                'category' => 'messaging',
+                'label' => 'Resend Email',
+                'blurb' => 'Send email campaigns through Resend. App-enforced free allowance: 100 sends per UTC day and 3,000 per calendar month.',
+                'fields' => [
+                    ['key' => 'api_key', 'label' => 'API key', 'secret' => true, 'required' => true],
+                    ['key' => 'sender_email', 'label' => 'Verified sender email', 'required' => true, 'placeholder' => 'hello@yourdomain.com'],
+                    ['key' => 'sender_name', 'label' => 'Sender name', 'required' => true, 'placeholder' => 'Your brand'],
+                ],
+            ],
+            [
+                'id' => 'mailersend',
+                'category' => 'messaging',
+                'label' => 'MailerSend Email',
+                'blurb' => 'Send email campaigns through MailerSend. App-enforced free allowance: 100 sends per UTC day and 500 per calendar month.',
+                'fields' => [
+                    ['key' => 'api_key', 'label' => 'API token', 'secret' => true, 'required' => true],
+                    ['key' => 'sender_email', 'label' => 'Verified sender email', 'required' => true, 'placeholder' => 'hello@yourdomain.com'],
+                    ['key' => 'sender_name', 'label' => 'Sender name', 'required' => true, 'placeholder' => 'Your brand'],
+                ],
+            ],
+            [
+                'id' => 'sender',
+                'category' => 'messaging',
+                'label' => 'Sender Email',
+                'blurb' => 'Send CRM email campaigns through Sender. App-enforced allowance follows the Free Forever plan: 15,000 sends per calendar month.',
+                'fields' => [
+                    ['key' => 'api_key', 'label' => 'API access token', 'secret' => true, 'required' => true],
+                    ['key' => 'sender_email', 'label' => 'Verified sender email', 'required' => true, 'placeholder' => 'hello@yourdomain.com'],
+                    ['key' => 'sender_name', 'label' => 'Sender name', 'required' => true, 'placeholder' => 'Your brand'],
+                ],
+            ],
+            [
                 'id' => 'jio',
                 'category' => 'rcs',
                 'label' => 'Jio RCS',

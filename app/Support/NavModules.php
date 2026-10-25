@@ -7,7 +7,7 @@ final class NavModules
     /**
      * Client sidebar modules (key => meta).
      *
-     * @return array<string, array{label:string, route:string, match:string, icon:string, tone:string, group:string, params?:array<string, string>}>
+     * @return array<string, array{label:string, route:string, match:string, icon:string, tone:string, group:string, params?:array<string, string>, comingSoon?:bool}>
      */
     public static function catalog(): array
     {
@@ -34,14 +34,6 @@ final class NavModules
                 'match' => 'brand.*',
                 'icon' => 'brand',
                 'tone' => 'rose',
-                'group' => 'Work',
-            ],
-            'studio' => [
-                'label' => 'Studio',
-                'route' => 'studio.cards.index',
-                'match' => 'studio.*',
-                'icon' => 'studio',
-                'tone' => 'violet',
                 'group' => 'Work',
             ],
             'media' => [
@@ -85,6 +77,32 @@ final class NavModules
                 'tone' => 'sky',
                 'group' => 'Grow',
             ],
+            'email' => [
+                'label' => 'Email',
+                'route' => 'email.index',
+                'match' => 'email.*',
+                'icon' => 'channels',
+                'tone' => 'sky',
+                'group' => 'Grow',
+            ],
+            'sms' => [
+                'label' => 'SMS',
+                'route' => '#',
+                'match' => 'coming-soon.sms',
+                'icon' => 'channels',
+                'tone' => 'sky',
+                'group' => 'Grow',
+                'comingSoon' => true,
+            ],
+            'lead_forms' => [
+                'label' => 'Lead Forms',
+                'route' => '#',
+                'match' => 'coming-soon.lead-forms',
+                'icon' => 'funnels',
+                'tone' => 'fuchsia',
+                'group' => 'Sell',
+                'comingSoon' => true,
+            ],
             'funnels' => [
                 'label' => 'Funnels',
                 'route' => 'funnels.index',
@@ -108,6 +126,93 @@ final class NavModules
                 'icon' => 'crm',
                 'tone' => 'amber',
                 'group' => 'Sell',
+            ],
+            'automations' => [
+                'label' => 'Automations',
+                'route' => '#',
+                'match' => 'coming-soon.automations',
+                'icon' => 'crm',
+                'tone' => 'fuchsia',
+                'group' => 'Sell',
+                'comingSoon' => true,
+            ],
+            'customers' => [
+                'label' => 'Customers',
+                'route' => '#',
+                'match' => 'coming-soon.customers',
+                'icon' => 'crm',
+                'tone' => 'sky',
+                'group' => 'Sell',
+                'comingSoon' => true,
+            ],
+            'quotations' => [
+                'label' => 'Quotations',
+                'route' => 'studio.quotations.index',
+                'match' => 'studio.quotations.*',
+                'icon' => 'studio',
+                'tone' => 'violet',
+                'group' => 'Sell',
+            ],
+            'proposals' => [
+                'label' => 'Proposals',
+                'route' => '#',
+                'match' => 'coming-soon.proposals',
+                'icon' => 'studio',
+                'tone' => 'fuchsia',
+                'group' => 'Sell',
+                'comingSoon' => true,
+            ],
+            'bookings' => [
+                'label' => 'Bookings',
+                'route' => '#',
+                'match' => 'coming-soon.bookings',
+                'icon' => 'crm',
+                'tone' => 'amber',
+                'group' => 'Sell',
+                'comingSoon' => true,
+            ],
+            'payments' => [
+                'label' => 'Payments',
+                'route' => '#',
+                'match' => 'coming-soon.payments',
+                'icon' => 'platform',
+                'tone' => 'emerald',
+                'group' => 'Sell',
+                'comingSoon' => true,
+            ],
+            'business_card' => [
+                'label' => 'Business Card',
+                'route' => 'studio.cards.index',
+                'match' => 'studio.cards.*',
+                'icon' => 'studio',
+                'tone' => 'violet',
+                'group' => 'Work',
+            ],
+            'brochure' => [
+                'label' => 'Brochure',
+                'route' => 'studio.brochures.index',
+                'match' => 'studio.brochures.*',
+                'icon' => 'media',
+                'tone' => 'sky',
+                'group' => 'Work',
+            ],
+            'catalogue' => [
+                'label' => 'Catalogue',
+                'route' => '#',
+                'match' => 'coming-soon.catalogue',
+                'icon' => 'blog',
+                'tone' => 'fuchsia',
+                'group' => 'Work',
+                'comingSoon' => true,
+            ],
+            'document_studio' => [
+                'label' => 'Document Studio',
+                'route' => '#',
+                'match' => 'coming-soon.document-studio',
+                'icon' => 'studio',
+                'tone' => 'rose',
+                'group' => 'Work',
+                'comingSoon' => true,
             ],
             'analytics' => [
                 'label' => 'Analytics',
@@ -142,6 +247,40 @@ final class NavModules
         return array_keys(self::catalog());
     }
 
+    /**
+     * @return array<string, array{label:string,tone:string,children:list<string>}>
+     */
+    public static function menuGroups(): array
+    {
+        return [
+            'business_section' => [
+                'label' => 'Business',
+                'tone' => 'rose',
+                'children' => ['business', 'brand'],
+            ],
+            'marketing' => [
+                'label' => 'Marketing',
+                'tone' => 'fuchsia',
+                'children' => ['social', 'seo', 'blog', 'channels', 'whatsapp', 'email', 'sms'],
+            ],
+            'leads' => [
+                'label' => 'Leads',
+                'tone' => 'amber',
+                'children' => ['lead_forms', 'funnels', 'crm', 'automations'],
+            ],
+            'sales' => [
+                'label' => 'Sales',
+                'tone' => 'violet',
+                'children' => ['customers', 'quotations', 'proposals', 'bookings', 'payments'],
+            ],
+            'business_studio' => [
+                'label' => 'Business Studio',
+                'tone' => 'emerald',
+                'children' => ['business_card', 'brochure', 'catalogue', 'document_studio'],
+            ],
+        ];
+    }
+
     /** Preferred sidebar group order. */
     public static function groupOrder(): array
     {
@@ -156,6 +295,22 @@ final class NavModules
 
         if (str_starts_with($routeName, 'integrations.')) {
             return 'settings';
+        }
+
+        if (str_starts_with($routeName, 'email.')) {
+            return 'email';
+        }
+
+        if (str_starts_with($routeName, 'studio.quotations.')) {
+            return 'quotations';
+        }
+
+        if (str_starts_with($routeName, 'studio.cards.')) {
+            return 'business_card';
+        }
+
+        if (str_starts_with($routeName, 'studio.brochures.')) {
+            return 'brochure';
         }
 
         foreach (self::catalog() as $key => $meta) {

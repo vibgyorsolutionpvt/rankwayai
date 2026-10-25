@@ -35,7 +35,6 @@ class LocalChromeJsRenderProvider implements JsRenderProvider
         $budgetMs = (int) config('services.chrome.virtual_time_budget_ms', 8000);
 
         $result = Process::timeout(25)
-            ->quietly()
             ->run([
                 $binary,
                 '--headless=new',

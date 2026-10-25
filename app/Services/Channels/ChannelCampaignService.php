@@ -7,6 +7,7 @@ use App\Models\ChannelCampaignRecipient;
 use App\Models\CrmLead;
 use App\Models\WhatsappConversation;
 use App\Models\Workspace;
+use App\Services\Billing\WhatsAppCreditService;
 use App\Services\Channels\Rcs\RcsDeliveryService;
 use App\Services\Channels\Rcs\RcsProviderCatalog;
 use App\Services\Integrations\WorkspaceIntegrationService;
@@ -18,23 +19,32 @@ class ChannelCampaignService
 {
     public const LEAD_STAGES = ['new', 'contacted', 'qualified', 'won', 'lost'];
 
+    public const DIRECT_NUMBER_LIMIT = 20;
+
     public const DEFAULT_AUDIENCE_STAGES = ['new', 'contacted', 'qualified'];
 
     public function __construct(
         private readonly ChannelTemplateService $templates,
+        private readonly EmailHtmlSanitizer $emailHtml,
         private readonly RcsDeliveryService $rcs,
         private readonly SmtpDeliveryService $smtp,
+        private readonly BrevoEmailDeliveryService $brevo,
         private readonly WorkspaceIntegrationService $integrations,
         private readonly MetaWhatsAppCloudService $metaWhatsApp,
+        private readonly WhatsAppCreditService $whatsappCredits,
     ) {}
 
     /**
      * Resolve delivery provider for a channel.
-     * Email: SMTP → Zavu → sandbox.
+     * Email: rotate configured free API providers; otherwise use custom SMTP or Zavu.
      * WhatsApp: workspace Meta Cloud API → workspace Zavu → none (blocked).
      */
     public function provider(?Workspace $workspace = null, string $channel = 'whatsapp'): string
     {
+        if ($channel === 'email' && $workspace && $this->freeEmailProviders($workspace) !== []) {
+            return 'auto';
+        }
+
         if ($channel === 'email' && $workspace && $this->integrations->hasSmtp($workspace)) {
             return 'smtp';
         }
@@ -43,11 +53,71 @@ class ChannelCampaignService
             return $this->integrations->whatsappProvider($workspace);
         }
 
+        if ($channel === 'email' && $workspace && filled($this->integrations->zavuKey($workspace))) {
+            return 'zavu';
+        }
+
+        if ($channel === 'email') {
+            return 'none';
+        }
+
         if ($workspace && filled($this->integrations->zavuKey($workspace))) {
             return 'zavu';
         }
 
         return filled(config('services.zavu.key')) ? 'zavu' : 'sandbox';
+    }
+
+    /**
+     * @return list<array{id:string,label:string}>
+     */
+    public function emailDeliveryProviders(Workspace $workspace): array
+    {
+        $availableFreeProviders = $this->freeEmailProviders($workspace);
+        $providers = $availableFreeProviders === []
+            ? []
+            : [['id' => 'auto', 'label' => 'Automatic free-provider rotation']];
+        $labels = [
+            'brevo' => 'Brevo (300/day)',
+            'resend' => 'Resend (100/day, 3,000/month)',
+            'mailersend' => 'MailerSend (100/day, 500/month)',
+            'sender' => 'Sender (15,000/month)',
+        ];
+        foreach ($availableFreeProviders as $provider) {
+            $providers[] = ['id' => $provider, 'label' => $labels[$provider]];
+        }
+        if ($this->integrations->hasSmtp($workspace)) {
+            $providers[] = ['id' => 'smtp', 'label' => 'Custom SMTP'];
+        }
+        if (filled($this->integrations->zavuKey($workspace)) || filled(config('services.zavu.key'))) {
+            $providers[] = ['id' => 'zavu', 'label' => 'Zavu'];
+        }
+
+        return $providers;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function freeEmailProviders(Workspace $workspace): array
+    {
+        return array_values(array_filter(
+            ['brevo', 'resend', 'mailersend', 'sender'],
+            fn (string $provider) => $this->integrations->emailProviderConfig($workspace, $provider) !== null,
+        ));
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function emailProviderOrder(Workspace $workspace, string $preferred): array
+    {
+        $providers = $this->freeEmailProviders($workspace);
+        if ($preferred !== 'auto' && in_array($preferred, $providers, true)) {
+            return [$preferred, ...array_values(array_diff($providers, [$preferred]))];
+        }
+
+        return $providers;
     }
 
     /**
@@ -74,13 +144,19 @@ class ChannelCampaignService
      */
     public function create(
         Workspace $workspace,
-        int $userId,
+        string $userId,
         array $data,
         ?array $leadIds = null
     ): ChannelCampaign {
         $provider = $data['channel'] === 'rcs'
             ? RcsProviderCatalog::normalize($data['rcs_provider'] ?? null, $workspace)
-            : $this->provider($workspace, $data['channel']);
+            : ($data['channel'] === 'email' && in_array(
+                $data['email_provider'] ?? null,
+                array_column($this->emailDeliveryProviders($workspace), 'id'),
+                true,
+            )
+                ? $data['email_provider']
+                : $this->provider($workspace, $data['channel']));
 
         $campaign = ChannelCampaign::query()->create([
             'workspace_id' => $workspace->id,
@@ -123,6 +199,7 @@ class ChannelCampaignService
             }
             $now = now();
             $batch[] = [
+                'id' => (string) Str::uuid7(),
                 'channel_campaign_id' => $campaign->id,
                 'crm_lead_id' => $lead->id,
                 'to' => $to,
@@ -144,7 +221,7 @@ class ChannelCampaignService
      * @param  array{stages?:list<string>, sources?:list<string>, custom_field?:?string, custom_value?:?string}  $filters
      * @return array{matched:int, recipients:int, duplicates:int, opted_out:int}
      */
-    public function audienceSummary(int $workspaceId, string $channel, ?int $groupId, ?array $leadIds, array $filters = []): array
+    public function audienceSummary(string $workspaceId, string $channel, ?string $groupId, ?array $leadIds, array $filters = []): array
     {
         $summary = ['matched' => 0, 'recipients' => 0, 'duplicates' => 0, 'opted_out' => 0];
         foreach ($this->audience($workspaceId, $channel, $groupId, $leadIds, $filters) as [, , $skip]) {
@@ -167,7 +244,7 @@ class ChannelCampaignService
      * @param  array{stages?:list<string>, sources?:list<string>, custom_field?:?string, custom_value?:?string}  $filters
      * @return \Generator<int, array{0:CrmLead, 1:string, 2:?string}>
      */
-    private function audience(int $workspaceId, string $channel, ?int $groupId, ?array $leadIds, array $filters): \Generator
+    private function audience(string $workspaceId, string $channel, ?string $groupId, ?array $leadIds, array $filters): \Generator
     {
         $column = $channel === 'email' ? 'email' : 'phone';
         $query = CrmLead::query()
@@ -226,6 +303,97 @@ class ChannelCampaignService
         }
     }
 
+    /**
+     * @return array{phones:list<string>, duplicates:int, invalid:int}
+     */
+    public function parseDirectPhones(string $raw): array
+    {
+        $phones = [];
+        $duplicates = 0;
+        $invalid = 0;
+        foreach (preg_split('/[\n,;]+/', $raw) ?: [] as $part) {
+            $part = trim($part);
+            if ($part === '') {
+                continue;
+            }
+            $digits = preg_replace('/\D+/', '', $part) ?: '';
+            if (strlen($digits) < 7 || strlen($digits) > 15) {
+                $invalid++;
+
+                continue;
+            }
+            if (isset($phones[$digits])) {
+                $duplicates++;
+
+                continue;
+            }
+            $phones[$digits] = $digits;
+        }
+
+        return [
+            'phones' => array_values($phones),
+            'duplicates' => $duplicates,
+            'invalid' => $invalid,
+        ];
+    }
+
+    /**
+     * @return array{matched:int, recipients:int, duplicates:int, opted_out:int, invalid:int, numbers:int}
+     */
+    public function directPhoneSummary(string $workspaceId, string $raw): array
+    {
+        $parsed = $this->parseDirectPhones($raw);
+        $optedOut = WhatsappConversation::query()
+            ->where('workspace_id', $workspaceId)
+            ->where('opted_out_until', '>', now())
+            ->pluck('phone')
+            ->mapWithKeys(fn ($phone) => [$this->destinationKey('whatsapp', (string) $phone) => true])
+            ->all();
+        $opted = 0;
+        foreach ($parsed['phones'] as $digits) {
+            if (isset($optedOut[$digits])) {
+                $opted++;
+            }
+        }
+
+        return [
+            'matched' => count($parsed['phones']),
+            'recipients' => max(0, count($parsed['phones']) - $opted),
+            'duplicates' => $parsed['duplicates'],
+            'opted_out' => $opted,
+            'invalid' => $parsed['invalid'],
+            'numbers' => count($parsed['phones']),
+        ];
+    }
+
+    /**
+     * @param  list<string>  $digits
+     * @return list<string>
+     */
+    public function leadsForDirectPhones(Workspace $workspace, array $digits): array
+    {
+        $ids = [];
+        foreach ($digits as $phoneDigits) {
+            $normalized = "REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(phone, ' ', ''), '-', ''), '+', ''), '(', ''), ')', '')";
+            $lead = CrmLead::query()
+                ->where('workspace_id', $workspace->id)
+                ->whereRaw($normalized.' = ?', [$phoneDigits])
+                ->first();
+            if (! $lead) {
+                $lead = CrmLead::query()->create([
+                    'workspace_id' => $workspace->id,
+                    'name' => '+'.$phoneDigits,
+                    'phone' => '+'.$phoneDigits,
+                    'stage' => 'new',
+                    'source' => 'manual',
+                ]);
+            }
+            $ids[] = $lead->id;
+        }
+
+        return $ids;
+    }
+
     private function destinationKey(string $channel, string $to): string
     {
         return $channel === 'email'
@@ -249,6 +417,7 @@ class ChannelCampaignService
 
             return ['ok' => false, 'message' => $campaign->failure_reason, 'campaign' => $campaign];
         }
+        $pendingCount = (clone $pendingQuery)->count();
 
         if ($campaign->channel === 'whatsapp') {
             $workspace = $campaign->workspace ?? Workspace::query()->find($campaign->workspace_id);
@@ -279,21 +448,52 @@ class ChannelCampaignService
             ]);
         } else {
             $workspace = $campaign->workspace ?? Workspace::query()->find($campaign->workspace_id);
+            $emailProvider = $campaign->provider;
+            if ($campaign->channel === 'email' && in_array($emailProvider, ['', 'none', 'sandbox'], true)) {
+                $emailProvider = $this->provider($workspace, 'email');
+            }
             $campaign->update([
                 'status' => 'sending',
-                'provider' => $this->provider($workspace, $campaign->channel),
+                'provider' => $campaign->channel === 'email'
+                    ? ($emailProvider ?: $this->provider($workspace, $campaign->channel))
+                    : $this->provider($workspace, $campaign->channel),
             ]);
         }
 
         $sent = 0;
         $failed = 0;
+        $chargesCredits = $campaign->channel === 'whatsapp' && $workspace;
+        $creditsLeft = $chargesCredits ? $this->whatsappCredits->available($workspace) : 0;
+        $bulkRate = $chargesCredits && $this->whatsappCredits->isBulkCampaign($campaign);
+        $acceptedBefore = $chargesCredits ? $this->whatsappCredits->acceptedCount($campaign) : 0;
+        $alreadyCharged = (int) $campaign->credits_charged;
+        $charged = 0;
+        $outOfCredits = false;
+        $emailLimitError = null;
+        $emailQuotaExhausted = false;
 
+        $batchLimit = $recipientLimit !== null ? max(1, $recipientLimit) : $pendingCount;
         $pendingRecipients = $pendingQuery
-            ->when($recipientLimit !== null, fn ($query) => $query->limit(max(1, $recipientLimit)))
+            ->limit($batchLimit)
             ->get();
         foreach ($pendingRecipients as $recipient) {
+            if (
+                $chargesCredits
+                && $creditsLeft < $this->whatsappCredits->campaignCreditsFor($acceptedBefore + $charged + 1, $bulkRate) - $alreadyCharged
+            ) {
+                $campaign->recipients()->where('status', 'pending')->update([
+                    'status' => 'failed',
+                    'error_message' => WhatsAppCreditService::OUT_OF_CREDITS_MESSAGE,
+                ]);
+                $outOfCredits = true;
+                break;
+            }
+
             $result = $this->deliver($campaign, $recipient);
             if ($result['ok']) {
+                if ($chargesCredits) {
+                    $charged++;
+                }
                 $recipient->update([
                     'status' => 'sent',
                     'provider_message_id' => $result['id'],
@@ -313,7 +513,20 @@ class ChannelCampaignService
                     'error_message' => $result['error'],
                 ]);
                 $failed++;
+                if ($campaign->channel === 'email' && ($result['quota_exhausted'] ?? false)) {
+                    $campaign->recipients()->where('status', 'pending')->update([
+                        'status' => 'failed',
+                        'error_message' => 'All connected free email providers have reached their sending caps.',
+                    ]);
+                    $emailQuotaExhausted = true;
+                    $emailLimitError = $result['error'];
+                    break;
+                }
             }
+        }
+
+        if ($chargesCredits) {
+            $this->whatsappCredits->settleCampaign($workspace, $campaign);
         }
 
         $sent = $campaign->recipients()->whereIn('status', ['sent', 'delivered', 'read'])->count();
@@ -324,7 +537,11 @@ class ChannelCampaignService
             'failed_count' => $failed,
             'sent_at' => $hasPending ? null : now(),
             'status' => $hasPending ? 'sending' : ($failed > 0 && $sent === 0 ? 'failed' : 'sent'),
-            'failure_reason' => ! $hasPending && $failed > 0 && $sent === 0 ? 'All recipients failed' : null,
+            'failure_reason' => $outOfCredits
+                ? WhatsAppCreditService::OUT_OF_CREDITS_MESSAGE
+                : ($emailQuotaExhausted
+                    ? ($emailLimitError ?: 'All connected free email providers have reached their sending caps.')
+                    : (! $hasPending && $failed > 0 && $sent === 0 ? 'All recipients failed' : null)),
         ]);
 
         return [
@@ -357,9 +574,17 @@ class ChannelCampaignService
             ];
         }
 
-        $body = $workspace
-            ? $this->templates->render($campaign->body, $workspace, $lead)
+        $body = $campaign->channel === 'email'
+            ? $this->emailHtml->sanitize($campaign->body)
             : $campaign->body;
+        if ($workspace) {
+            $body = $this->templates->render(
+                $body,
+                $workspace,
+                $lead,
+                escapeValues: $campaign->channel === 'email',
+            );
+        }
         $subject = $campaign->subject && $workspace
             ? $this->templates->render($campaign->subject, $workspace, $lead)
             : $campaign->subject;
@@ -377,13 +602,23 @@ class ChannelCampaignService
             );
         }
 
-        $provider = $this->provider($workspace, $campaign->channel);
+        $provider = $campaign->channel === 'email'
+            ? (string) $campaign->provider
+            : $this->provider($workspace, $campaign->channel);
 
         if ($campaign->channel === 'whatsapp' && $provider === 'none') {
             return ['ok' => false, 'id' => null, 'error' => WorkspaceIntegrationService::whatsappNotConnectedMessage()];
         }
 
-        if ($provider === 'sandbox') {
+        if ($campaign->channel === 'email' && $provider === 'none') {
+            return [
+                'ok' => false,
+                'id' => null,
+                'error' => 'No email provider is connected. Connect a provider in Settings → Providers before sending.',
+            ];
+        }
+
+        if ($provider === 'sandbox' && $campaign->channel !== 'email') {
             return [
                 'ok' => true,
                 'id' => 'sandbox_'.Str::lower(Str::random(12)),
@@ -398,6 +633,52 @@ class ChannelCampaignService
                 (string) ($subject ?: 'Message'),
                 $body
             );
+        }
+
+        if ($campaign->channel === 'email' && $workspace && in_array(
+            $provider,
+            ['auto', 'brevo', 'resend', 'mailersend', 'sender'],
+            true,
+        )) {
+            $providerOrder = $this->emailProviderOrder($workspace, $provider);
+            if ($providerOrder === []) {
+                return [
+                    'ok' => false,
+                    'id' => null,
+                    'error' => 'No email provider is connected. Connect Brevo, Resend, MailerSend, or Sender in Settings → Providers.',
+                ];
+            }
+
+            $lastQuotaError = null;
+            foreach ($providerOrder as $emailProvider) {
+                $dailyRemaining = $this->brevo->remainingDailySends($workspace, $emailProvider);
+                $monthlyRemaining = $this->brevo->remainingMonthlySends($workspace, $emailProvider);
+                if (($dailyRemaining !== null && $dailyRemaining < 1)
+                    || ($monthlyRemaining !== null && $monthlyRemaining < 1)) {
+                    $lastQuotaError = ucfirst($emailProvider).' free-plan sending limit reached.';
+
+                    continue;
+                }
+
+                $result = $this->brevo->sendProvider(
+                    $workspace,
+                    $emailProvider,
+                    (string) $recipient->to,
+                    (string) ($subject ?: 'Message'),
+                    $body,
+                );
+                if ($result['ok'] || ! ($result['quota_exhausted'] ?? false)) {
+                    return $result;
+                }
+                $lastQuotaError = $result['error'];
+            }
+
+            return [
+                'ok' => false,
+                'id' => null,
+                'error' => $lastQuotaError ?: 'All connected free email providers have reached their sending caps.',
+                'quota_exhausted' => true,
+            ];
         }
 
         if ($campaign->channel === 'whatsapp' && $provider === 'meta' && $workspace) {

@@ -15,6 +15,7 @@ use App\Services\Workspaces\AgencyTeamService;
 use App\Services\Workspaces\VisibleWorkspaceService;
 use App\Support\BusinessTypes;
 use App\Support\NavModules;
+use App\Support\PublicId;
 use App\Support\SocialPlatforms;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -45,7 +46,7 @@ class SettingsController extends Controller
         if (! in_array($historyTab, ['actions', 'logins'], true)) {
             $historyTab = 'actions';
         }
-        $historyUserId = (int) $request->query('history_user', 0);
+        $historyUserId = PublicId::normalize($request->query('history_user', 0));
 
         $workspace = $this->workspace($request);
 
@@ -88,7 +89,7 @@ class SettingsController extends Controller
                 ];
             });
 
-        $activeId = (int) $request->session()->get('active_workspace_id');
+        $activeId = PublicId::normalize($request->session()->get('active_workspace_id'));
         $active = $workspaces->firstWhere('id', $activeId) ?? $workspaces->first();
 
         $members = [];
@@ -108,14 +109,24 @@ class SettingsController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'role' => $user->pivot->role,
-                'enabled_modules' => $this->decodeModules($user->pivot->enabled_modules ?? null),
+                'enabled_modules' => $modules->normalizeModuleKeys($user->pivot->enabled_modules ?? null),
             ]);
 
             $global = $modules->globallyEnabledKeys();
             $workspaceKeys = $modules->workspaceEnabledKeys($activeModel);
             $moduleCatalog = [
                 'keys' => NavModules::keys(),
-                'workspace_modules' => $activeModel->enabled_modules,
+                'workspace_modules' => $modules->normalizeModuleKeys($activeModel->enabled_modules),
+                'groups' => collect(NavModules::menuGroups())
+                    ->map(fn (array $group, string $key) => [
+                        'key' => $key,
+                        'label' => $group['label'],
+                        'tone' => $group['tone'],
+                        'globally_enabled' => $modules->isPlatformMenuEnabled($key),
+                        'children' => $group['children'],
+                    ])
+                    ->values()
+                    ->all(),
                 'items' => collect(NavModules::catalog())
                     ->map(fn (array $meta, string $key) => [
                         'key' => $key,
@@ -209,23 +220,5 @@ class SettingsController extends Controller
                 'email' => $request->user()->email,
             ],
         ]);
-    }
-
-    /**
-     * @return list<string>|null
-     */
-    private function decodeModules(mixed $value): ?array
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        if (is_string($value)) {
-            $decoded = json_decode($value, true);
-
-            return is_array($decoded) ? array_values($decoded) : [];
-        }
-
-        return is_array($value) ? array_values($value) : [];
     }
 }

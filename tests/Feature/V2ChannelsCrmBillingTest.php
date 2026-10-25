@@ -17,6 +17,7 @@ use App\Models\WhatsappConversation;
 use App\Models\Workspace;
 use App\Models\WorkspaceAiSetting;
 use App\Models\WorkspaceSubscription;
+use App\Services\Access\ModuleAccess;
 use App\Services\Billing\BillingAccountService;
 use App\Services\Billing\BillingService;
 use App\Services\Billing\UsageMeterService;
@@ -24,6 +25,7 @@ use App\Services\Channels\ChannelCampaignService;
 use App\Services\Integrations\WorkspaceIntegrationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class V2ChannelsCrmBillingTest extends TestCase
@@ -32,6 +34,10 @@ class V2ChannelsCrmBillingTest extends TestCase
 
     private function memberWithWorkspace(string $plan = 'starter'): array
     {
+        $menus = app(ModuleAccess::class);
+        $menus->setPlatformMenu('leads', true);
+        $menus->setPlatformMenu('email', true);
+
         $user = User::factory()->create();
         $workspace = Workspace::factory()->create();
         $workspace->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
@@ -400,6 +406,7 @@ class V2ChannelsCrmBillingTest extends TestCase
         ]);
         for ($index = 0; $index < 205; $index++) {
             $leadRows[] = [
+                'id' => (string) Str::uuid7(),
                 'workspace_id' => $workspace->id,
                 'name' => 'Batch lead '.$index,
                 'phone' => '+1555'.str_pad((string) $index, 7, '0', STR_PAD_LEFT),
@@ -421,6 +428,7 @@ class V2ChannelsCrmBillingTest extends TestCase
                 'updated_at' => $now,
             ];
             $recipientRows[] = [
+                'id' => (string) Str::uuid7(),
                 'channel_campaign_id' => $campaign->id,
                 'crm_lead_id' => $lead->id,
                 'to' => $lead->phone,
@@ -564,6 +572,53 @@ class V2ChannelsCrmBillingTest extends TestCase
                 ->where('rcs_providers.0.id', 'sandbox'));
     }
 
+    public function test_email_sidebar_route_opens_email_campaign_composer(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('email.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Channels/Index')
+                ->where('initial_channel', 'email')
+                ->where('email_only', true)
+                ->has('email_providers')
+                ->where('providers.email', 'none'));
+    }
+
+    public function test_email_campaign_route_forces_email_channel(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $lead = CrmLead::query()->create([
+            'workspace_id' => $workspace->id,
+            'name' => 'Asha',
+            'email' => 'asha@example.com',
+            'phone' => '+919876543210',
+            'stage' => 'new',
+            'source' => 'manual',
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('email.store'), [
+                'name' => 'Email only campaign',
+                'channel' => 'whatsapp',
+                'subject' => 'Hello',
+                'body' => 'Hi Asha',
+                'lead_ids' => [$lead->id],
+                'recipient_mode' => 'selected',
+                'delivery' => 'draft',
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $campaign = ChannelCampaign::query()->firstOrFail();
+        $this->assertSame('email', $campaign->channel);
+        $this->assertSame('asha@example.com', $campaign->recipients()->value('to'));
+    }
+
     public function test_channel_template_can_be_saved_and_used_in_campaign(): void
     {
         [$user, $workspace] = $this->memberWithWorkspace();
@@ -685,6 +740,37 @@ class V2ChannelsCrmBillingTest extends TestCase
 
         $this->assertSame(7, $usage['channel_sends']['used']);
         $this->assertSame('Email / RCS sends', $usage['channel_sends']['label']);
+    }
+
+    public function test_only_account_owner_can_manage_billing(): void
+    {
+        [$owner, $workspace] = $this->memberWithWorkspace();
+        $editor = User::factory()->create();
+        $workspace->users()->attach($editor->id, ['role' => WorkspaceRole::Editor->value]);
+        $planBefore = WorkspaceSubscription::query()->where('workspace_id', $workspace->id)->value('plan');
+
+        $this->actingAs($editor)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('billing.index'))
+            ->assertRedirect()
+            ->assertSessionHas('error', 'Only the account owner can manage billing.');
+
+        $this->actingAs($editor)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('billing.plan'), ['plan' => 'growth', 'market' => 'in'])
+            ->assertForbidden();
+        $this->assertSame($planBefore, WorkspaceSubscription::query()->where('workspace_id', $workspace->id)->value('plan'));
+
+        $this->actingAs($editor)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('billing.cancel'))
+            ->assertForbidden();
+
+        $this->actingAs($owner)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->get(route('billing.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page->where('can_manage_billing', true));
     }
 
     public function test_billing_defaults_to_free_and_plan_change_is_manual(): void

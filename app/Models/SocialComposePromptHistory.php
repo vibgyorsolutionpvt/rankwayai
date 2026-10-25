@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SocialComposePromptHistory extends Model
 {
+    use HasUuids;
+
     protected $fillable = [
         'workspace_id',
         'user_id',
@@ -69,7 +72,7 @@ class SocialComposePromptHistory extends Model
      */
     public static function remember(
         Workspace $workspace,
-        ?int $userId,
+        ?string $userId,
         string $prompt,
         string $offer = '',
         array $api = [],

@@ -2,12 +2,17 @@
 
 namespace App\Models;
 
+use App\Services\Social\SocialPostAnalyticsService;
+use App\Services\Social\SocialPublisherService;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SocialPost extends Model
 {
+    use HasUuids;
+
     protected $fillable = [
         'workspace_id',
         'created_by',
@@ -66,8 +71,8 @@ class SocialPost extends Model
 
     public function toLibraryArray(): array
     {
-        $publisher = app(\App\Services\Social\SocialPublisherService::class);
-        $analytics = app(\App\Services\Social\SocialPostAnalyticsService::class);
+        $publisher = app(SocialPublisherService::class);
+        $analytics = app(SocialPostAnalyticsService::class);
 
         // Skip engagement DB hits for posts that are not live yet — keeps publish redirect snappy.
         $publishedLogs = in_array($this->status, ['published', 'failed'], true)

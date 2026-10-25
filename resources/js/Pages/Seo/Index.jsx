@@ -17,6 +17,7 @@ const TABS = [
     { id: 'speed', label: 'Speed' },
     { id: 'fix', label: 'Fix' },
     { id: 'keywords', label: 'Keywords' },
+    { id: 'business', label: 'Business profile' },
     { id: 'grow', label: 'Grow' },
     { id: 'map', label: 'Site map' },
 ];
@@ -391,6 +392,7 @@ export default function Index({
     plan = null,
     backlinks = { summary: null, items: [] },
     local_targets = [],
+    google_business = { configured: false, connected: false, locations: [], profile: null, reviews: [], error: null },
     architecture = { nodes: [], edges: [] },
     pagespeed_quota = null,
     rankway = null,
@@ -520,6 +522,13 @@ export default function Index({
         business_name: workspace?.name || '',
         site_id: site?.id || '',
     });
+    const gbpForm = useForm({
+        phone: google_business.profile?.phone || '',
+        website: google_business.profile?.website || '',
+        description: google_business.profile?.description || '',
+    });
+    const gbpPostForm = useForm({ summary: '' });
+    const [reviewReply, setReviewReply] = useState({});
     const openTasks = useMemo(() => tasks.filter((t) => t.status === 'open').slice(0, 12), [tasks]);
     const openIssues = useMemo(
         () => issues.filter((i) => i.status === 'open' || !i.status),
@@ -2285,6 +2294,248 @@ export default function Index({
                             </div>
                         ) : null}
 
+                        {tab === 'business' ? (
+                            <div className="space-y-4">
+                                <section className="atlas-panel overflow-hidden">
+                                    <PanelTitle
+                                        title="Google Business listing"
+                                        action={
+                                            google_business.connected ? (
+                                                <div className="flex gap-2">
+                                                    <SecondaryButton
+                                                        type="button"
+                                                        onClick={() =>
+                                                            router.post(route('seo.sites.gbp.refresh', site.id))
+                                                        }
+                                                    >
+                                                        Refresh
+                                                    </SecondaryButton>
+                                                    <SecondaryButton
+                                                        type="button"
+                                                        onClick={() =>
+                                                            router.delete(route('seo.sites.gbp.disconnect', site.id))
+                                                        }
+                                                    >
+                                                        Disconnect
+                                                    </SecondaryButton>
+                                                </div>
+                                            ) : null
+                                        }
+                                    />
+                                    <div className="space-y-4 px-4 py-4">
+                                        <p className="text-sm text-ink-muted">
+                                            Connect the Google account that owns the listing. You can update the phone, website, and description, reply to reviews, and publish an update.
+                                        </p>
+                                        {google_business.error ? (
+                                            <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                                                {google_business.error}
+                                            </p>
+                                        ) : null}
+                                        {!google_business.configured ? (
+                                            <p className="text-sm text-ink">
+                                                Add the Google OAuth client in Settings → Providers → SEO / Google, and add redirect{' '}
+                                                <span className="font-semibold">{`${window.location.origin}/seo/gbp/callback`}</span>{' '}
+                                                in Google Cloud.
+                                            </p>
+                                        ) : !google_business.connected ? (
+                                            <a
+                                                href={route('seo.sites.gbp', site.id)}
+                                                className="inline-flex rounded-md bg-signal px-3 py-2 text-sm font-semibold text-white"
+                                            >
+                                                Connect Google Business
+                                            </a>
+                                        ) : (
+                                            <>
+                                                {google_business.locations.length > 1 ? (
+                                                    <SelectMenu
+                                                        value={google_business.location_name || ''}
+                                                        onChange={(value) => {
+                                                            const location = google_business.locations.find(
+                                                                (row) => row.location_name === value,
+                                                            );
+                                                            if (!location) return;
+                                                            router.post(route('seo.sites.gbp.location', site.id), {
+                                                                account_name: location.account_name,
+                                                                location_name: location.location_name,
+                                                            });
+                                                        }}
+                                                        options={google_business.locations.map((row) => ({
+                                                            value: row.location_name,
+                                                            label: `${row.title}${row.address ? ` · ${row.address}` : ''}`,
+                                                        }))}
+                                                    />
+                                                ) : null}
+                                                {google_business.profile ? (
+                                                    <form
+                                                        className="grid gap-3 sm:grid-cols-2"
+                                                        onSubmit={(event) => {
+                                                            event.preventDefault();
+                                                            gbpForm.patch(route('seo.sites.gbp.update', site.id));
+                                                        }}
+                                                    >
+                                                        <div className="sm:col-span-2">
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <div className="font-display text-lg font-bold text-ink">
+                                                                    {google_business.profile.title}
+                                                                </div>
+                                                                <span
+                                                                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                                                        google_business.profile.verification?.status === 'verified'
+                                                                            ? 'bg-emerald-50 text-emerald-700'
+                                                                            : google_business.profile.verification?.status === 'pending'
+                                                                              ? 'bg-amber-50 text-amber-800'
+                                                                              : google_business.profile.verification?.status === 'unknown'
+                                                                                ? 'bg-mist text-ink-muted'
+                                                                                : 'bg-rose-50 text-rose-700'
+                                                                    }`}
+                                                                >
+                                                                    {google_business.profile.verification?.label || 'Not available'}
+                                                                </span>
+                                                            </div>
+                                                            <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+                                                                {[
+                                                                    ['Category', [google_business.profile.category, google_business.profile.extra_categories].filter(Boolean).join(', ')],
+                                                                    ['Status', google_business.profile.open_status],
+                                                                    ['Address', google_business.profile.address],
+                                                                    ['Service area', google_business.profile.service_area],
+                                                                    ['Hours', google_business.profile.hours],
+                                                                    ['Special hours', google_business.profile.special_hours],
+                                                                    ['Other phones', google_business.profile.extra_phones],
+                                                                    ['Store code', google_business.profile.store_code],
+                                                                    ['Labels', google_business.profile.labels],
+                                                                    ['Place ID', google_business.profile.place_id],
+                                                                ]
+                                                                    .filter(([, value]) => value)
+                                                                    .map(([label, value]) => (
+                                                                        <div key={label}>
+                                                                            <dt className="text-xs font-semibold text-ink-muted">{label}</dt>
+                                                                            <dd className="text-sm text-ink">{value}</dd>
+                                                                        </div>
+                                                                    ))}
+                                                                {google_business.profile.maps_uri ? (
+                                                                    <div>
+                                                                        <dt className="text-xs font-semibold text-ink-muted">Google Maps</dt>
+                                                                        <dd className="text-sm">
+                                                                            <a
+                                                                                href={google_business.profile.maps_uri}
+                                                                                target="_blank"
+                                                                                rel="noreferrer"
+                                                                                className="font-semibold text-signal"
+                                                                            >
+                                                                                Open listing
+                                                                            </a>
+                                                                        </dd>
+                                                                    </div>
+                                                                ) : null}
+                                                            </dl>
+                                                        </div>
+                                                        <div>
+                                                            <InputLabel value="Phone" />
+                                                            <TextInput
+                                                                className="mt-1.5 w-full"
+                                                                value={gbpForm.data.phone}
+                                                                onChange={(event) => gbpForm.setData('phone', event.target.value)}
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <InputLabel value="Website" />
+                                                            <TextInput
+                                                                className="mt-1.5 w-full"
+                                                                value={gbpForm.data.website}
+                                                                onChange={(event) => gbpForm.setData('website', event.target.value)}
+                                                            />
+                                                        </div>
+                                                        <div className="sm:col-span-2">
+                                                            <InputLabel value="Description" />
+                                                            <textarea
+                                                                className="atlas-input mt-1.5 min-h-24 w-full"
+                                                                maxLength={750}
+                                                                value={gbpForm.data.description}
+                                                                onChange={(event) => gbpForm.setData('description', event.target.value)}
+                                                            />
+                                                        </div>
+                                                        <PrimaryButton className="sm:col-span-2" processing={gbpForm.processing}>
+                                                            Save listing
+                                                        </PrimaryButton>
+                                                    </form>
+                                                ) : (
+                                                    <p className="text-sm text-ink-muted">Choose a listing to manage it.</p>
+                                                )}
+                                                <div className="border-t border-line pt-3">
+                                                    <h3 className="text-sm font-semibold text-ink">Reviews</h3>
+                                                    {google_business.reviews.length === 0 ? (
+                                                        <p className="mt-2 text-sm text-ink-muted">No reviews loaded.</p>
+                                                    ) : (
+                                                        <ul className="mt-2 divide-y divide-line">
+                                                            {google_business.reviews.map((review) => (
+                                                                <li key={review.name} className="py-3">
+                                                                    <div className="text-sm font-semibold text-ink">
+                                                                        {review.reviewer} · {review.rating ? `${review.rating}/5` : 'No rating'}
+                                                                    </div>
+                                                                    {review.comment ? (
+                                                                        <p className="mt-1 text-sm text-ink-muted">{review.comment}</p>
+                                                                    ) : null}
+                                                                    {review.reply ? (
+                                                                        <p className="mt-1 text-sm text-ink">Reply: {review.reply}</p>
+                                                                    ) : (
+                                                                        <div className="mt-2 flex gap-2">
+                                                                            <TextInput
+                                                                                className="w-full"
+                                                                                placeholder="Write a reply"
+                                                                                value={reviewReply[review.name] || ''}
+                                                                                onChange={(event) =>
+                                                                                    setReviewReply((current) => ({
+                                                                                        ...current,
+                                                                                        [review.name]: event.target.value,
+                                                                                    }))
+                                                                                }
+                                                                            />
+                                                                            <SecondaryButton
+                                                                                type="button"
+                                                                                onClick={() =>
+                                                                                    router.post(route('seo.sites.gbp.reviews.reply', site.id), {
+                                                                                        review_name: review.name,
+                                                                                        comment: reviewReply[review.name] || '',
+                                                                                    })
+                                                                                }
+                                                                            >
+                                                                                Reply
+                                                                            </SecondaryButton>
+                                                                        </div>
+                                                                    )}
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    )}
+                                                </div>
+                                                <form
+                                                    className="border-t border-line pt-3"
+                                                    onSubmit={(event) => {
+                                                        event.preventDefault();
+                                                        gbpPostForm.post(route('seo.sites.gbp.posts', site.id), {
+                                                            onSuccess: () => gbpPostForm.reset('summary'),
+                                                        });
+                                                    }}
+                                                >
+                                                    <InputLabel value="Post an update" />
+                                                    <textarea
+                                                        className="atlas-input mt-1.5 min-h-20 w-full"
+                                                        maxLength={1500}
+                                                        placeholder="What customers should know today"
+                                                        value={gbpPostForm.data.summary}
+                                                        onChange={(event) => gbpPostForm.setData('summary', event.target.value)}
+                                                    />
+                                                    <PrimaryButton className="mt-2" processing={gbpPostForm.processing}>
+                                                        Publish update
+                                                    </PrimaryButton>
+                                                </form>
+                                            </>
+                                        )}
+                                    </div>
+                                </section>
+                            </div>
+                        ) : null}
+
                         {tab === 'grow' ? (
                             <div className="space-y-4">
                                 <section className="atlas-panel overflow-hidden">
@@ -2528,7 +2779,7 @@ export default function Index({
 
                                 <section className="atlas-panel overflow-hidden">
                                     <PanelTitle
-                                        title="Local pack / Maps"
+                                        title="Google Maps ranking"
                                         help={SEO_HELP.localPack}
                                     />
                                     <form
@@ -2590,13 +2841,13 @@ export default function Index({
                                             processing={localForm.processing}
                                             disabled={seoLocalLocked}
                                         >
-                                            Add local target
+                                            Track this search
                                         </PrimaryButton>
                                     </form>
                                     <ul className="max-h-64 divide-y divide-line overflow-y-auto">
                                         {local_targets.length === 0 ? (
                                             <li className="px-4 py-8 text-center text-sm text-ink-muted">
-                                                No local targets yet.
+                                                No searches yet. Add a keyword and city to see your Maps position.
                                             </li>
                                         ) : (
                                             local_targets.map((t) => (
@@ -2611,8 +2862,8 @@ export default function Index({
                                                         <div className="text-xs text-ink-muted">
                                                             {t.location_name} ·{' '}
                                                             {t.our_rank != null
-                                                                ? `#${t.our_rank}`
-                                                                : '—'}
+                                                                ? `Maps #${t.our_rank}`
+                                                                : 'Not checked'}
                                                         </div>
                                                     </div>
                                                     <SecondaryButton
@@ -2624,7 +2875,7 @@ export default function Index({
                                                             )
                                                         }
                                                     >
-                                                        Check
+                                                        Check rank
                                                     </SecondaryButton>
                                                 </li>
                                             ))

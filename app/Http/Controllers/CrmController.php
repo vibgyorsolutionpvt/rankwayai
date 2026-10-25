@@ -364,7 +364,7 @@ class CrmController extends Controller
      * @param  array<int, UploadedFile>  $files
      * @return list<CrmLeadAttachment>
      */
-    private function storeLeadFiles(int $workspaceId, CrmLead $lead, array $files, ?int $userId): array
+    private function storeLeadFiles(string $workspaceId, CrmLead $lead, array $files, ?string $userId): array
     {
         if ($files === []) {
             return [];

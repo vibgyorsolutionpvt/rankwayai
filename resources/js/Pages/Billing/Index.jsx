@@ -299,7 +299,7 @@ export default function Index({
                                                     'Social publish / OAuth',
                                                     'WhatsApp, Email & RCS sends',
                                                     'CRM, channels, funnels & media',
-                                                    'Backlinks, local pack, CMS & JS crawl',
+                                                    'Backlinks, Google Maps rank, CMS & JS crawl',
                                                 ].map((item) => (
                                                     <li key={item} className="flex gap-2">
                                                         <span className="mt-0.5" aria-hidden>
@@ -587,7 +587,7 @@ export default function Index({
                                             buttonClassName="!py-1.5 !text-sm"
                                             value={history_workspace_filter || ''}
                                             onChange={(id) =>
-                                                switchHistoryWorkspace(id ? Number(id) : null)
+                                                switchHistoryWorkspace(id || null)
                                             }
                                             placeholder="All workspaces"
                                             options={[

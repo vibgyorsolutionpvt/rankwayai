@@ -3,12 +3,15 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class WhatsappConversation extends Model
 {
+    use HasUuids;
+
     protected $fillable = [
         'workspace_id',
         'crm_lead_id',
@@ -90,7 +93,7 @@ class WhatsappConversation extends Model
         return $this->opted_out_until !== null && $this->opted_out_until->isFuture();
     }
 
-    public static function phoneIsOptedOut(int $workspaceId, string $phone): bool
+    public static function phoneIsOptedOut(string $workspaceId, string $phone): bool
     {
         $digits = preg_replace('/\D+/', '', $phone) ?: '';
         if ($digits === '') {

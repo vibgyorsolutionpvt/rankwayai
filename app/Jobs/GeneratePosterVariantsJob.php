@@ -13,7 +13,7 @@ class GeneratePosterVariantsJob implements ShouldQueue
 {
     use Queueable;
 
-    public function __construct(public int $socialPostId) {}
+    public function __construct(public string $socialPostId) {}
 
     public function handle(PosterTemplateService $posters): void
     {

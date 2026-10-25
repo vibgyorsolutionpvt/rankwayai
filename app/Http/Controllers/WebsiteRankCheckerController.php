@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\RankwayDomain;
 use App\Services\Rankway\RankwayDomainAnalyzer;
+use App\Support\PublicId;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -14,7 +16,7 @@ class WebsiteRankCheckerController extends Controller
 {
     public function show(Request $request): Response
     {
-        $domainId = (int) $request->query('id', 0);
+        $domainId = PublicId::normalize($request->query('id', 0));
         $result = null;
         $unlocked = (bool) $request->user();
 
@@ -63,7 +65,7 @@ class WebsiteRankCheckerController extends Controller
         );
     }
 
-    public function status(Request $request, RankwayDomain $domain): Response|\Illuminate\Http\JsonResponse
+    public function status(Request $request, RankwayDomain $domain): Response|JsonResponse
     {
         $domain->load('latestMetric');
         $unlocked = (bool) $request->user();

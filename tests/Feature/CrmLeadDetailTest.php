@@ -9,6 +9,7 @@ use App\Models\CrmLeadAttachment;
 use App\Models\User;
 use App\Models\WhatsappConversation;
 use App\Models\Workspace;
+use App\Services\Access\ModuleAccess;
 use App\Services\Billing\BillingService;
 use App\Services\Channels\ChannelTemplateService;
 use App\Services\WhatsApp\MetaWhatsAppCloudService;
@@ -23,6 +24,7 @@ class CrmLeadDetailTest extends TestCase
 
     private function memberWithWorkspace(): array
     {
+        app(ModuleAccess::class)->setPlatformMenu('leads', true);
         $user = User::factory()->create();
         $workspace = Workspace::factory()->create();
         $workspace->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);

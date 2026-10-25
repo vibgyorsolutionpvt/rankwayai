@@ -49,11 +49,11 @@ class AgencyTeamService
 
         foreach ($owned as $workspace) {
             foreach ($workspace->users as $user) {
-                if ((int) $user->id === (int) $owner->id) {
+                if ($user->id === $owner->id) {
                     continue;
                 }
 
-                $uid = (int) $user->id;
+                $uid = $user->id;
                 if (! isset($byUser[$uid])) {
                     $byUser[$uid] = [
                         'id' => $uid,
@@ -64,7 +64,7 @@ class AgencyTeamService
                 }
 
                 $byUser[$uid]['workspaces'][] = [
-                    'id' => (int) $workspace->id,
+                    'id' => $workspace->id,
                     'name' => $workspace->name,
                     'role' => (string) $user->pivot->role,
                 ];
@@ -152,16 +152,16 @@ class AgencyTeamService
     /**
      * @param  list<int>  $workspaceIds
      */
-    public function syncWorkspaces(User $owner, User $actor, int $memberId, array $workspaceIds): void
+    public function syncWorkspaces(User $owner, User $actor, string $memberId, array $workspaceIds): void
     {
         $owned = $this->ownedWorkspaces($owner);
-        $ownedIds = $owned->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $ownedIds = $owned->pluck('id')->map(fn ($id) => (string) $id)->all();
         $targetIds = array_values(array_intersect(
-            array_map('intval', $workspaceIds),
+            array_map(fn ($id) => (string) $id, $workspaceIds),
             $ownedIds
         ));
 
-        if ($memberId === (int) $owner->id) {
+        if ($memberId === $owner->id) {
             throw ValidationException::withMessages([
                 'workspace_ids' => ['You cannot change your own workspace access here.'],
             ]);
@@ -170,7 +170,7 @@ class AgencyTeamService
         $member = User::query()->findOrFail($memberId);
 
         foreach ($owned as $workspace) {
-            $wid = (int) $workspace->id;
+            $wid = $workspace->id;
             $isMember = $workspace->hasMember($member);
             $shouldHave = in_array($wid, $targetIds, true);
 
@@ -210,9 +210,9 @@ class AgencyTeamService
     private function assertManageableWorkspaces(User $owner, array $workspaceIds): Collection
     {
         $owned = $this->ownedWorkspaces($owner);
-        $ownedIds = $owned->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $ownedIds = $owned->pluck('id')->map(fn ($id) => (string) $id)->all();
 
-        $ids = array_values(array_unique(array_map('intval', $workspaceIds)));
+        $ids = array_values(array_unique(array_map(fn ($id) => (string) $id, $workspaceIds)));
         if ($ids === []) {
             throw ValidationException::withMessages([
                 'workspace_ids' => ['Select at least one workspace.'],

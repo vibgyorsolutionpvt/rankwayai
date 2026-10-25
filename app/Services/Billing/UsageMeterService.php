@@ -103,13 +103,13 @@ class UsageMeterService
         $owner = app(BillingAccountService::class)->primaryOwner($workspace);
 
         if ($owner) {
-            return $this->aiHistoryForAccount($owner, $period, (int) $workspace->id);
+            return $this->aiHistoryForAccount($owner, $period, $workspace->id);
         }
 
-        return $this->aiHistoryForWorkspaceIds([(int) $workspace->id], $period);
+        return $this->aiHistoryForWorkspaceIds([$workspace->id], $period);
     }
 
-    public function aiHistoryForAccount(User $user, string $period = self::HISTORY_7D, ?int $workspaceFilter = null): array
+    public function aiHistoryForAccount(User $user, string $period = self::HISTORY_7D, ?string $workspaceFilter = null): array
     {
         $accounts = app(BillingAccountService::class);
         $ownedIds = $accounts->ownedWorkspaceIds($user);
@@ -156,7 +156,7 @@ class UsageMeterService
         $totalTokens = 0;
 
         foreach ($logs as $row) {
-            $credits = CreditPackCatalog::costToCredits((float) $row->cost_usd);
+            $credits = $this->signedCredits((float) $row->cost_usd);
             $tokens = (int) $row->tokens;
             $totalCredits += $credits;
             $totalTokens += $tokens;
@@ -186,7 +186,7 @@ class UsageMeterService
             'action' => $row->action,
             'member' => $row->user?->name ?: 'System / unknown',
             'workspace' => $row->workspace?->name,
-            'credits' => CreditPackCatalog::costToCredits((float) $row->cost_usd),
+            'credits' => $this->signedCredits((float) $row->cost_usd),
             'tokens' => (int) $row->tokens,
             'at' => $row->created_at?->timezone($tz)->format('d M, g:i A'),
         ])->all();
@@ -203,6 +203,13 @@ class UsageMeterService
             'members' => $members,
             'activities' => $activities,
         ];
+    }
+
+    private function signedCredits(float $costUsd): int
+    {
+        return $costUsd < 0
+            ? -CreditPackCatalog::costToCredits(abs($costUsd))
+            : CreditPackCatalog::costToCredits($costUsd);
     }
 
     public function normalizeHistoryPeriod(string $period): string

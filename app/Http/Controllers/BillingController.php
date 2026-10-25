@@ -2,18 +2,24 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\WorkspaceRole;
 use App\Http\Controllers\Concerns\ResolvesWorkspace;
+use App\Models\BillingAccount;
 use App\Models\BillingTransaction;
 use App\Models\CreditRecharge;
+use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceSubscription;
+use App\Services\Access\ModuleAccess;
 use App\Services\Billing\BillingAccountService;
 use App\Services\Billing\BillingService;
 use App\Services\Billing\CreditPackCatalog;
 use App\Services\Billing\CreditRechargeService;
+use App\Services\Billing\CreditWalletService;
 use App\Services\Billing\IpCountryResolver;
 use App\Services\Billing\PlanAccess;
 use App\Services\Billing\PlanCatalog;
+use App\Services\Billing\RazorpayClient;
 use App\Services\Billing\UsageMeterService;
 use App\Services\Integrations\ProviderStatus;
 use Illuminate\Http\RedirectResponse;
@@ -26,6 +32,23 @@ class BillingController extends Controller
 {
     use ResolvesWorkspace;
 
+    public const OWNER_ONLY_MESSAGE = 'Only the account owner can manage billing.';
+
+    /**
+     * Plans belong to the owner's account and cover all of their workspaces.
+     */
+    public static function canManageBilling(?User $user, ?Workspace $workspace): bool
+    {
+        if (! $user) {
+            return false;
+        }
+        if ($user->is_superadmin) {
+            return true;
+        }
+
+        return $workspace !== null && $workspace->roleFor($user) === WorkspaceRole::Owner;
+    }
+
     public function index(
         Request $request,
         BillingService $billing,
@@ -33,10 +56,17 @@ class BillingController extends Controller
         PlanAccess $plans,
         CreditRechargeService $recharges,
         BillingAccountService $accounts,
-        \App\Services\Billing\CreditWalletService $wallet
-    ): Response {
+        CreditWalletService $wallet
+    ): Response|RedirectResponse {
         $workspace = $this->workspace($request);
         $user = $request->user();
+        if (! self::canManageBilling($user, $workspace)) {
+            $fallback = app(ModuleAccess::class)->firstAllowedRoute($user, $workspace);
+
+            return redirect()
+                ->route($fallback === 'billing.index' ? 'profile.edit' : $fallback)
+                ->with('error', self::OWNER_ONLY_MESSAGE);
+        }
         $ownerAccount = $accounts->accountForWorkspace($workspace);
         $billingAccount = $ownerAccount ?? $billing->account($user);
         $subscription = $billing->subscription($workspace);
@@ -99,7 +129,7 @@ class BillingController extends Controller
 
         return Inertia::render('Billing/Index', [
             'workspace' => ['id' => $workspace->id, 'name' => $workspace->name],
-            'is_billing_owner' => $ownerAccount && (int) $ownerAccount->user_id === (int) $user->id,
+            'is_billing_owner' => $ownerAccount && (string) $ownerAccount->user_id === (string) $user->id,
             'shared_workspaces' => $sharedWorkspaces,
             'billing_account' => [
                 'plan' => $billingAccount->plan,
@@ -182,7 +212,7 @@ class BillingController extends Controller
                 : 'Pay in US Dollars via Razorpay. Choose monthly or yearly.',
             'is_platform_admin' => $isAdmin,
             'admin_note' => $isAdmin ? $this->adminNote($gatewayReady) : null,
-            'local_checkout_hint' => ! (app(\App\Services\Billing\RazorpayClient::class)->appUrlIsPublic())
+            'local_checkout_hint' => ! (app(RazorpayClient::class)->appUrlIsPublic())
                 && $razorpay
                 ? 'Local test: after Razorpay shows Payment Success, open Billing again — credits/plan sync automatically (webhooks can’t reach localhost).'
                 : null,
@@ -193,6 +223,7 @@ class BillingController extends Controller
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
+        abort_unless(self::canManageBilling($request->user(), $workspace), 403, self::OWNER_ONLY_MESSAGE);
         $subscription = $billing->subscription($workspace);
         $isAdmin = (bool) $request->user()?->is_superadmin;
 
@@ -218,6 +249,7 @@ class BillingController extends Controller
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
+        abort_unless(self::canManageBilling($request->user(), $workspace), 403, self::OWNER_ONLY_MESSAGE);
         $subscription = $billing->subscription($workspace);
         $isAdmin = (bool) $request->user()?->is_superadmin;
 
@@ -246,6 +278,7 @@ class BillingController extends Controller
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
+        abort_unless(self::canManageBilling($request->user(), $workspace), 403, self::OWNER_ONLY_MESSAGE);
 
         $billing->cancel($workspace);
 
@@ -255,7 +288,7 @@ class BillingController extends Controller
     private function resolveMarket(
         Request $request,
         WorkspaceSubscription $subscription,
-        \App\Models\BillingAccount $billingAccount,
+        BillingAccount $billingAccount,
         bool $isAdmin
     ): string {
         if ($billingAccount->plan !== 'free' && filled($billingAccount->billing_market)) {
@@ -299,7 +332,7 @@ class BillingController extends Controller
     private function resolveInterval(
         Request $request,
         WorkspaceSubscription $subscription,
-        \App\Models\BillingAccount $billingAccount
+        BillingAccount $billingAccount
     ): string {
         if ($request->filled('interval')) {
             return PlanCatalog::normalizeInterval((string) $request->query('interval'));

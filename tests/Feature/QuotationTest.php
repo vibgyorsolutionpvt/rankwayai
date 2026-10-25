@@ -3,10 +3,10 @@
 namespace Tests\Feature;
 
 use App\Enums\WorkspaceRole;
-use App\Models\Itinerary;
 use App\Models\Quotation;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\Access\ModuleAccess;
 use App\Services\Billing\BillingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -17,6 +17,7 @@ class QuotationTest extends TestCase
 
     private function ownerWorkspace(): array
     {
+        app(ModuleAccess::class)->setPlatformMenu('sales', true);
         $user = User::factory()->create();
         $workspace = Workspace::factory()->create([
             'name' => 'Vibgyor Holidays',
@@ -47,6 +48,7 @@ class QuotationTest extends TestCase
 
         $quotation = Quotation::query()->where('workspace_id', $workspace->id)->first();
         $this->assertNotNull($quotation);
+        $this->assertNull($quotation->itinerary_id);
         $this->assertNotEmpty($quotation->share_token);
         $this->assertStringStartsWith('QT-', $quotation->number);
 
@@ -99,51 +101,6 @@ class QuotationTest extends TestCase
             ->withSession(['active_workspace_id' => $workspace->id])
             ->get(route('studio.quotations.pdf', $quotation))
             ->assertOk();
-    }
-
-    public function test_generate_quotation_from_itinerary(): void
-    {
-        [$user, $workspace] = $this->ownerWorkspace();
-
-        $itinerary = Itinerary::query()->create([
-            'workspace_id' => $workspace->id,
-            'created_by' => $user->id,
-            'title' => 'Kashmir 4D',
-            'status' => 'ready',
-            'destination' => 'Kashmir',
-            'duration_days' => 4,
-            'adults' => 2,
-            'children' => 0,
-            'days' => [
-                ['day' => 1, 'title' => 'Arrival', 'activities' => []],
-            ],
-            'inclusions' => ['Hotels'],
-            'exclusions' => ['Flights'],
-            'pricing' => [
-                'hotel_cost' => 10000,
-                'transport_cost' => 4000,
-                'activity_cost' => 2000,
-                'meal_cost' => 3000,
-                'guide_cost' => 1000,
-                'tax' => 0,
-                'discount' => 500,
-                'markup' => 2500,
-            ],
-            'currency' => 'INR',
-            'generation_source' => 'template',
-        ]);
-
-        $this->actingAs($user)
-            ->withSession(['active_workspace_id' => $workspace->id])
-            ->post(route('studio.itineraries.quotation', $itinerary))
-            ->assertRedirect();
-
-        $quotation = Quotation::query()->where('workspace_id', $workspace->id)->first();
-        $this->assertNotNull($quotation);
-        $this->assertSame($itinerary->id, $quotation->itinerary_id);
-        $this->assertSame('Kashmir', $quotation->destination);
-        $this->assertGreaterThanOrEqual(4, count($quotation->line_items));
-        $this->assertSame(500.0, (float) $quotation->discount_amount);
     }
 
     public function test_draft_quotation_is_not_public(): void

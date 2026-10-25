@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('rankway_domains', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
             $table->string('domain', 255)->unique();
             $table->string('url', 2048)->nullable();
             $table->string('title')->nullable();
@@ -29,8 +29,8 @@ return new class extends Migration
         });
 
         Schema::create('rankway_domain_metrics', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('rankway_domain_id')->constrained('rankway_domains')->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('rankway_domain_id')->constrained('rankway_domains')->cascadeOnDelete();
             $table->unsignedInteger('organic_traffic')->nullable();
             $table->unsignedInteger('organic_keywords')->nullable();
             $table->unsignedInteger('backlinks')->nullable();
@@ -54,8 +54,8 @@ return new class extends Migration
         });
 
         Schema::create('rankway_domain_rank_history', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('rankway_domain_id')->constrained('rankway_domains')->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('rankway_domain_id')->constrained('rankway_domains')->cascadeOnDelete();
             $table->unsignedTinyInteger('rankway_score')->nullable();
             $table->unsignedInteger('global_rank')->nullable();
             $table->unsignedInteger('country_rank')->nullable();
@@ -67,7 +67,7 @@ return new class extends Migration
         });
 
         Schema::table('seo_sites', function (Blueprint $table) {
-            $table->foreignId('rankway_domain_id')
+            $table->foreignUuid('rankway_domain_id')
                 ->nullable()
                 ->after('domain')
                 ->constrained('rankway_domains')

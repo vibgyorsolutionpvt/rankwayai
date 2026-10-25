@@ -5,21 +5,26 @@ namespace App\Http\Controllers;
 use App\Http\Controllers\Concerns\ResolvesWorkspace;
 use App\Jobs\GeneratePosterVariantsJob;
 use App\Jobs\PublishSocialPostJob;
+use App\Models\BrandKit;
 use App\Models\MediaAsset;
 use App\Models\SocialAccount;
 use App\Models\SocialComposePromptHistory;
 use App\Models\SocialPost;
+use App\Models\Workspace;
 use App\Services\Ai\AiContentService;
 use App\Services\Billing\PlanAccess;
 use App\Services\Integrations\WorkspaceIntegrationService;
+use App\Services\Social\PosterTemplateService;
 use App\Services\Social\SocialConnectionService;
 use App\Services\Social\SocialPostAnalyticsService;
 use App\Services\Social\SocialPublisherService;
+use App\Support\PublicId;
 use App\Support\SocialPlatforms;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -164,17 +169,17 @@ class SocialController extends Controller
                 ->orderBy('platform')
                 ->get()
                 ->map(fn (SocialAccount $a) => [
-                'id' => $a->id,
-                'platform' => $a->platform,
-                'account_type' => $a->account_type ?? 'page',
-                'connection_mode' => $a->connection_mode ?? 'sandbox',
-                'account_name' => $a->account_name,
-                'status' => $a->status,
-                'health' => $a->health,
-                'last_error' => $a->last_error,
-                'connected_at' => $a->connected_at?->toDateTimeString(),
-                'token_expires_at' => $a->token_expires_at?->toDateTimeString(),
-            ]),
+                    'id' => $a->id,
+                    'platform' => $a->platform,
+                    'account_type' => $a->account_type ?? 'page',
+                    'connection_mode' => $a->connection_mode ?? 'sandbox',
+                    'account_name' => $a->account_name,
+                    'status' => $a->status,
+                    'health' => $a->health,
+                    'last_error' => $a->last_error,
+                    'connected_at' => $a->connected_at?->toDateTimeString(),
+                    'token_expires_at' => $a->token_expires_at?->toDateTimeString(),
+                ]),
             'connectionModes' => $connections->modes($workspace),
             'social_providers' => [
                 'meta' => [
@@ -196,7 +201,7 @@ class SocialController extends Controller
                 'label' => $cursor->format('F Y'),
                 'days' => $this->calendarDays($cursor, $calendarPosts),
             ],
-            'posterSizes' => array_keys(\App\Services\Social\PosterTemplateService::SIZES),
+            'posterSizes' => array_keys(PosterTemplateService::SIZES),
             'plan' => $plans->summary($workspace),
             'pendingPagePick' => $this->pendingPagePickForWorkspace($request, $workspace->id),
             'enabledPlatforms' => SocialPlatforms::enabled($workspace->enabled_social_platforms),
@@ -371,10 +376,10 @@ class SocialController extends Controller
     /**
      * @return array{platform:string, pages:list<array{id:string,name:string,instagram:?array{id:string,username:string}}>, suggested_id:?string}|null
      */
-    private function pendingPagePickForWorkspace(Request $request, int $workspaceId): ?array
+    private function pendingPagePickForWorkspace(Request $request, string $workspaceId): ?array
     {
         $pending = $request->session()->get('social_pending_page_pick');
-        if (! is_array($pending) || (int) ($pending['workspace_id'] ?? 0) !== $workspaceId) {
+        if (! is_array($pending) || PublicId::normalize($pending['workspace_id'] ?? null) !== $workspaceId) {
             return null;
         }
 
@@ -388,7 +393,7 @@ class SocialController extends Controller
             return null;
         }
 
-        $workspaceName = strtolower((string) (\App\Models\Workspace::query()->find($workspaceId)?->name ?? ''));
+        $workspaceName = strtolower((string) (Workspace::query()->find($workspaceId)?->name ?? ''));
         $preferred = strtolower(trim((string) ($pending['preferred_name'] ?? '')));
         $hint = $preferred !== '' ? $preferred : $workspaceName;
 
@@ -564,9 +569,9 @@ class SocialController extends Controller
             'scheduled_at' => ['nullable', 'date'],
             'delivery' => ['required', 'in:now,schedule,draft'],
             'requires_approval' => ['boolean'],
-            'media_asset_id' => ['nullable', 'integer'],
+            'media_asset_id' => ['nullable', 'uuid'],
             'public_media_url' => ['nullable', 'url', 'max:2048'],
-            'brand_kit_id' => ['nullable', 'integer'],
+            'brand_kit_id' => ['nullable', 'uuid'],
             'generate_posters' => ['boolean'],
             'publish_to_story' => ['nullable', 'boolean'],
         ]);
@@ -634,7 +639,7 @@ class SocialController extends Controller
 
         if (! empty($data['brand_kit_id'])) {
             abort_unless(
-                \App\Models\BrandKit::query()
+                BrandKit::query()
                     ->where('workspace_id', $workspace->id)
                     ->whereKey($data['brand_kit_id'])
                     ->exists(),
@@ -900,7 +905,7 @@ class SocialController extends Controller
             return redirect()->route('social.index')->with('error', 'Invalid OAuth state');
         }
 
-        $workspace = \App\Models\Workspace::query()->findOrFail($data['workspace_id']);
+        $workspace = Workspace::query()->findOrFail($data['workspace_id']);
         $this->authorize('update', $workspace);
 
         if (! $plans->allows($workspace, 'social_oauth')) {
@@ -959,7 +964,7 @@ class SocialController extends Controller
         }
 
         $pending = $request->session()->get('social_pending_page_pick');
-        if (! is_array($pending) || (int) ($pending['workspace_id'] ?? 0) !== $workspace->id) {
+        if (! is_array($pending) || PublicId::normalize($pending['workspace_id'] ?? null) !== $workspace->id) {
             return redirect()->route('social.index', ['view' => 'accounts'])
                 ->with('error', 'Page selection expired — connect Facebook again.');
         }
@@ -1170,8 +1175,8 @@ class SocialController extends Controller
      *   date_to:?string,
      *   sort:string,
      *   approval:string,
-     *   range_from:?\Illuminate\Support\Carbon,
-     *   range_to:?\Illuminate\Support\Carbon
+     *   range_from:?Carbon,
+     *   range_to:?Carbon
      * }
      */
     private function parsePostsListFilters(Request $request): array
@@ -1240,8 +1245,8 @@ class SocialController extends Controller
      *   date_preset:string,
      *   date_field:string,
      *   approval:string,
-     *   range_from:?\Illuminate\Support\Carbon,
-     *   range_to:?\Illuminate\Support\Carbon
+     *   range_from:?Carbon,
+     *   range_to:?Carbon
      * }  $listFilters
      */
     private function applyPostsListFilters($postsQuery, array $listFilters): void
@@ -1301,7 +1306,7 @@ class SocialController extends Controller
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, array<string, mixed>>  $posts
+     * @param  Collection<int, array<string, mixed>>  $posts
      * @return list<array{date:string, inMonth:bool, posts:list<array<string,mixed>>}>
      */
     private function publishFlashResponse(SocialPost $post): RedirectResponse
@@ -1335,7 +1340,7 @@ class SocialController extends Controller
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, array<string, mixed>>  $posts
+     * @param  Collection<int, array<string, mixed>>  $posts
      * @return list<array{date:string, inMonth:bool, posts:list<array<string,mixed>>}>
      */
     private function calendarDays(Carbon $cursor, $posts): array

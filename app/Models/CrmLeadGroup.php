@@ -2,12 +2,15 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class CrmLeadGroup extends Model
 {
+    use HasUuids;
+
     protected $fillable = [
         'workspace_id',
         'created_by',
@@ -28,6 +31,7 @@ class CrmLeadGroup extends Model
     public function leads(): BelongsToMany
     {
         return $this->belongsToMany(CrmLead::class, 'crm_lead_group_members')
+            ->using(CrmLeadGroupMember::class)
             ->withTimestamps();
     }
 }

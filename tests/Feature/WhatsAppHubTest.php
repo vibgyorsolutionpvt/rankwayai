@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Enums\WorkspaceRole;
+use App\Models\AiUsageLog;
 use App\Models\ChannelCampaign;
+use App\Models\ChannelCampaignRecipient;
 use App\Models\ChannelMessageTemplate;
 use App\Models\CrmLead;
 use App\Models\CrmLeadGroup;
@@ -12,6 +14,9 @@ use App\Models\WhatsappConversation;
 use App\Models\WhatsappMessage;
 use App\Models\Workspace;
 use App\Services\Billing\BillingService;
+use App\Services\Billing\CreditPackCatalog;
+use App\Services\Billing\CreditWalletService;
+use App\Services\Billing\WhatsAppCreditService;
 use App\Services\Channels\ChannelCampaignService;
 use App\Services\Integrations\WorkspaceIntegrationService;
 use App\Services\WhatsApp\MetaWhatsAppCloudService;
@@ -20,6 +25,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Tests\TestCase;
@@ -135,6 +141,70 @@ class WhatsAppHubTest extends TestCase
                 ->where('leadGroups.0.name', 'October customers')
                 ->has('leadImportFields', 1)
                 ->where('leadImportFields.0.key', 'client'));
+    }
+
+    public function test_contact_group_members_can_be_viewed_added_and_updated(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        [, $other] = $this->memberWithWorkspace();
+        $group = CrmLeadGroup::query()->create([
+            'workspace_id' => $workspace->id,
+            'name' => 'Anil 10k',
+            'status' => 'completed',
+        ]);
+        $existing = CrmLead::query()->create([
+            'workspace_id' => $workspace->id,
+            'name' => 'Old name',
+            'phone' => '+91 98899 95999',
+            'stage' => 'new',
+            'source' => 'manual',
+        ]);
+        $group->leads()->attach($existing->id);
+        $as = $this->actingAs($user)->withSession(['active_workspace_id' => $workspace->id]);
+
+        $as->get(route('whatsapp.campaigns.lead-groups.members', $group).'?q=98899')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.name', 'Old name');
+
+        $as->postJson(route('whatsapp.campaigns.lead-groups.members.store', $group), [
+            'name' => 'Meera',
+            'phone' => '+91 98765 43210',
+        ])->assertJsonPath('member.name', 'Meera');
+        $this->assertSame('+919876543210', CrmLead::query()->where('name', 'Meera')->value('phone'));
+
+        $as->postJson(route('whatsapp.campaigns.lead-groups.members.store', $group), [
+            'name' => 'Anil',
+            'phone' => '+919889995999',
+        ])->assertStatus(422)->assertJsonPath('errors.phone.0', 'This number is already in the group.');
+        $existing->refresh();
+        $this->assertSame('Old name', $existing->name);
+
+        $as->patchJson(route('whatsapp.campaigns.lead-groups.members.update', [$group, $existing]), [
+            'name' => 'Anil Kumar',
+            'phone' => '+919889995999',
+        ])->assertOk()->assertJsonPath('member.name', 'Anil Kumar');
+        $this->assertSame('Anil Kumar', $existing->fresh()->name);
+
+        $as->patchJson(route('whatsapp.campaigns.lead-groups.members.update', [$group, $existing]), [
+            'name' => 'Anil Kumar',
+            'phone' => '+919876543210',
+        ])->assertStatus(422);
+
+        $foreign = CrmLeadGroup::query()->create([
+            'workspace_id' => $other->id,
+            'name' => 'Theirs',
+            'status' => 'completed',
+        ]);
+        $as->get(route('whatsapp.campaigns.lead-groups.members', $foreign))->assertNotFound();
+        $this->assertSame(2, $group->leads()->count());
+
+        $as->deleteJson(route('whatsapp.campaigns.lead-groups.members.destroy', [$group, $existing]))
+            ->assertOk()
+            ->assertJsonPath('total', 1);
+        $this->assertSame(1, $group->leads()->count());
+        $this->assertNotNull($existing->fresh());
+        $as->deleteJson(route('whatsapp.campaigns.lead-groups.members.destroy', [$group, $existing]))->assertNotFound();
     }
 
     public function test_campaign_contact_group_import_accepts_twenty_thousand_rows(): void
@@ -490,6 +560,47 @@ class WhatsAppHubTest extends TestCase
 
         $this->assertTrue(WhatsappConversation::phoneIsOptedOut($workspace->id, '919111122222'));
         $this->assertFalse(WhatsappConversation::phoneIsOptedOut($workspace->id, '+919111122223'));
+    }
+
+    public function test_template_submit_costs_five_credits_only_when_meta_accepts(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        app(WorkspaceIntegrationService::class)->upsert($workspace, 'whatsapp_meta', [
+            'phone_number_id' => '123',
+            'waba_id' => 'waba-99',
+            'access_token' => 'token',
+            'verify_token' => 'verify',
+            'api_version' => 'v25.0',
+        ]);
+        Http::fake([
+            'graph.facebook.com/*' => Http::sequence()
+                ->push(['error' => ['message' => 'Invalid parameter']], 400)
+                ->push(['id' => 'tpl_ok', 'status' => 'PENDING'], 200),
+        ]);
+        $wallet = app(CreditWalletService::class);
+        $submit = fn (string $name) => $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('whatsapp.templates.store'), [
+                'name' => $name,
+                'body' => 'Hi {{name}}',
+                'category' => 'utility',
+                'language' => 'en_US',
+                'wa_status' => 'draft',
+                'submit_to_meta' => true,
+            ]);
+
+        $this->leaveCredits($workspace, 4);
+        $submit('too_poor')->assertSessionHas('error', fn ($msg) => str_contains($msg, 'costs 5 credits'));
+        $this->assertSame(0, ChannelMessageTemplate::query()->count());
+        Http::assertNothingSent();
+
+        app(CreditWalletService::class)->addTopup($workspace, 6);
+        $submit('meta_rejects')->assertSessionHas('error');
+        $this->assertSame(10, $wallet->snapshot($workspace)['available']);
+
+        $submit('meta_accepts')->assertSessionHas('success');
+        $this->assertSame(5, $wallet->snapshot($workspace)['available']);
+        $this->assertDatabaseHas('ai_usage_logs', ['action' => 'whatsapp_template', 'user_id' => $user->id]);
     }
 
     public function test_can_submit_whatsapp_template_to_meta(): void
@@ -1010,6 +1121,225 @@ class WhatsAppHubTest extends TestCase
         $this->assertSame('sent', $foreign->fresh()->status);
     }
 
+    private function leaveCredits(Workspace $workspace, int $credits): void
+    {
+        $wallet = app(CreditWalletService::class);
+        $extra = $wallet->snapshot($workspace)['available'] - $credits;
+        if ($extra > 0) {
+            $wallet->spend($workspace, CreditPackCatalog::creditsToUsd($extra));
+        }
+        $this->assertSame($credits, $wallet->snapshot($workspace)['available']);
+    }
+
+    public function test_inbox_reply_costs_one_credit_and_is_blocked_without_credits(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $this->connectMeta($workspace);
+        Http::fake([
+            'graph.facebook.com/*' => Http::response(['messages' => [['id' => 'wamid.PAID']]], 200),
+        ]);
+        $this->leaveCredits($workspace, 1);
+        $conversation = WhatsappConversation::query()->create([
+            'workspace_id' => $workspace->id,
+            'phone' => '+919333355555',
+            'status' => 'open',
+            'window_expires_at' => now()->addHours(12),
+        ]);
+        $reply = fn () => $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('whatsapp.conversations.reply', $conversation), ['body' => 'Hello']);
+
+        $reply()->assertRedirect();
+        $this->assertSame('sent', $conversation->messages()->first()->status);
+        $this->assertSame(0, app(CreditWalletService::class)->snapshot($workspace)['available']);
+        $this->assertDatabaseHas('ai_usage_logs', [
+            'workspace_id' => $workspace->id,
+            'action' => 'whatsapp_message',
+            'user_id' => $user->id,
+        ]);
+
+        $reply()->assertSessionHas('error', WhatsAppCreditService::OUT_OF_CREDITS_MESSAGE);
+        $this->assertSame(1, $conversation->messages()->count());
+        Http::assertSentCount(1);
+    }
+
+    public function test_campaign_charges_one_credit_per_accepted_message_and_stops_when_credits_run_out(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $this->connectMeta($workspace);
+        Http::fake([
+            'graph.facebook.com/*' => Http::sequence()
+                ->push(['messages' => [['id' => 'wamid.C1']]], 200)
+                ->push(['error' => ['message' => 'Invalid number', 'code' => 131026]], 400)
+                ->push(['messages' => [['id' => 'wamid.C3']]], 200),
+        ]);
+        $this->leaveCredits($workspace, 2);
+        $campaign = ChannelCampaign::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'name' => 'Offer',
+            'channel' => 'whatsapp',
+            'body' => 'Hi there',
+            'status' => 'draft',
+            'recipient_count' => 4,
+        ]);
+        foreach (['+919000000001', '+919000000002', '+919000000003', '+919000000004'] as $phone) {
+            $campaign->recipients()->create(['to' => $phone, 'status' => 'pending']);
+        }
+
+        app(ChannelCampaignService::class)->send($campaign);
+
+        $statuses = $campaign->recipients()->orderBy('id')->pluck('status')->all();
+        $this->assertSame(['sent', 'failed', 'sent', 'failed'], $statuses);
+        $this->assertSame(
+            WhatsAppCreditService::OUT_OF_CREDITS_MESSAGE,
+            $campaign->recipients()->orderByDesc('id')->value('error_message')
+        );
+        $this->assertSame(0, app(CreditWalletService::class)->snapshot($workspace)['available']);
+        $this->assertSame(WhatsAppCreditService::OUT_OF_CREDITS_MESSAGE, $campaign->fresh()->failure_reason);
+        Http::assertSentCount(3);
+    }
+
+    public function test_credit_is_refunded_once_when_meta_later_reports_failure(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $this->connectMeta($workspace);
+        Http::fake([
+            'graph.facebook.com/*' => Http::sequence()
+                ->push(['messages' => [['id' => 'wamid.INBOX']]], 200)
+                ->push(['messages' => [['id' => 'wamid.CAMP']]], 200),
+        ]);
+        $this->leaveCredits($workspace, 5);
+        $wallet = app(CreditWalletService::class);
+        $service = app(WhatsAppConversationService::class);
+        $failed = fn (string $id) => [
+            'id' => $id,
+            'status' => 'failed',
+            'error' => 'Message undeliverable',
+            'error_meta' => ['code' => 131026],
+        ];
+
+        $conversation = WhatsappConversation::query()->create([
+            'workspace_id' => $workspace->id,
+            'phone' => '+919333366666',
+            'status' => 'open',
+            'window_expires_at' => now()->addHours(12),
+        ]);
+        $service->sendOutbound($workspace, $conversation, 'Hello', $user);
+        $this->assertSame(4, $wallet->snapshot($workspace)['available']);
+
+        $campaign = ChannelCampaign::query()->create([
+            'workspace_id' => $workspace->id,
+            'created_by' => $user->id,
+            'name' => 'Promo',
+            'channel' => 'whatsapp',
+            'body' => 'Hi',
+            'status' => 'draft',
+            'recipient_count' => 1,
+        ]);
+        $campaign->recipients()->create(['to' => '+919000000009', 'status' => 'pending']);
+        app(ChannelCampaignService::class)->send($campaign);
+        $this->assertSame(3, $wallet->snapshot($workspace)['available']);
+
+        $service->applyDeliveryStatus($workspace, $failed('wamid.INBOX'));
+        $service->applyDeliveryStatus($workspace, $failed('wamid.CAMP'));
+        $this->assertSame(5, $wallet->snapshot($workspace)['available']);
+
+        $service->applyDeliveryStatus($workspace, $failed('wamid.INBOX'));
+        $service->applyDeliveryStatus($workspace, $failed('wamid.CAMP'));
+        $this->assertSame(5, $wallet->snapshot($workspace)['available']);
+        $this->assertSame(2, AiUsageLog::query()->where('action', 'whatsapp_refund')->count());
+    }
+
+    public function test_any_campaign_over_two_thousand_pays_half_rate(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $this->connectMeta($workspace);
+        Http::fake([
+            'graph.facebook.com/*' => Http::sequence()
+                ->push(['messages' => [['id' => 'wamid.B1']]], 200)
+                ->push(['messages' => [['id' => 'wamid.B2']]], 200)
+                ->push(['messages' => [['id' => 'wamid.B3']]], 200),
+        ]);
+        $this->leaveCredits($workspace, 100);
+        $makeCampaign = function (int $recipients) use ($workspace, $user) {
+            $campaign = ChannelCampaign::query()->create([
+                'workspace_id' => $workspace->id,
+                'created_by' => $user->id,
+                'name' => 'Bulk '.$recipients,
+                'channel' => 'whatsapp',
+                'body' => 'Hi',
+                'status' => 'draft',
+                'recipient_count' => $recipients,
+            ]);
+            $now = now();
+            $rows = [];
+            for ($i = 0; $i < $recipients; $i++) {
+                $rows[] = [
+                    'id' => (string) Str::uuid7(),
+                    'channel_campaign_id' => $campaign->id,
+                    'to' => '+9180'.str_pad((string) $i, 8, '0', STR_PAD_LEFT),
+                    'status' => 'pending',
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+            foreach (array_chunk($rows, 500) as $chunk) {
+                ChannelCampaignRecipient::query()->insert($chunk);
+            }
+
+            return $campaign;
+        };
+        $credits = app(WhatsAppCreditService::class);
+        $this->assertFalse($credits->isBulkCampaign($makeCampaign(2000)));
+
+        $campaign = $makeCampaign(2001);
+        $this->assertTrue($credits->isBulkCampaign($campaign));
+
+        app(ChannelCampaignService::class)->send($campaign, 3);
+        $this->assertSame(2, $campaign->fresh()->credits_charged);
+        $this->assertSame(98, app(CreditWalletService::class)->snapshot($workspace)['available']);
+
+        app(WhatsAppConversationService::class)->applyDeliveryStatus($workspace, [
+            'id' => 'wamid.B1',
+            'status' => 'failed',
+            'error' => 'Undeliverable',
+            'error_meta' => ['code' => 131026],
+        ]);
+        $this->assertSame(1, $campaign->fresh()->credits_charged);
+        $this->assertSame(99, app(CreditWalletService::class)->snapshot($workspace)['available']);
+    }
+
+    public function test_campaign_launch_is_blocked_when_audience_exceeds_credits(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $this->connectMeta($workspace);
+        Http::fake();
+        $this->leaveCredits($workspace, 1);
+        $leadIds = collect(['+919100000001', '+919100000002'])->map(fn ($phone, $i) => CrmLead::query()->create([
+            'workspace_id' => $workspace->id,
+            'name' => 'Lead '.$i,
+            'phone' => $phone,
+            'stage' => 'new',
+            'source' => 'manual',
+        ])->id)->all();
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('channels.store'), [
+                'name' => 'Too big',
+                'channel' => 'whatsapp',
+                'body' => 'Hi',
+                'recipient_mode' => 'selected',
+                'lead_ids' => $leadIds,
+                'delivery' => 'now',
+            ])
+            ->assertSessionHas('error', fn ($msg) => str_contains($msg, 'needs 2 credits') && str_contains($msg, 'only 1 are available'));
+
+        $this->assertSame(0, ChannelCampaign::query()->count());
+        Http::assertNothingSent();
+    }
+
     public function test_campaign_thread_appears_in_inbox_only_after_delivery(): void
     {
         [$user, $workspace] = $this->memberWithWorkspace();
@@ -1272,5 +1602,39 @@ class WhatsAppHubTest extends TestCase
         $this->assertNotNull($conversation);
         $this->assertSame('Priya', $conversation->contact_name);
         $this->assertSame('Hi Meta', WhatsappMessage::query()->first()->body);
+    }
+
+    public function test_campaign_can_be_drafted_for_typed_numbers_without_a_group(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        CrmLead::query()->create([
+            'workspace_id' => $workspace->id,
+            'name' => 'Existing',
+            'phone' => '+91 98765 43210',
+            'stage' => 'new',
+            'source' => 'manual',
+        ]);
+
+        $this->actingAs($user)
+            ->withSession(['active_workspace_id' => $workspace->id])
+            ->post(route('channels.store'), [
+                'name' => 'Two numbers',
+                'channel' => 'whatsapp',
+                'body' => 'Hello',
+                'delivery' => 'draft',
+                'recipient_mode' => 'numbers',
+                'phones' => "+91 98765 43210\n9811112222",
+            ])
+            ->assertRedirect()
+            ->assertSessionHas('success');
+
+        $campaign = ChannelCampaign::query()->firstOrFail();
+        $this->assertNull($campaign->crm_lead_group_id);
+        $this->assertSame(2, $campaign->recipient_count);
+        $this->assertSame(2, CrmLead::query()->where('workspace_id', $workspace->id)->count());
+        $this->assertSame(
+            ['+91 98765 43210', '+9811112222'],
+            CrmLead::query()->where('workspace_id', $workspace->id)->orderBy('phone')->pluck('phone')->all(),
+        );
     }
 }

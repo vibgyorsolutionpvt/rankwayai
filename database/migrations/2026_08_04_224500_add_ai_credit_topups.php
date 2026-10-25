@@ -13,9 +13,9 @@ return new class extends Migration
         });
 
         Schema::create('credit_recharges', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('user_id')->nullable()->constrained()->nullOnDelete();
             $table->string('pack_id');
             $table->unsignedInteger('credits');
             $table->decimal('amount', 10, 2);

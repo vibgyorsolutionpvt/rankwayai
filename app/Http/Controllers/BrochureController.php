@@ -8,6 +8,7 @@ use App\Services\Studio\BrochureService;
 use App\Support\BrochureTemplates;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -61,7 +62,7 @@ class BrochureController extends Controller
             'template_key' => $data['template_key'],
             'status' => $data['status'],
             'headline' => $data['headline'] ?? $workspace->name,
-            'subheadline' => $data['subheadline'] ?? ($profile['tagline'] ?? null),
+            'subheadline' => $data['subheadline'] ?? ($profile['tagline'] ?: BrochureTemplates::industryDefaults((string) ($profile['industry'] ?? ''), $data['template_key'])['tagline']),
             'sections' => BrochureTemplates::defaultSections($profile, $data['template_key']),
             'is_public' => $data['is_public'] ?? true,
         ]);
@@ -108,10 +109,36 @@ class BrochureController extends Controller
             'headline' => $data['headline'] ?? null,
             'subheadline' => $data['subheadline'] ?? null,
             'sections' => $brochures->normalizeSections($data['sections'] ?? []),
+            'colors' => array_filter($data['colors'] ?? []) ?: null,
             'is_public' => $data['is_public'] ?? true,
-        ])->save();
+        ]);
+
+        if ($request->boolean('remove_logo') || $request->hasFile('logo')) {
+            $this->deleteLogoIfUnshared($brochure);
+            $brochure->logo_path = null;
+        }
+        if ($request->hasFile('logo')) {
+            $brochure->logo_path = $request->file('logo')->store('brochures/'.$workspace->id.'/logos', 'public');
+        }
+        $brochure->save();
 
         return back()->with('success', 'Brochure saved.');
+    }
+
+    public function syncFromWorkspace(Request $request, Brochure $brochure): RedirectResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+        abort_unless($brochure->workspace_id === $workspace->id, 404);
+
+        $profile = $workspace->businessProfile();
+        $brochure->update([
+            'headline' => $brochure->headline ?: $workspace->name,
+            'subheadline' => $brochure->subheadline ?: ($profile['tagline'] ?: BrochureTemplates::industryDefaults((string) ($profile['industry'] ?? ''), $brochure->template_key)['tagline']),
+            'sections' => BrochureTemplates::defaultSections($profile, $brochure->template_key),
+        ]);
+
+        return back()->with('success', 'Brochure refreshed from workspace details.');
     }
 
     public function destroy(Request $request, Brochure $brochure): RedirectResponse
@@ -120,11 +147,28 @@ class BrochureController extends Controller
         $this->authorize('update', $workspace);
         abort_unless($brochure->workspace_id === $workspace->id, 404);
 
+        $this->deleteLogoIfUnshared($brochure);
         $brochure->delete();
 
         return redirect()
             ->route('studio.brochures.index')
             ->with('success', 'Brochure deleted.');
+    }
+
+    private function deleteLogoIfUnshared(Brochure $brochure): void
+    {
+        if (! $brochure->logo_path) {
+            return;
+        }
+
+        $shared = Brochure::query()
+            ->where('logo_path', $brochure->logo_path)
+            ->whereKeyNot($brochure->getKey())
+            ->exists();
+
+        if (! $shared) {
+            Storage::disk('public')->delete($brochure->logo_path);
+        }
     }
 
     public function duplicate(Request $request, Brochure $brochure): RedirectResponse
@@ -161,7 +205,7 @@ class BrochureController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function validated(Request $request, int $workspaceId, bool $creating): array
+    private function validated(Request $request, string $workspaceId, bool $creating): array
     {
         $rules = [
             'title' => ['required', 'string', 'max:160'],
@@ -171,10 +215,16 @@ class BrochureController extends Controller
             'subheadline' => ['nullable', 'string', 'max:300'],
             'brand_kit_id' => [
                 'nullable',
-                'integer',
+                'uuid',
                 Rule::exists('brand_kits', 'id')->where(fn ($q) => $q->where('workspace_id', $workspaceId)),
             ],
             'is_public' => ['sometimes', 'boolean'],
+            'logo' => ['nullable', 'image', 'mimes:png,jpg,jpeg,webp', 'max:4096'],
+            'remove_logo' => ['sometimes', 'boolean'],
+            'colors' => ['nullable', 'array'],
+            'colors.primary_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'colors.secondary_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'colors.accent_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
         ];
 
         if (! $creating) {

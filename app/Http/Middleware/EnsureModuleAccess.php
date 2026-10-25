@@ -25,7 +25,14 @@ class EnsureModuleAccess
             return $next($request);
         }
 
-        $module = NavModules::fromRouteName($request->route()?->getName());
+        $routeName = $request->route()?->getName();
+        if ($routeName && ! $this->modules->isRouteMenuEnabled($routeName)) {
+            return redirect()
+                ->route($this->modules->firstAllowedRoute($user, $this->workspace($request)))
+                ->with('error', 'You do not have access to that section.');
+        }
+
+        $module = NavModules::fromRouteName($routeName);
         if (! $module) {
             return $next($request);
         }

@@ -24,6 +24,7 @@ class Itinerary extends Model
         'travel_end',
         'adults',
         'children',
+        'child_ages',
         'budget_band',
         'hotel_category',
         'transport',
@@ -46,6 +47,7 @@ class Itinerary extends Model
         return [
             'travel_start' => 'date',
             'travel_end' => 'date',
+            'child_ages' => 'array',
             'interests' => 'array',
             'days' => 'array',
             'inclusions' => 'array',

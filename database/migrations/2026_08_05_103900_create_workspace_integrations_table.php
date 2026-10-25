@@ -9,8 +9,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('workspace_integrations', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
             $table->string('category', 32); // social, messaging, rcs
             $table->string('provider', 40); // meta, linkedin, x, zavu, jio, airtel, vi
             $table->boolean('enabled')->default(true);

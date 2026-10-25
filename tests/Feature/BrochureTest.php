@@ -8,6 +8,8 @@ use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Billing\BillingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class BrochureTest extends TestCase
@@ -120,5 +122,77 @@ class BrochureTest extends TestCase
             ->withSession(['active_workspace_id' => $workspaceB->id])
             ->get(route('studio.brochures.edit', $brochure))
             ->assertNotFound();
+    }
+
+    public function test_custom_colors_are_saved_and_applied(): void
+    {
+        [$user, $workspace] = $this->ownerWorkspace();
+        $brochure = Brochure::query()->create([
+            'workspace_id' => $workspace->id,
+            'title' => 'Colors',
+            'template_key' => 'agency',
+            'status' => 'published',
+            'sections' => [],
+        ]);
+
+        $payload = [
+            'title' => 'Colors',
+            'template_key' => 'agency',
+            'status' => 'published',
+            'is_public' => true,
+            'sections' => [],
+        ];
+        $session = ['active_workspace_id' => $workspace->id];
+
+        $this->actingAs($user)->withSession($session)
+            ->post(route('studio.brochures.update', $brochure), $payload + [
+                'colors' => ['primary_color' => '#e11d48', 'secondary_color' => '', 'accent_color' => '#FACC15'],
+            ])
+            ->assertSessionHasNoErrors();
+
+        $brochure->refresh();
+        $this->assertSame(['primary_color' => '#e11d48', 'accent_color' => '#FACC15'], $brochure->colors);
+        $this->get(route('studio.brochures.public', $brochure->share_token))
+            ->assertOk()
+            ->assertSee('#E11D48', false);
+
+        $this->actingAs($user)->withSession($session)
+            ->post(route('studio.brochures.update', $brochure), $payload + [
+                'colors' => ['primary_color' => 'red'],
+            ])
+            ->assertSessionHasErrors('colors.primary_color');
+    }
+
+    public function test_brochure_logo_upload_replace_and_pdf(): void
+    {
+        Storage::fake('public');
+        [$user, $workspace] = $this->ownerWorkspace();
+        $brochure = Brochure::query()->create([
+            'workspace_id' => $workspace->id,
+            'title' => 'Logo',
+            'template_key' => 'agency',
+            'status' => 'published',
+            'sections' => [],
+        ]);
+        $payload = ['title' => 'Logo', 'template_key' => 'agency', 'status' => 'published', 'is_public' => true, 'sections' => []];
+        $session = ['active_workspace_id' => $workspace->id];
+
+        $this->actingAs($user)->withSession($session)
+            ->post(route('studio.brochures.update', $brochure), $payload + [
+                'logo' => UploadedFile::fake()->image('logo.png', 200, 80),
+            ])
+            ->assertSessionHasNoErrors();
+
+        $brochure->refresh();
+        $this->assertNotNull($brochure->logo_path);
+        Storage::disk('public')->assertExists($brochure->logo_path);
+        $this->actingAs($user)->withSession($session)
+            ->get(route('studio.brochures.pdf', $brochure))->assertOk();
+
+        $old = $brochure->logo_path;
+        $this->actingAs($user)->withSession($session)
+            ->post(route('studio.brochures.update', $brochure), $payload + ['remove_logo' => true]);
+        $this->assertNull($brochure->fresh()->logo_path);
+        Storage::disk('public')->assertMissing($old);
     }
 }

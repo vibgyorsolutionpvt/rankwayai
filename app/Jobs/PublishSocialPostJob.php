@@ -18,7 +18,7 @@ class PublishSocialPostJob implements ShouldQueue
 
     /** @param  list<string>|null  $onlyPlatforms */
     public function __construct(
-        public int $socialPostId,
+        public string $socialPostId,
         public ?array $onlyPlatforms = null,
     ) {}
 
@@ -57,7 +57,7 @@ class PublishSocialPostJob implements ShouldQueue
      *
      * @param  list<string>|null  $onlyPlatforms
      */
-    public static function queueAndProcess(int $socialPostId, ?array $onlyPlatforms = null): void
+    public static function queueAndProcess(string $socialPostId, ?array $onlyPlatforms = null): void
     {
         app()->terminating(function () use ($socialPostId, $onlyPlatforms) {
             try {
