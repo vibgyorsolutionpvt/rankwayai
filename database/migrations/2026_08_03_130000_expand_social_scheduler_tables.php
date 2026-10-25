@@ -22,13 +22,13 @@ return new class extends Migration
             $table->json('publish_log')->nullable()->after('permalinks');
             $table->json('poster_variants')->nullable()->after('publish_log');
             $table->timestamp('approved_at')->nullable()->after('requires_approval');
-            $table->foreignId('approved_by')->nullable()->after('approved_at')->constrained('users')->nullOnDelete();
+            $table->foreignUuid('approved_by')->nullable()->after('approved_at')->constrained('users')->nullOnDelete();
         });
 
         Schema::create('social_publish_logs', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('social_post_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('social_post_id')->constrained()->cascadeOnDelete();
             $table->string('platform');
             $table->string('status'); // queued, published, failed
             $table->string('permalink')->nullable();

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\WorkspaceRole;
 use App\Support\BusinessTypes;
 use Database\Factories\WorkspaceFactory;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -17,6 +18,8 @@ class Workspace extends Model
 {
     /** @use HasFactory<WorkspaceFactory> */
     use HasFactory, SoftDeletes;
+
+    use HasUuids;
 
     protected $fillable = [
         'name',
@@ -82,6 +85,7 @@ class Workspace extends Model
     public function users(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'workspace_user')
+            ->using(WorkspaceUser::class)
             ->withPivot(['role', 'enabled_modules'])
             ->withTimestamps();
     }

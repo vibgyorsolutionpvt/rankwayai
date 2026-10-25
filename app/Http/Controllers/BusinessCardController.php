@@ -125,7 +125,7 @@ class BusinessCardController extends Controller
     public function edit(Request $request, BusinessCard $card, BusinessCardService $cards): Response
     {
         $workspace = $this->workspace($request);
-        abort_unless((int) $card->workspace_id === (int) $workspace->id, 404);
+        abort_unless($card->workspace_id === $workspace->id, 404);
 
         return Inertia::render('Studio/Cards/Edit', [
             'workspace' => ['id' => $workspace->id, 'name' => $workspace->name],
@@ -157,7 +157,7 @@ class BusinessCardController extends Controller
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
-        abort_unless((int) $card->workspace_id === (int) $workspace->id, 404);
+        abort_unless($card->workspace_id === $workspace->id, 404);
 
         $data = $this->validated($request, $workspace->id);
 
@@ -222,7 +222,7 @@ class BusinessCardController extends Controller
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
-        abort_unless((int) $card->workspace_id === (int) $workspace->id, 404);
+        abort_unless($card->workspace_id === $workspace->id, 404);
 
         if ($card->person_photo_path) {
             Storage::disk('public')->delete($card->person_photo_path);
@@ -244,7 +244,7 @@ class BusinessCardController extends Controller
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
-        abort_unless((int) $card->workspace_id === (int) $workspace->id, 404);
+        abort_unless($card->workspace_id === $workspace->id, 404);
 
         $copy = $card->replicate(['share_token', 'views_count', 'phone_clicks', 'whatsapp_clicks', 'email_clicks', 'website_clicks']);
         $copy->title = $card->title.' (copy)';
@@ -266,7 +266,7 @@ class BusinessCardController extends Controller
     public function pdf(Request $request, BusinessCard $card, BusinessCardService $cards): SymfonyResponse
     {
         $workspace = $this->workspace($request);
-        abort_unless((int) $card->workspace_id === (int) $workspace->id, 404);
+        abort_unless($card->workspace_id === $workspace->id, 404);
 
         return $cards->pdf($card);
     }
@@ -274,7 +274,7 @@ class BusinessCardController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function validated(Request $request, int $workspaceId): array
+    private function validated(Request $request, string $workspaceId): array
     {
         return $request->validate([
             'title' => ['required', 'string', 'max:120'],
@@ -292,7 +292,7 @@ class BusinessCardController extends Controller
             'address' => ['nullable', 'string', 'max:255'],
             'brand_kit_id' => [
                 'nullable',
-                'integer',
+                'uuid',
                 Rule::exists('brand_kits', 'id')->where(fn ($q) => $q->where('workspace_id', $workspaceId)),
             ],
             'is_public' => ['sometimes', 'boolean'],

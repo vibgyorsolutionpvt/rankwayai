@@ -5,6 +5,7 @@ namespace App\Policies;
 use App\Enums\WorkspaceRole;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Support\PublicId;
 
 class WorkspacePolicy
 {
@@ -30,7 +31,7 @@ class WorkspacePolicy
         }
 
         // If currently in an active workspace where the user is an invited team member (not owner), deny creation.
-        $activeId = (int) session('active_workspace_id');
+        $activeId = PublicId::normalize(session('active_workspace_id'));
         if ($activeId) {
             $activeRole = $user->workspaces()->where('workspaces.id', $activeId)->value('workspace_user.role');
             if ($activeRole && $activeRole !== WorkspaceRole::Owner->value) {

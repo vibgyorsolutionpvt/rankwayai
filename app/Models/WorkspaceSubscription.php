@@ -3,11 +3,14 @@
 namespace App\Models;
 
 use App\Services\Billing\PlanCatalog;
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class WorkspaceSubscription extends Model
 {
+    use HasUuids;
+
     protected $fillable = [
         'workspace_id',
         'plan',

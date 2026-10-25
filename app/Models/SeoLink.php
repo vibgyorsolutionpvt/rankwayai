@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SeoLink extends Model
 {
+    use HasUuids;
+
     protected $fillable = [
         'workspace_id', 'seo_site_id', 'from_page_id', 'to_page_id',
         'to_url', 'type', 'is_external',

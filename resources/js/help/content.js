@@ -110,26 +110,26 @@ export const SEO_HELP = {
         },
     ),
     localPack: entry(
-        'Local pack / Maps',
+        'Google Maps ranking',
         {
-            what: 'शहर या “near me” सर्च पर Google Maps पैक में आपका बिज़नेस किस नंबर पर है — ये ट्रैक करता है।',
+            what: 'जब कोई आपके शहर में सर्च करता है, Google Maps की लिस्ट में आपका बिज़नेस किस नंबर पर दिखता है।',
             how: [
-                'Keyword लिखें (जैसे courier jaipur)।',
-                'City लिखें (जैसे Jaipur,India)।',
-                'Google Business पर दिखने वाला exact नाम लिखें।',
-                'Add local target दबाएँ, फिर Check से रैंक लें।',
+                'वो keyword लिखें जो ग्राहक सर्च करता है।',
+                'City लिखें, जैसे Jaipur,India।',
+                'Google पर दिखने वाला exact business name लिखें।',
+                'Track this search दबाएँ, फिर Check rank से position देखें।',
             ],
-            note: 'पेड प्लान + DataForSEO चाहिए। किसी भी वेबसाइट स्टैक पर काम करता है।',
+            note: 'पेड प्लान और DataForSEO चाहिए। लिस्टिंग यहाँ से edit नहीं होती, सिर्फ rank दिखती है।',
         },
         {
-            what: 'Tracks where your business appears in Google’s local / Maps pack for a keyword and city.',
+            what: 'Shows where your business sits in Google Maps when someone searches that keyword in a city.',
             how: [
                 'Enter the keyword customers search.',
-                'Enter the city (e.g. Jaipur,India).',
-                'Enter the exact Google Business name.',
-                'Add the target, then click Check for your pack rank.',
+                'Enter the city, for example Jaipur,India.',
+                'Enter the exact business name shown on Google.',
+                'Click Track this search, then Check rank.',
             ],
-            note: 'Requires a paid plan and DataForSEO. Works for any site stack.',
+            note: 'Requires a paid plan and DataForSEO. This checks rank. It does not edit the Google listing.',
         },
     ),
     publish: entry(

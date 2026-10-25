@@ -10,11 +10,11 @@ return new class extends Migration
     {
         Schema::create('quotations', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('created_by')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignUuid('itinerary_id')->nullable()->constrained('itineraries')->nullOnDelete();
-            $table->foreignId('crm_lead_id')->nullable()->constrained('crm_leads')->nullOnDelete();
-            $table->foreignId('brand_kit_id')->nullable()->constrained('brand_kits')->nullOnDelete();
+            $table->foreignUuid('crm_lead_id')->nullable()->constrained('crm_leads')->nullOnDelete();
+            $table->foreignUuid('brand_kit_id')->nullable()->constrained('brand_kits')->nullOnDelete();
             $table->string('number', 40);
             $table->string('title');
             $table->string('status', 20)->default('draft'); // draft, sent, accepted, declined

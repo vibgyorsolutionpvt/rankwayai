@@ -193,7 +193,7 @@ class RankwayDomainAnalyzer
     public function linkSeoSite(SeoSite $site, ?RankwayDomain $domain = null): void
     {
         $domain ??= $this->findOrCreate($site->domain);
-        if ((int) $site->rankway_domain_id !== (int) $domain->id) {
+        if ((string) $site->rankway_domain_id !== (string) $domain->id) {
             $site->forceFill(['rankway_domain_id' => $domain->id])->save();
         }
     }

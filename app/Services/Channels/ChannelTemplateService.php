@@ -12,15 +12,25 @@ class ChannelTemplateService
      * Replace {{placeholders}} using brand kit + optional lead.
      * Supported: name, brand, cta, cta_url, phone, email, website
      */
-    public function render(string $text, Workspace $workspace, ?CrmLead $lead = null): string
-    {
+    public function render(
+        string $text,
+        Workspace $workspace,
+        ?CrmLead $lead = null,
+        bool $escapeValues = false,
+    ): string {
         $brand = $workspace->resolveBrandKit();
         $map = $this->tokens($workspace, $brand, $lead);
 
-        return preg_replace_callback('/\{\{\s*([a-z_]+)\s*\}\}/i', function (array $m) use ($map) {
+        return preg_replace_callback('/\{\{\s*([a-z_]+)\s*\}\}/i', function (array $m) use ($map, $escapeValues) {
             $key = strtolower($m[1]);
 
-            return array_key_exists($key, $map) ? (string) $map[$key] : $m[0];
+            if (! array_key_exists($key, $map)) {
+                return $m[0];
+            }
+
+            $value = (string) $map[$key];
+
+            return $escapeValues ? e($value) : $value;
         }, $text) ?? $text;
     }
 

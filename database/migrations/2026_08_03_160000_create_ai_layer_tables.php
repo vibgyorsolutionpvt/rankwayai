@@ -9,8 +9,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('workspace_ai_settings', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete()->unique();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete()->unique();
             $table->decimal('monthly_budget_usd', 8, 2)->default(20);
             $table->decimal('spent_usd', 10, 4)->default(0);
             $table->boolean('template_first')->default(true);
@@ -23,9 +23,9 @@ return new class extends Migration
         });
 
         Schema::create('ai_usage_logs', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('user_id')->nullable()->constrained()->nullOnDelete();
             $table->string('action'); // captions, blog_outline, seo_meta, festival_pack, generate_today
             $table->string('provider')->default('template'); // template, openai
             $table->unsignedInteger('tokens')->default(0);
@@ -36,7 +36,7 @@ return new class extends Migration
         });
 
         Schema::create('festival_events', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
             $table->string('name');
             $table->date('occurs_on');
             $table->string('region')->default('IN');
@@ -47,8 +47,8 @@ return new class extends Migration
         });
 
         Schema::create('ai_generations', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
             $table->string('type'); // caption, blog, seo_meta, today_pack
             $table->string('title')->nullable();
             $table->json('payload');

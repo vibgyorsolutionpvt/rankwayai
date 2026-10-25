@@ -9,9 +9,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('crm_lead_groups', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('created_by')->nullable()->constrained('users')->nullOnDelete();
             $table->string('name', 120);
             $table->string('status', 24)->default('processing');
             $table->unsignedInteger('total_rows')->default(0);
@@ -24,9 +24,9 @@ return new class extends Migration
         });
 
         Schema::create('crm_lead_group_members', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('crm_lead_group_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('crm_lead_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('crm_lead_group_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('crm_lead_id')->constrained()->cascadeOnDelete();
             $table->timestamps();
             $table->unique(['crm_lead_group_id', 'crm_lead_id']);
             $table->index('crm_lead_id');

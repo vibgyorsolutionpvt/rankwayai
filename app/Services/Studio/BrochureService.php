@@ -30,6 +30,13 @@ class BrochureService
             'default_cta_url' => null,
         ];
 
+        foreach (['primary_color', 'secondary_color', 'accent_color'] as $token) {
+            $custom = $brochure->colors[$token] ?? null;
+            if (is_string($custom) && preg_match('/^#[0-9A-Fa-f]{6}$/', $custom)) {
+                $styles[$token] = strtoupper($custom);
+            }
+        }
+
         $payload = [
             'id' => $brochure->id,
             'title' => $brochure->title,
@@ -40,8 +47,10 @@ class BrochureService
             'sections' => $brochure->sections ?? [],
             'enabled_sections' => $brochure->enabledSections(),
             'brand_kit_id' => $brochure->brand_kit_id,
-            'logo_url' => $kit?->logo_path ? Storage::disk('public')->url($kit->logo_path) : null,
+            'logo_url' => ($brochure->logo_path ?: $kit?->logo_path) ? Storage::disk('public')->url($brochure->logo_path ?: $kit->logo_path) : null,
+            'has_custom_logo' => (bool) $brochure->logo_path,
             'styles' => $styles,
+            'custom_colors' => $brochure->colors ?? [],
             'company_name' => $brochure->workspace?->name,
             'share_url' => $brochure->publicUrl(),
             'qr_url' => route('studio.brochures.public.qr', $brochure->share_token),
@@ -88,6 +97,11 @@ class BrochureService
     public function pdf(Brochure $brochure): Response
     {
         $data = $this->present($brochure, false);
+        $logoPath = $brochure->logo_path ?: $brochure->resolveBrandKit()?->logo_path;
+        if ($logoPath && Storage::disk('public')->exists($logoPath)) {
+            $mime = Storage::disk('public')->mimeType($logoPath) ?: 'image/png';
+            $data['logo_url'] = 'data:'.$mime.';base64,'.base64_encode(Storage::disk('public')->get($logoPath));
+        }
         $pdf = Pdf::loadView('studio.brochure-pdf', [
             'brochure' => $data,
         ])->setPaper('a4', 'portrait');

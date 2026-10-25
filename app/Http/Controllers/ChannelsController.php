@@ -8,7 +8,9 @@ use App\Models\ChannelCampaign;
 use App\Models\ChannelMessageTemplate;
 use App\Models\CrmLead;
 use App\Models\CrmLeadGroup;
+use App\Models\Workspace;
 use App\Services\Billing\PlanAccess;
+use App\Services\Billing\WhatsAppCreditService;
 use App\Services\Channels\ChannelCampaignService;
 use App\Services\Channels\ChannelTemplateService;
 use App\Services\Channels\Rcs\RcsProviderCatalog;
@@ -28,24 +30,32 @@ class ChannelsController extends Controller
         $workspace = $this->workspace($request);
         $brand = $workspace->resolveBrandKit();
         $plan = $plans->summary($workspace);
+        $emailOnly = $request->routeIs('email.index');
+        $campaigns = ChannelCampaign::query()
+            ->where('workspace_id', $workspace->id)
+            ->when($emailOnly, fn ($query) => $query->where('channel', 'email'))
+            ->latest()
+            ->limit(40)
+            ->get();
+        $messageTemplates = ChannelMessageTemplate::query()
+            ->where('workspace_id', $workspace->id)
+            ->when($emailOnly, fn ($query) => $query->where('channel', 'email'))
+            ->latest()
+            ->get()
+            ->map->toArrayBrief()
+            ->values();
 
         return Inertia::render('Channels/Index', [
             'workspace' => ['id' => $workspace->id, 'name' => $workspace->name],
+            'email_only' => $emailOnly,
+            'initial_channel' => $emailOnly || $request->string('channel')->toString() === 'email' ? 'email' : 'whatsapp',
             'provider' => $channels->provider($workspace),
             'providers' => $channels->messagingProviders($workspace),
+            'email_providers' => $channels->emailDeliveryProviders($workspace),
             'rcs_providers' => $channels->rcsProviders($workspace),
             'plan' => $plan,
-            'campaigns' => ChannelCampaign::query()
-                ->where('workspace_id', $workspace->id)
-                ->latest()
-                ->limit(40)
-                ->get(),
-            'templates' => ChannelMessageTemplate::query()
-                ->where('workspace_id', $workspace->id)
-                ->latest()
-                ->get()
-                ->map->toArrayBrief()
-                ->values(),
+            'campaigns' => $campaigns,
+            'templates' => $messageTemplates,
             'placeholders' => [
                 ['token' => '{{name}}', 'label' => 'Lead name (auto on send)'],
                 ['token' => '{{brand}}', 'label' => 'Business name'],
@@ -58,6 +68,7 @@ class ChannelsController extends Controller
             'brand_tokens' => $templates->tokens($workspace, $brand),
             'leads' => CrmLead::query()
                 ->where('workspace_id', $workspace->id)
+                ->when($emailOnly, fn ($query) => $query->whereNotNull('email')->where('email', '!=', ''))
                 ->orderBy('name')
                 ->limit(100)
                 ->get(['id', 'name', 'email', 'phone', 'stage']),
@@ -72,6 +83,13 @@ class ChannelsController extends Controller
         ]);
     }
 
+    public function storeEmail(Request $request, ChannelCampaignService $channels, PlanAccess $plans): RedirectResponse
+    {
+        $request->merge(['channel' => 'email']);
+
+        return $this->store($request, $channels, $plans);
+    }
+
     public function store(Request $request, ChannelCampaignService $channels, PlanAccess $plans): RedirectResponse
     {
         $workspace = $this->workspace($request);
@@ -80,21 +98,57 @@ class ChannelsController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'channel' => ['required', 'in:whatsapp,email,rcs'],
+            'email_provider' => [
+                'nullable',
+                'string',
+                'in:'.implode(',', array_unique([
+                    'auto',
+                    ...array_column($channels->emailDeliveryProviders($workspace), 'id'),
+                ])),
+            ],
             'rcs_provider' => ['nullable', 'string', 'max:40'],
             'subject' => ['nullable', 'string', 'max:160'],
             'body' => ['required', 'string', 'max:4000'],
             'scheduled_at' => ['nullable', 'date'],
             'lead_ids' => ['nullable', 'array'],
-            'lead_ids.*' => ['integer'],
-            'recipient_mode' => ['sometimes', 'in:all,selected,group'],
-            'crm_lead_group_id' => ['nullable', 'integer'],
-            'whatsapp_template_id' => ['nullable', 'integer'],
+            'lead_ids.*' => ['uuid'],
+            'recipient_mode' => ['sometimes', 'in:all,selected,group,numbers'],
+            'phones' => ['nullable', 'string', 'max:2000'],
+            'crm_lead_group_id' => ['nullable', 'uuid'],
+            'whatsapp_template_id' => ['nullable', 'uuid'],
             'delivery' => ['required', 'in:now,schedule,draft'],
             ...self::audienceFilterRules(),
         ]);
+        if ($data['channel'] === 'email' && ($data['delivery'] ?? 'draft') !== 'draft'
+            && $channels->provider($workspace, 'email') === 'none') {
+            throw ValidationException::withMessages([
+                'email_provider' => 'Connect a sending provider in Settings → Providers before scheduling or sending email.',
+            ]);
+        }
         $data['audience'] = ($data['recipient_mode'] ?? 'all') === 'all' ? self::audienceFilters($data) : [];
 
         $recipientGroup = null;
+        $directLeadIds = null;
+        if (($data['recipient_mode'] ?? null) === 'numbers') {
+            if ($data['channel'] !== 'whatsapp') {
+                throw ValidationException::withMessages([
+                    'phones' => 'Typed numbers can only be used for a WhatsApp campaign.',
+                ]);
+            }
+            $parsed = $channels->parseDirectPhones((string) ($data['phones'] ?? ''));
+            if ($parsed['phones'] === []) {
+                throw ValidationException::withMessages([
+                    'phones' => 'Enter at least one phone number, one per line.',
+                ]);
+            }
+            if (count($parsed['phones']) > ChannelCampaignService::DIRECT_NUMBER_LIMIT) {
+                throw ValidationException::withMessages([
+                    'phones' => 'Enter up to '.ChannelCampaignService::DIRECT_NUMBER_LIMIT.' numbers. Use a contact group for a longer list.',
+                ]);
+            }
+            $directLeadIds = $channels->leadsForDirectPhones($workspace, $parsed['phones']);
+            $data['crm_lead_group_id'] = null;
+        }
         if (($data['recipient_mode'] ?? null) === 'group') {
             if ($data['channel'] !== 'whatsapp' || blank($data['crm_lead_group_id'] ?? null)) {
                 throw ValidationException::withMessages([
@@ -121,14 +175,17 @@ class ChannelsController extends Controller
 
         if (($data['recipient_mode'] ?? null) === 'selected') {
             $selectedLeadIds = $data['lead_ids'] ?? [];
+            $destination = $data['channel'] === 'email' ? 'email' : 'phone';
             $validSelectedCount = CrmLead::query()
                 ->where('workspace_id', $workspace->id)
-                ->whereNotNull('phone')
+                ->whereNotNull($destination)
+                ->where($destination, '!=', '')
                 ->whereIn('id', $selectedLeadIds)
                 ->count();
             if ($selectedLeadIds === [] || $validSelectedCount !== count(array_unique($selectedLeadIds))) {
+                $destinationLabel = $data['channel'] === 'email' ? 'email address' : 'phone number';
                 throw ValidationException::withMessages([
-                    'lead_ids' => 'Select at least one valid CRM contact with a phone number from this workspace.',
+                    'lead_ids' => 'Select at least one valid CRM contact with a '.$destinationLabel.' from this workspace.',
                 ]);
             }
         }
@@ -201,15 +258,24 @@ class ChannelsController extends Controller
         }
 
         if (in_array($data['delivery'], ['now', 'schedule'], true)) {
-            $audience = $channels->audienceSummary(
-                $workspace->id,
-                $data['channel'],
-                $recipientGroup?->id,
-                ($data['recipient_mode'] ?? null) === 'selected' ? ($data['lead_ids'] ?? []) : null,
-                $data['audience'],
-            );
+            $audience = $directLeadIds
+                ? $channels->audienceSummary($workspace->id, $data['channel'], null, $directLeadIds, [])
+                : $channels->audienceSummary(
+                    $workspace->id,
+                    $data['channel'],
+                    $recipientGroup?->id,
+                    ($data['recipient_mode'] ?? null) === 'selected' ? ($data['lead_ids'] ?? []) : null,
+                    $data['audience'],
+                );
             if ($audience['recipients'] === 0) {
                 return back()->with('error', 'No recipients match this audience. Change the filters or choose other contacts.');
+            }
+            if ($data['channel'] === 'whatsapp' && ($error = $this->whatsappCreditError(
+                $workspace,
+                (int) $audience['recipients'],
+                app(WhatsAppCreditService::class)->isBulk((int) $audience['recipients'])
+            ))) {
+                return back()->with('error', $error);
             }
         }
 
@@ -217,11 +283,12 @@ class ChannelsController extends Controller
             $workspace,
             $request->user()->id,
             $data,
-            ($data['recipient_mode'] ?? null) === 'selected'
-                ? ($data['lead_ids'] ?? [])
-                : (($data['recipient_mode'] ?? null) === 'group'
-                    ? null
-                    : ($data['lead_ids'] ?? null))
+            $directLeadIds
+                ?? (($data['recipient_mode'] ?? null) === 'selected'
+                    ? ($data['lead_ids'] ?? [])
+                    : (($data['recipient_mode'] ?? null) === 'group'
+                        ? null
+                        : ($data['lead_ids'] ?? null)))
         );
 
         if ($data['delivery'] === 'now') {
@@ -245,6 +312,21 @@ class ChannelsController extends Controller
         }
 
         return back()->with('success', 'Campaign saved as draft.');
+    }
+
+    private function whatsappCreditError(Workspace $workspace, int $count, bool $bulk, bool $countIsCredits = false): ?string
+    {
+        $credits = app(WhatsAppCreditService::class);
+        $needed = $countIsCredits ? $count : $credits->campaignCreditsFor($count, $bulk);
+        $available = $credits->available($workspace);
+        if ($available >= $needed) {
+            return null;
+        }
+
+        $rate = $bulk ? '½ credit per message for campaigns over '.number_format(WhatsAppCreditService::BULK_THRESHOLD) : '1 per message';
+
+        return 'This campaign needs '.number_format($needed).' credits ('.$rate.'), but only '
+            .number_format($available).' are available. Recharge from Billing or reduce the audience.';
     }
 
     /**
@@ -304,6 +386,21 @@ class ChannelsController extends Controller
         return back()->with('success', 'Template saved.');
     }
 
+    public function storeEmailTemplate(Request $request): RedirectResponse
+    {
+        $request->merge(['channel' => 'email']);
+
+        return $this->storeTemplate($request);
+    }
+
+    public function updateEmailTemplate(Request $request, ChannelMessageTemplate $template): RedirectResponse
+    {
+        abort_unless($template->channel === 'email', 404);
+        $request->merge(['channel' => 'email']);
+
+        return $this->updateTemplate($request, $template);
+    }
+
     public function updateTemplate(Request $request, ChannelMessageTemplate $template): RedirectResponse
     {
         $workspace = $this->workspace($request);
@@ -350,6 +447,16 @@ class ChannelsController extends Controller
 
         if ($campaign->channel === 'whatsapp' && $channels->provider($workspace, 'whatsapp') === 'none') {
             return back()->with('error', WorkspaceIntegrationService::whatsappNotConnectedMessage());
+        }
+
+        if ($campaign->channel === 'whatsapp') {
+            $credits = app(WhatsAppCreditService::class);
+            $bulk = $credits->isBulkCampaign($campaign);
+            $needed = $credits->campaignCreditsFor($credits->acceptedCount($campaign) + $campaign->recipients()->where('status', 'pending')->count(), $bulk)
+                - (int) $campaign->credits_charged;
+            if ($error = $this->whatsappCreditError($workspace, $needed, $bulk, true)) {
+                return back()->with('error', $error);
+            }
         }
 
         if ($campaign->crm_lead_group_id) {

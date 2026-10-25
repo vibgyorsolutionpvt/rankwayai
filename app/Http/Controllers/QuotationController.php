@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\ResolvesWorkspace;
 use App\Models\CrmLead;
-use App\Models\Itinerary;
 use App\Models\Quotation;
 use App\Services\Studio\QuotationService;
 use Illuminate\Http\RedirectResponse;
@@ -39,17 +38,6 @@ class QuotationController extends Controller
                     'share_url' => $item->publicUrl(),
                     'updated_at' => $item->updated_at?->timezone(config('app.timezone'))->format('d M Y, g:i A'),
                 ]),
-            'itineraries' => $workspace->itineraries()
-                ->latest('id')
-                ->limit(50)
-                ->get(['id', 'title', 'destination', 'duration_days', 'adults', 'children'])
-                ->map(fn (Itinerary $i) => [
-                    'id' => $i->id,
-                    'title' => $i->title,
-                    'destination' => $i->destination,
-                    'duration_days' => $i->duration_days,
-                    'travellers' => $i->travellersCount(),
-                ]),
             'leads' => CrmLead::query()
                 ->where('workspace_id', $workspace->id)
                 ->latest('id')
@@ -79,14 +67,9 @@ class QuotationController extends Controller
 
         $data = $request->validate([
             'title' => ['nullable', 'string', 'max:160'],
-            'itinerary_id' => [
-                'nullable',
-                'uuid',
-                Rule::exists('itineraries', 'id')->where(fn ($q) => $q->where('workspace_id', $workspace->id)),
-            ],
             'crm_lead_id' => [
                 'nullable',
-                'integer',
+                'uuid',
                 Rule::exists('crm_leads', 'id')->where(fn ($q) => $q->where('workspace_id', $workspace->id)),
             ],
             'customer_name' => ['nullable', 'string', 'max:120'],
@@ -100,13 +83,6 @@ class QuotationController extends Controller
             'status' => ['nullable', 'string', Rule::in(['draft', 'sent', 'accepted', 'declined'])],
         ]);
 
-        $itinerary = null;
-        if (! empty($data['itinerary_id'])) {
-            $itinerary = Itinerary::query()
-                ->where('workspace_id', $workspace->id)
-                ->findOrFail($data['itinerary_id']);
-        }
-
         if (! empty($data['crm_lead_id'])) {
             $lead = CrmLead::query()
                 ->where('workspace_id', $workspace->id)
@@ -117,29 +93,11 @@ class QuotationController extends Controller
             $data['customer_company'] = $data['customer_company'] ?? $lead->company;
         }
 
-        $quotation = $quotations->create($workspace, $request->user()->id, $data, $itinerary);
+        $quotation = $quotations->create($workspace, $request->user()->id, $data);
 
         return redirect()
             ->route('studio.quotations.edit', $quotation)
-            ->with('success', $itinerary ? 'Quotation generated from itinerary.' : 'Quotation created.');
-    }
-
-    public function fromItinerary(Request $request, Itinerary $itinerary, QuotationService $quotations): RedirectResponse
-    {
-        $workspace = $this->workspace($request);
-        $this->authorize('update', $workspace);
-        abort_unless($itinerary->workspace_id === $workspace->id, 404);
-
-        $quotation = $quotations->create($workspace, $request->user()->id, [
-            'status' => 'draft',
-            'currency' => $itinerary->currency ?: 'INR',
-            'discount_amount' => (float) (($itinerary->pricing['discount'] ?? 0)),
-            'tax_percent' => 0,
-        ], $itinerary);
-
-        return redirect()
-            ->route('studio.quotations.edit', $quotation)
-            ->with('success', 'Quotation generated from itinerary.');
+            ->with('success', 'Quotation created.');
     }
 
     public function edit(Request $request, Quotation $quotation, QuotationService $quotations): Response
@@ -197,7 +155,7 @@ class QuotationController extends Controller
             'is_public' => ['sometimes', 'boolean'],
             'crm_lead_id' => [
                 'nullable',
-                'integer',
+                'uuid',
                 Rule::exists('crm_leads', 'id')->where(fn ($q) => $q->where('workspace_id', $workspace->id)),
             ],
         ]);

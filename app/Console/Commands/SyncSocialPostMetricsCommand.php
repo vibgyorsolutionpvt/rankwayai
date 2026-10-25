@@ -17,7 +17,7 @@ class SyncSocialPostMetricsCommand extends Command
         $workspaceId = $this->option('workspace');
 
         if ($workspaceId) {
-            $workspace = Workspace::query()->find((int) $workspaceId);
+            $workspace = Workspace::query()->find((string) $workspaceId);
             if (! $workspace) {
                 $this->error('Workspace not found.');
 

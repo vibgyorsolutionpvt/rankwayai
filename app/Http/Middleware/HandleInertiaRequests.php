@@ -8,6 +8,7 @@ use App\Services\Access\ModuleAccess;
 use App\Services\Admin\UserSimulator;
 use App\Services\Billing\PlanAccess;
 use App\Services\Workspaces\VisibleWorkspaceService;
+use App\Support\PublicId;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -60,11 +61,11 @@ class HandleInertiaRequests extends Middleware
                 ->values()
                 ->all();
 
-            $activeId = (int) $request->session()->get('active_workspace_id');
+            $activeId = PublicId::normalize($request->session()->get('active_workspace_id'));
             $activeWorkspace = collect($workspaces)->firstWhere('id', $activeId)
                 ?? ($workspaces[0] ?? null);
 
-            if ($activeWorkspace && $activeId !== (int) $activeWorkspace['id']) {
+            if ($activeWorkspace && $activeId !== (string) $activeWorkspace['id']) {
                 $request->session()->put('active_workspace_id', $activeWorkspace['id']);
             }
 
@@ -77,7 +78,7 @@ class HandleInertiaRequests extends Middleware
                 $plan = $plans->summary($activeModel);
             }
         } elseif ($user?->is_superadmin && ! $simulatingUser) {
-            $impersonateId = (int) $request->session()->get('impersonate_workspace_id');
+            $impersonateId = PublicId::normalize($request->session()->get('impersonate_workspace_id'));
             if ($impersonateId) {
                 $impersonated = Workspace::query()->find($impersonateId);
                 if ($impersonated) {
@@ -106,11 +107,11 @@ class HandleInertiaRequests extends Middleware
                     ->values()
                     ->all();
 
-                $activeId = (int) $request->session()->get('active_workspace_id');
+                $activeId = PublicId::normalize($request->session()->get('active_workspace_id'));
                 $activeWorkspace = collect($workspaces)->firstWhere('id', $activeId)
                     ?? ($workspaces[0] ?? null);
 
-                if ($activeWorkspace && $activeId !== (int) $activeWorkspace['id']) {
+                if ($activeWorkspace && $activeId !== (string) $activeWorkspace['id']) {
                     $request->session()->put('active_workspace_id', $activeWorkspace['id']);
                 }
 
@@ -156,8 +157,11 @@ class HandleInertiaRequests extends Middleware
                 ]
                 : null,
             'navigation' => $navigation,
+            'platformMenus' => fn () => $user ? $modules->platformMenuStates() : [],
             'plan' => $plan,
             'can_create_workspace' => $canCreateWorkspace,
+            'can_manage_billing' => $user
+                && ($user->is_superadmin || ($activeWorkspace['role'] ?? '') === WorkspaceRole::Owner->value),
             'check_social_on_login' => fn () => (bool) $request->session()->pull('check_social_on_login', false),
             'check_social_on_workspace_switch' => fn () => (bool) $request->session()->pull('check_social_on_workspace_switch', false),
             'flash' => [

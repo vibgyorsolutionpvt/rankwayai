@@ -1,4 +1,13 @@
-export default function Toggle({ checked = false, onChange, label, disabled = false, className = '' }) {
+export default function Toggle({
+    checked = false,
+    onChange,
+    label,
+    disabled = false,
+    className = '',
+    size = 'md',
+}) {
+    const compact = size === 'sm';
+
     return (
         <button
             type="button"
@@ -17,15 +26,18 @@ export default function Toggle({ checked = false, onChange, label, disabled = fa
         >
             <span
                 className={
-                    'relative h-6 w-11 shrink-0 rounded-full transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-signal/40 ' +
+                    'relative shrink-0 rounded-full transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-signal/40 ' +
+                    (compact ? 'h-5 w-9' : 'h-6 w-11') +
+                    ' ' +
                     (checked ? 'bg-signal' : 'bg-line')
                 }
             >
                 <span
                     aria-hidden="true"
                     className={
-                        'pointer-events-none absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200 ' +
-                        (checked ? 'translate-x-5' : 'translate-x-0')
+                        'pointer-events-none absolute left-0.5 rounded-full bg-white shadow-sm transition-transform duration-200 ' +
+                        (compact ? 'top-0.5 h-4 w-4 ' : 'top-0.5 h-5 w-5 ') +
+                        (checked ? (compact ? 'translate-x-4' : 'translate-x-5') : 'translate-x-0')
                     }
                 />
             </span>

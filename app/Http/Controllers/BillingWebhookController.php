@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\BillingAccount;
 use App\Models\CreditRecharge;
 use App\Models\Workspace;
+use App\Models\WorkspaceSubscription;
 use App\Services\Billing\BillingService;
 use App\Services\Billing\CreditRechargeService;
 use App\Services\Billing\PlanCatalog;
 use App\Services\Billing\RazorpayClient;
+use App\Support\PublicId;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
@@ -33,7 +36,7 @@ class BillingWebhookController extends Controller
             $meta = $object['metadata'] ?? [];
 
             if (($meta['type'] ?? '') === 'credit_recharge') {
-                $recharge = CreditRecharge::query()->find((int) ($meta['recharge_id'] ?? 0));
+                $recharge = CreditRecharge::query()->find(PublicId::normalize($meta['recharge_id'] ?? null));
                 if ($recharge) {
                     $recharges->markPaid($recharge, 'stripe', $object['id'] ?? null);
                 }
@@ -41,7 +44,7 @@ class BillingWebhookController extends Controller
                 return response('ok', 200);
             }
 
-            $workspaceId = (int) ($object['client_reference_id'] ?? $meta['workspace_id'] ?? 0);
+            $workspaceId = PublicId::normalize($object['client_reference_id'] ?? $meta['workspace_id'] ?? null);
             $plan = (string) ($meta['plan'] ?? 'starter');
             $interval = PlanCatalog::normalizeInterval($meta['interval'] ?? PlanCatalog::INTERVAL_MONTH);
             $workspace = Workspace::query()->find($workspaceId);
@@ -61,7 +64,7 @@ class BillingWebhookController extends Controller
         if (in_array($type, ['customer.subscription.deleted', 'invoice.payment_failed'], true)) {
             $subId = $object['id'] ?? ($object['subscription'] ?? null);
             if ($subId) {
-                $row = \App\Models\WorkspaceSubscription::query()
+                $row = WorkspaceSubscription::query()
                     ->where('stripe_subscription_id', $subId)
                     ->first();
                 if ($row) {
@@ -96,7 +99,7 @@ class BillingWebhookController extends Controller
             $notes = $entity['notes'] ?? [];
 
             if (($notes['type'] ?? '') === 'credit_recharge') {
-                $recharge = CreditRecharge::query()->find((int) ($notes['recharge_id'] ?? 0));
+                $recharge = CreditRecharge::query()->find(PublicId::normalize($notes['recharge_id'] ?? null));
                 if ($recharge) {
                     $recharges->markPaid($recharge, 'razorpay', $entity['id'] ?? null);
                 }
@@ -105,8 +108,8 @@ class BillingWebhookController extends Controller
             }
 
             if (($notes['type'] ?? '') === 'plan_checkout') {
-                $billingAccountId = (int) ($notes['billing_account_id'] ?? 0);
-                $workspaceId = (int) ($notes['workspace_id'] ?? 0);
+                $billingAccountId = PublicId::normalize($notes['billing_account_id'] ?? null);
+                $workspaceId = PublicId::normalize($notes['workspace_id'] ?? null);
                 $plan = (string) ($notes['plan'] ?? 'starter');
                 $market = ($notes['market'] ?? '') === PlanCatalog::MARKET_GLOBAL
                     ? PlanCatalog::MARKET_GLOBAL
@@ -114,7 +117,7 @@ class BillingWebhookController extends Controller
                 $interval = PlanCatalog::normalizeInterval($notes['interval'] ?? PlanCatalog::INTERVAL_MONTH);
                 $workspace = $workspaceId ? Workspace::query()->find($workspaceId) : null;
                 $account = $billingAccountId
-                    ? \App\Models\BillingAccount::query()->find($billingAccountId)
+                    ? BillingAccount::query()->find($billingAccountId)
                     : null;
 
                 if ($account && $workspace) {
@@ -164,7 +167,7 @@ class BillingWebhookController extends Controller
 
         if (in_array($eventName, ['subscription.activated', 'subscription.charged'], true)) {
             $notes = $entity['notes'] ?? [];
-            $workspaceId = (int) ($notes['workspace_id'] ?? 0);
+            $workspaceId = PublicId::normalize($notes['workspace_id'] ?? null);
             $plan = (string) ($notes['plan'] ?? 'starter');
             $interval = PlanCatalog::normalizeInterval($notes['interval'] ?? PlanCatalog::INTERVAL_MONTH);
             $workspace = Workspace::query()->find($workspaceId);
@@ -184,7 +187,7 @@ class BillingWebhookController extends Controller
         if (in_array($eventName, ['subscription.cancelled', 'subscription.completed', 'subscription.halted'], true)) {
             $subId = $entity['id'] ?? null;
             if ($subId) {
-                $row = \App\Models\WorkspaceSubscription::query()
+                $row = WorkspaceSubscription::query()
                     ->where('razorpay_subscription_id', $subId)
                     ->first();
                 if ($row) {

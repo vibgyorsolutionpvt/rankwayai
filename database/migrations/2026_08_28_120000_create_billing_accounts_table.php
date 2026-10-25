@@ -9,9 +9,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('billing_accounts', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('user_id')->constrained()->cascadeOnDelete()->unique();
-            $table->foreignId('billing_workspace_id')->nullable()->constrained('workspaces')->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('user_id')->constrained()->cascadeOnDelete()->unique();
+            $table->foreignUuid('billing_workspace_id')->nullable()->constrained('workspaces')->nullOnDelete();
             $table->string('plan')->default('free');
             $table->string('status')->default('active');
             $table->string('billing_provider')->default('manual');
@@ -33,10 +33,10 @@ return new class extends Migration
         });
 
         Schema::create('billing_transactions', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('billing_account_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
-            $table->foreignId('workspace_id')->nullable()->constrained()->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('billing_account_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('user_id')->nullable()->constrained()->nullOnDelete();
+            $table->foreignUuid('workspace_id')->nullable()->constrained()->nullOnDelete();
             $table->string('type', 32); // plan_checkout, credit_recharge
             $table->string('plan', 32)->nullable();
             $table->string('pack_id', 40)->nullable();
@@ -53,7 +53,7 @@ return new class extends Migration
         });
 
         Schema::table('credit_recharges', function (Blueprint $table) {
-            $table->foreignId('billing_account_id')
+            $table->foreignUuid('billing_account_id')
                 ->nullable()
                 ->after('user_id')
                 ->constrained()

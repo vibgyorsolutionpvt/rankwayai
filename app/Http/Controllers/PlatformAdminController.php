@@ -16,14 +16,17 @@ use App\Services\Ai\AiProviderRouter;
 use App\Services\Billing\BillingService;
 use App\Services\Billing\PlanCatalog;
 use App\Services\Workspaces\ProvisionClientWorkspace;
+use App\Services\Workspaces\VisibleWorkspaceService;
 use App\Support\ActivityLabels;
 use App\Support\NavModules;
+use App\Support\PublicId;
 use App\Support\SocialPlatforms;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 use Inertia\Inertia;
@@ -33,9 +36,19 @@ class PlatformAdminController extends Controller
 {
     public function dashboard(Request $request, ModuleAccess $modules): Response
     {
+        $groupedKeys = collect(NavModules::menuGroups())
+            ->flatMap(fn (array $group) => $group['children'])
+            ->all();
+
         return Inertia::render('Admin/Dashboard', [
             'stats' => $this->stats(),
-            'menus' => $modules->platformMenuStates(),
+            'menus' => collect($modules->platformMenuStates())
+                ->reject(fn (array $menu) => in_array($menu['key'], [
+                    ...$groupedKeys,
+                    ...array_keys(NavModules::menuGroups()),
+                ], true))
+                ->values(),
+            'menuGroups' => $modules->platformMenuGroups(),
             'socialPlatforms' => SocialPlatforms::platformStates(),
             'recentUsers' => User::query()
                 ->orderByDesc('created_at')
@@ -302,8 +315,8 @@ class PlatformAdminController extends Controller
         if (! in_array($tab, ['actions', 'logins'], true)) {
             $tab = 'actions';
         }
-        $userId = (int) $request->query('user_id', 0);
-        $workspaceId = (int) $request->query('workspace_id', 0);
+        $userId = PublicId::normalize($request->query('user_id', 0));
+        $workspaceId = PublicId::normalize($request->query('workspace_id', 0));
         $group = (string) $request->query('group', 'all');
         if (! in_array($group, ['all', 'seo', 'social', 'blog', 'media', 'brand', 'billing', 'workspace', 'settings', 'admin', 'other'], true)) {
             $group = 'all';
@@ -491,7 +504,7 @@ class PlatformAdminController extends Controller
             'uuid' => $job->uuid,
             'queue' => $job->queue,
             'failed_at' => $job->failed_at,
-            'exception' => \Illuminate\Support\Str::limit((string) $job->exception, 280),
+            'exception' => Str::limit((string) $job->exception, 280),
             'payload_summary' => $this->jobDisplayName($job->payload ?? ''),
         ]);
 
@@ -522,7 +535,7 @@ class PlatformAdminController extends Controller
 
     public function updateMenu(Request $request, string $key, ModuleAccess $modules): RedirectResponse
     {
-        abort_unless(in_array($key, NavModules::keys(), true), 404);
+        abort_unless($modules->supportsPlatformMenu($key), 404);
 
         $data = $request->validate([
             'enabled' => ['required', 'boolean'],
@@ -572,10 +585,10 @@ class PlatformAdminController extends Controller
         }
 
         $user = $request->user();
-        $activeId = (int) $request->session()->get('active_workspace_id');
+        $activeId = PublicId::normalize($request->session()->get('active_workspace_id'));
         $workspace = null;
         if ($user) {
-            $visible = app(\App\Services\Workspaces\VisibleWorkspaceService::class)->forUser($user);
+            $visible = app(VisibleWorkspaceService::class)->forUser($user);
             if ($activeId) {
                 $workspace = $visible->firstWhere('id', $activeId);
             }
@@ -646,8 +659,8 @@ class PlatformAdminController extends Controller
         $provider = trim((string) $request->query('provider', 'all'));
         $status = trim((string) $request->query('status', 'all'));
         $period = trim((string) $request->query('period', '7d'));
-        $workspaceId = (int) $request->query('workspace_id', 0);
-        $selectedId = (int) $request->query('id', 0);
+        $workspaceId = PublicId::normalize($request->query('workspace_id', 0));
+        $selectedId = PublicId::normalize($request->query('id', 0));
 
         $since = match ($period) {
             'today' => now()->startOfDay(),

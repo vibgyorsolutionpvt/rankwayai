@@ -9,10 +9,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('crm_lead_attachments', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('crm_lead_id')->constrained('crm_leads')->cascadeOnDelete();
-            $table->foreignId('uploaded_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('crm_lead_id')->constrained('crm_leads')->cascadeOnDelete();
+            $table->foreignUuid('uploaded_by')->nullable()->constrained('users')->nullOnDelete();
             $table->string('disk')->default('public');
             $table->string('path');
             $table->string('original_name');

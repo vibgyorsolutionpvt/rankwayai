@@ -30,8 +30,8 @@ return new class extends Migration
         });
 
         Schema::create('funnels', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
             $table->string('name');
             $table->string('slug');
             $table->string('status')->default('draft'); // draft, published
@@ -48,9 +48,9 @@ return new class extends Migration
         });
 
         Schema::create('funnel_leads', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('funnel_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('funnel_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
             $table->string('name')->nullable();
             $table->string('email');
             $table->string('phone')->nullable();

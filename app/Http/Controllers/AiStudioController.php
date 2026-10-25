@@ -12,6 +12,7 @@ use App\Services\Ai\AiContentService;
 use App\Services\Billing\CreditWalletService;
 use App\Services\Billing\PlanAccess;
 use App\Services\Festivals\FestivalCalendarService;
+use App\Support\PublicId;
 use App\Support\SocialPlatforms;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -163,7 +164,7 @@ class AiStudioController extends Controller
         $rules = [
             'brief' => ['nullable', 'string', 'max:500', 'required_without:festival_id', 'min:10'],
             'offer' => ['nullable', 'string', 'max:120'],
-            'festival_id' => ['nullable', 'integer', 'exists:festival_events,id'],
+            'festival_id' => ['nullable', 'uuid', 'exists:festival_events,id'],
             'tone' => ['nullable', 'in:hindi,english,mixed'],
             'word_limit' => ['nullable', 'integer', 'min:25', 'max:150'],
             'draft_count' => ['nullable', 'integer', 'min:1', 'max:5'],
@@ -212,7 +213,7 @@ class AiStudioController extends Controller
         }
 
         $festivalId = $request->input('festival_id');
-        $festivalId = is_numeric($festivalId) && (int) $festivalId > 0 ? (int) $festivalId : null;
+        $festivalId = PublicId::normalize($festivalId);
 
         $result = $ai->generateTodaysPosts($workspace, $request->user()->id, [
             'brief' => trim((string) ($data['brief'] ?? '')),
@@ -250,7 +251,7 @@ class AiStudioController extends Controller
         $data = $request->validate([
             'brief' => ['nullable', 'string', 'max:500'],
             'offer' => ['nullable', 'string', 'max:120'],
-            'festival_id' => ['nullable', 'integer', 'exists:festival_events,id'],
+            'festival_id' => ['nullable', 'uuid', 'exists:festival_events,id'],
             'tone' => ['nullable', 'in:hindi,english,mixed'],
             'word_limit' => ['nullable', 'integer', 'min:25', 'max:150'],
             'draft_count' => ['nullable', 'integer', 'min:1', 'max:5'],
@@ -269,7 +270,7 @@ class AiStudioController extends Controller
         }
 
         $festivalId = $request->input('festival_id');
-        $festivalId = is_numeric($festivalId) && (int) $festivalId > 0 ? (int) $festivalId : null;
+        $festivalId = PublicId::normalize($festivalId);
 
         $result = $ai->previewTodaysPosts($workspace, [
             'brief' => trim((string) ($data['brief'] ?? '')),

@@ -22,6 +22,8 @@ class Brochure extends Model
         'headline',
         'subheadline',
         'sections',
+        'colors',
+        'logo_path',
         'share_token',
         'is_public',
         'views_count',
@@ -33,6 +35,7 @@ class Brochure extends Model
     {
         return [
             'sections' => 'array',
+            'colors' => 'array',
             'is_public' => 'boolean',
         ];
     }

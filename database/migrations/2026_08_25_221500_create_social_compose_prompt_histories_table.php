@@ -9,9 +9,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('social_compose_prompt_histories', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('user_id')->nullable()->constrained()->nullOnDelete();
             $table->text('prompt');
             $table->string('offer', 200)->nullable();
             $table->timestamps();

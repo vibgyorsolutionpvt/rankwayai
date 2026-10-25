@@ -11,7 +11,7 @@ class TrackSeoKeywordRanksJob implements ShouldQueue
 {
     use Queueable;
 
-    public function __construct(public int $workspaceId) {}
+    public function __construct(public string $workspaceId) {}
 
     public function handle(SeoRankTracker $tracker): void
     {

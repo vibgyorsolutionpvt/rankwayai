@@ -105,7 +105,7 @@ class WorkspacePageTest extends TestCase
             ->post(route('workspaces.switch', $b), ['redirect' => 'back'])
             ->assertRedirect(route('social.index', ['view' => 'compose']));
 
-        $this->assertSame($b->id, (int) session('active_workspace_id'));
+        $this->assertSame($b->id, session('active_workspace_id'));
         $this->assertNull(session('ai_compose'));
         $this->assertNull(session('ai_prompt'));
         $this->assertNull(session('ai_offer'));
@@ -127,6 +127,6 @@ class WorkspacePageTest extends TestCase
             ->post(route('workspaces.switch', $b), ['redirect' => 'back'])
             ->assertRedirect(route('studio.cards.index'));
 
-        $this->assertSame($b->id, (int) session('active_workspace_id'));
+        $this->assertSame($b->id, session('active_workspace_id'));
     }
 }

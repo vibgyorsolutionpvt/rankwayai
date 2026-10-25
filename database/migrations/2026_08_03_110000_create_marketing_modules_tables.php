@@ -9,8 +9,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('brand_kits', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->unique()->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->unique()->constrained()->cascadeOnDelete();
             $table->string('logo_path')->nullable();
             $table->string('primary_color', 7)->default('#0E9F90');
             $table->string('secondary_color', 7)->default('#0B1220');
@@ -25,9 +25,9 @@ return new class extends Migration
         });
 
         Schema::create('media_assets', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('uploaded_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('uploaded_by')->nullable()->constrained('users')->nullOnDelete();
             $table->string('disk')->default('public');
             $table->string('path');
             $table->string('original_name');
@@ -41,8 +41,8 @@ return new class extends Migration
         });
 
         Schema::create('social_accounts', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
             $table->string('platform'); // facebook, instagram, linkedin, x
             $table->string('account_name');
             $table->string('status')->default('disconnected'); // connected, disconnected, error
@@ -52,13 +52,13 @@ return new class extends Migration
         });
 
         Schema::create('social_posts', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('created_by')->nullable()->constrained('users')->nullOnDelete();
             $table->string('title')->nullable();
             $table->text('body');
             $table->json('platforms')->nullable();
-            $table->foreignId('media_asset_id')->nullable()->constrained('media_assets')->nullOnDelete();
+            $table->foreignUuid('media_asset_id')->nullable()->constrained('media_assets')->nullOnDelete();
             $table->string('status')->default('draft'); // draft, scheduled, publishing, published, failed
             $table->timestamp('scheduled_at')->nullable()->index();
             $table->timestamp('published_at')->nullable();
@@ -69,8 +69,8 @@ return new class extends Migration
         });
 
         Schema::create('seo_sites', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
             $table->string('domain');
             $table->string('sitemap_url')->nullable();
             $table->string('status')->default('connected');
@@ -80,9 +80,9 @@ return new class extends Migration
         });
 
         Schema::create('seo_pages', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('seo_site_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('seo_site_id')->constrained()->cascadeOnDelete();
             $table->string('url');
             $table->string('title')->nullable();
             $table->text('meta_description')->nullable();
@@ -92,10 +92,10 @@ return new class extends Migration
         });
 
         Schema::create('seo_issues', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('seo_site_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('seo_page_id')->nullable()->constrained()->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('seo_site_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('seo_page_id')->nullable()->constrained()->nullOnDelete();
             $table->string('severity'); // critical, warning, info
             $table->string('code');
             $table->string('message');
@@ -106,8 +106,8 @@ return new class extends Migration
         });
 
         Schema::create('seo_keywords', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
             $table->string('keyword');
             $table->string('group_name')->nullable();
             $table->unsignedInteger('position')->nullable();
@@ -117,8 +117,8 @@ return new class extends Migration
         });
 
         Schema::create('seo_tasks', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
             $table->string('title');
             $table->text('description')->nullable();
             $table->string('priority')->default('medium'); // high, medium, low

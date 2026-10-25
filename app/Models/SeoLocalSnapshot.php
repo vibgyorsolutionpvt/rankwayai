@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SeoLocalSnapshot extends Model
 {
+    use HasUuids;
+
     protected $fillable = [
         'workspace_id', 'seo_local_target_id', 'our_rank', 'pack_json', 'checked_at', 'provider',
     ];

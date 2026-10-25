@@ -35,7 +35,7 @@ class SeoKeywordResearchService
         Workspace $workspace,
         SeoSite $site,
         ?string $seed = null,
-        ?int $userId = null,
+        ?string $userId = null,
     ): array {
         $seed = trim((string) $seed);
         $gscRows = collect($site->gsc_queries ?? [])

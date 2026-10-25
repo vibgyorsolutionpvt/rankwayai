@@ -68,7 +68,7 @@ class AiContentService
             return null;
         }
 
-        $festival = FestivalEvent::query()->find((int) $festivalId);
+        $festival = FestivalEvent::query()->find($festivalId);
 
         if (! $festival) {
             return null;
@@ -91,7 +91,7 @@ class AiContentService
      * @param  array{prompt:string,offer?:string,platforms?:list<string>}  $input
      * @return array{ok:bool,message:string,draft?:array{title:string,body:string,platforms:list<string>},cost:float}
      */
-    public function composeSocialFromPrompt(Workspace $workspace, ?int $userId = null, array $input = []): array
+    public function composeSocialFromPrompt(Workspace $workspace, ?string $userId = null, array $input = []): array
     {
         $settings = $this->syncSettingsFromWorkspace($workspace);
         $prompt = trim((string) ($input['prompt'] ?? ''));
@@ -1859,7 +1859,7 @@ STD;
      * @param  array{brief:string,offer?:string,festival_id?:int|null}  $input
      * @return array{ok:bool, message:string, posts:list<SocialPost>, generation:?AiGeneration, cost:float}
      */
-    public function generateTodaysPosts(Workspace $workspace, ?int $userId = null, array $input = []): array
+    public function generateTodaysPosts(Workspace $workspace, ?string $userId = null, array $input = []): array
     {
         $settings = $this->settings($workspace);
         $useLive = $this->shouldUseLive($settings);
@@ -2275,7 +2275,7 @@ STD;
     /**
      * @return array{ok:bool, message:string, outline?:array<string,mixed>, cost:float}
      */
-    public function blogOutline(Workspace $workspace, string $topic, ?int $userId = null): array
+    public function blogOutline(Workspace $workspace, string $topic, ?string $userId = null): array
     {
         $settings = $this->settings($workspace);
         $useLive = $this->shouldUseLive($settings);
@@ -2322,7 +2322,7 @@ STD;
      * }  $options
      * @return array{ok:bool,message:string,article?:array{title:string,body_html:string,meta_title:string,meta_description:string},cost:float,provider?:string}
      */
-    public function writeBlogArticle(Workspace $workspace, string $topic, ?int $userId = null, array $options = []): array
+    public function writeBlogArticle(Workspace $workspace, string $topic, ?string $userId = null, array $options = []): array
     {
         $settings = $this->settings($workspace);
         $brief = trim($topic);
@@ -2481,7 +2481,7 @@ STD;
     /**
      * @return array{ok:bool, message:string, metas?:list<string>, cost:float}
      */
-    public function seoMetaSuggestions(Workspace $workspace, string $pageTitle, ?int $userId = null): array
+    public function seoMetaSuggestions(Workspace $workspace, string $pageTitle, ?string $userId = null): array
     {
         $settings = $this->settings($workspace);
         $useLive = $this->shouldUseLive($settings);
@@ -3622,7 +3622,7 @@ PROMPT;
 
     private function logUsage(
         Workspace $workspace,
-        ?int $userId,
+        ?string $userId,
         string $action,
         float $cost,
         string $provider,

@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('platform_menus', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
             $table->string('key', 40)->unique();
             $table->boolean('enabled')->default(true);
             $table->timestamps();

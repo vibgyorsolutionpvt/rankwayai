@@ -10,9 +10,9 @@ return new class extends Migration
     {
         Schema::create('itineraries', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
-            $table->foreignId('brand_kit_id')->nullable()->constrained('brand_kits')->nullOnDelete();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('created_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignUuid('brand_kit_id')->nullable()->constrained('brand_kits')->nullOnDelete();
             $table->string('title');
             $table->string('status', 20)->default('draft'); // draft|ready|archived
             $table->string('destination')->nullable();

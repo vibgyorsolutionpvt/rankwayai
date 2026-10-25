@@ -28,9 +28,9 @@ return new class extends Migration
         });
 
         Schema::create('seo_backlinks', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('seo_site_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('seo_site_id')->constrained()->cascadeOnDelete();
             $table->string('source_url', 500);
             $table->string('source_domain', 255)->nullable();
             $table->string('target_url', 500)->nullable();
@@ -45,11 +45,11 @@ return new class extends Migration
         });
 
         Schema::create('seo_links', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('seo_site_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('from_page_id')->nullable()->constrained('seo_pages')->nullOnDelete();
-            $table->foreignId('to_page_id')->nullable()->constrained('seo_pages')->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('seo_site_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('from_page_id')->nullable()->constrained('seo_pages')->nullOnDelete();
+            $table->foreignUuid('to_page_id')->nullable()->constrained('seo_pages')->nullOnDelete();
             $table->string('to_url', 500)->nullable();
             $table->string('type', 20)->default('a'); // a|redirect
             $table->boolean('is_external')->default(false);
@@ -58,9 +58,9 @@ return new class extends Migration
         });
 
         Schema::create('seo_local_targets', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('seo_site_id')->nullable()->constrained()->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('seo_site_id')->nullable()->constrained()->nullOnDelete();
             $table->string('keyword');
             $table->string('location_name');
             $table->string('business_name')->nullable();
@@ -69,9 +69,9 @@ return new class extends Migration
         });
 
         Schema::create('seo_local_snapshots', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('seo_local_target_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('seo_local_target_id')->constrained()->cascadeOnDelete();
             $table->unsignedInteger('our_rank')->nullable();
             $table->json('pack_json')->nullable();
             $table->timestamp('checked_at');
@@ -81,8 +81,8 @@ return new class extends Migration
         });
 
         Schema::create('cms_connections', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
             $table->string('provider', 40); // wordpress
             $table->string('label')->nullable();
             $table->string('base_url');
@@ -94,10 +94,10 @@ return new class extends Migration
         });
 
         Schema::create('seo_content_drafts', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('seo_keyword_id')->nullable()->constrained()->nullOnDelete();
-            $table->foreignId('cms_connection_id')->nullable()->constrained()->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('seo_keyword_id')->nullable()->constrained()->nullOnDelete();
+            $table->foreignUuid('cms_connection_id')->nullable()->constrained()->nullOnDelete();
             $table->string('title');
             $table->string('slug')->nullable();
             $table->longText('body_html')->nullable();

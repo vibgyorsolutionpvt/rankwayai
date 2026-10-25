@@ -17,7 +17,7 @@ class SyncSocialPostEngagementJob implements ShouldQueue
     /** @var list<int> */
     public array $backoff = [120, 600, 1800, 3600];
 
-    public function __construct(public int $socialPostId) {}
+    public function __construct(public string $socialPostId) {}
 
     public function handle(SocialPostAnalyticsService $analytics): void
     {

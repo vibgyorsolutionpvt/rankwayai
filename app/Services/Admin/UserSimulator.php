@@ -6,6 +6,7 @@ use App\Models\ActivityLog;
 use App\Models\User;
 use App\Services\Audit\UserLoginLogger;
 use App\Services\Workspaces\VisibleWorkspaceService;
+use App\Support\PublicId;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -16,14 +17,14 @@ class UserSimulator
 
     public function isSimulating(Request $request): bool
     {
-        return (int) $request->session()->get('impersonator_id') > 0;
+        return PublicId::normalize($request->session()->get('impersonator_id')) !== null;
     }
 
     public function impersonator(Request $request): ?User
     {
-        $id = (int) $request->session()->get('impersonator_id');
+        $id = PublicId::normalize($request->session()->get('impersonator_id'));
 
-        return $id > 0 ? User::query()->find($id) : null;
+        return $id ? User::query()->find($id) : null;
     }
 
     public function start(Request $request, User $target): RedirectResponse

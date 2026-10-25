@@ -19,7 +19,7 @@ After login, sidebar:
 |-----------|---------|-----|
 | Business Profile | **Account → Settings** | `/settings` |
 | Brand Kit | **Work → Brand** | Brand edit |
-| Business Card / Brochure / Itinerary / Quotation | **Work → Studio** | `/studio/...` |
+| Business Card / Brochure / Quotation | **Work → Studio** | `/studio/...` |
 | Lead inbox + score + follow-up | **Sell → Leads** | `/crm` |
 | Basic analytics | **Sell → Analytics** | `/analytics` |
 | WhatsApp | **Sell → WhatsApp** | `/whatsapp` |
@@ -48,9 +48,9 @@ This is the only “must ship first” order in your spec.
 | 3 | Brand Kit | [x] | Brand (+ fonts/tone/header-footer extended) |
 | 4 | Business Card | [x] | Studio → Business cards (templates, PDF, share, QR) |
 | 5 | Brochure | [x] | Studio → Brochures |
-| 6 | AI Itinerary | [x] | Studio → Itineraries (AI + template fallback) |
-| 7 | Custom Itinerary Editor | [x] | Itinerary edit (days/reorder/pricing) |
-| 8 | Quotation | [x] | Studio → Quotations (+ from itinerary button) |
+| 6 | AI Itinerary | [-] | Removed from active product: no verified hotel/service inventory to ground generated trips |
+| 7 | Custom Itinerary Editor | [-] | Removed from active product; previously saved itinerary records are retained |
+| 8 | Quotation | [x] | Studio → Quotations (quotes are created independently from verified business details) |
 | 9 | PDF | [x] | Quotation/Brochure/Card PDF download |
 | 10 | Share Link | [x] | `/c` `/b` `/q` tokens |
 | 11 | Lead Form | [ ] | Spec §21 — **not built** (funnels exist separately) |
@@ -78,10 +78,10 @@ This is the only “must ship first” order in your spec.
 | 10 | Brochure Builder | [x] | Studio → Brochures |
 | 11 | Catalogue Builder | [ ] | Not started |
 | 12 | AI Document Studio | [ ] | No central “create any doc” studio |
-| 13 | Travel Vertical entities | [ ] | No Destination/Hotel/Package models yet (itinerary JSON only) |
-| 14 | AI Itinerary Builder | [x] | Studio → Itineraries |
-| 15 | Custom Itinerary Editor | [x] | Same |
-| 16 | Itinerary Pricing | [x] | Edit → pricing block |
+| 13 | Travel Vertical entities | [ ] | No verified Destination/Hotel/Package inventory; saved trips are historical JSON records |
+| 14 | AI Itinerary Builder | [-] | Removed from active product until verified hotel/service inventory exists |
+| 15 | Custom Itinerary Editor | [-] | Removed from active product; saved records retained |
+| 16 | Itinerary Pricing | [-] | Removed from active product; saved records retained |
 | 17 | Quotation Builder | [x] | Studio → Quotations |
 | 18 | Proposal Builder | [ ] | Not started |
 | 19 | Proposal Analytics | [ ] | Not started |
@@ -119,7 +119,7 @@ This is the only “must ship first” order in your spec.
 | 41 | QR System | [~] | Card QR only |
 | 42 | Search | [ ] | Not started |
 | 43 | Version History | [ ] | Not started |
-| 44 | Duplicate / Clone | [~] | Card/Brochure/Itinerary/Quotation duplicate |
+| 44 | Duplicate / Clone | [~] | Card/Brochure/Quotation duplicate |
 | 45 | Multi-language | [ ] | Not started |
 | 46 | AI Safety / Guardrails | [~] | Partial patterns; not systematic |
 | 47 | AI Usage / Credits | [~] | Existing wallet + some logging |
@@ -138,7 +138,7 @@ This is the only “must ship first” order in your spec.
 | 60 | Multi-tenant security tests | [~] | Some isolation tests added |
 | 61 | Mobile responsiveness | [~] | Layouts responsive; needs real device pass |
 | 62 | Final MVP | [~] | See table above — Lead Form still open |
-| 63 | Travel MVP example | [~] | Flow possible except enquiry form → lead |
+| 63 | Travel MVP example | [~] | Cards, brochures and quotations are usable; inventory-backed trip planning and enquiry capture are not available |
 | 64 | Future verticals | [ ] | Later |
 | 65–66 | Positioning / process | — | Process notes |
 
@@ -154,7 +154,7 @@ Kept only so you can audit what was claimed:
 | 1.2 Brand Kit | §6 | Done |
 | 1.3 Business Card | §9 | Done |
 | 1.4 Brochure | §10 | Done |
-| 1.5 AI Itinerary | §14–16 | Done |
+| 1.5 AI Itinerary | §14–16 | Removed from active product pending verified supplier data |
 | 1.6 Quotation | §17 + PDF/share | Done |
 | 1.7 Scoring + follow-up + analytics | §24 + lite §26 + lite §35 | Done (lite) |
 
@@ -165,7 +165,7 @@ Going forward: work should be tracked **only by § numbers in this file**, not a
 ## Next work (recommended = remaining §62 gaps)
 
 1. **§21 Lead Capture Forms** (+ wire into CRM)
-2. **§22 Landing** or minimal public enquiry on quotation/itinerary share
+2. **§22 Landing** or minimal public enquiry on quotation share
 3. **§23** expand CRM stages to match spec
 4. **§26** real follow-up automation (only after forms work)
 5. **§18 Proposal** (after quotation loop is solid)

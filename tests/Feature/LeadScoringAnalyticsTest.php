@@ -7,6 +7,7 @@ use App\Models\CrmLead;
 use App\Models\Quotation;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\Access\ModuleAccess;
 use App\Services\Billing\BillingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -17,6 +18,7 @@ class LeadScoringAnalyticsTest extends TestCase
 
     private function ownerWorkspace(): array
     {
+        app(ModuleAccess::class)->setPlatformMenu('leads', true);
         $user = User::factory()->create();
         $workspace = Workspace::factory()->create([
             'name' => 'Vibgyor Holidays',

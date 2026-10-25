@@ -12,7 +12,7 @@ class ProcessMediaAssetJob implements ShouldQueue
 {
     use Queueable;
 
-    public function __construct(public int $mediaAssetId) {}
+    public function __construct(public string $mediaAssetId) {}
 
     public function handle(ImageVariantService $variants): void
     {

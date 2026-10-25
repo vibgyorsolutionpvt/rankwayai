@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Controllers\Concerns\ResolvesWorkspace;
 use App\Jobs\CrawlAndAuditSeoSiteJob;
 use App\Jobs\TrackSeoKeywordRanksJob;
+use App\Models\RankwayDomain;
 use App\Models\SeoBacklink;
 use App\Models\SeoIssue;
 use App\Models\SeoKeyword;
@@ -14,15 +15,27 @@ use App\Models\SeoSite;
 use App\Models\SeoSuggestion;
 use App\Models\SeoTask;
 use App\Services\Billing\PlanAccess;
+use App\Services\Integrations\ProviderStatus;
+use App\Services\Integrations\WorkspaceIntegrationService;
+use App\Services\Rankway\RankwayDomainAnalyzer;
+use App\Services\Seo\GoogleBusinessProfileService;
+use App\Services\Seo\GooglePagespeedQuota;
 use App\Services\Seo\GoogleSeoService;
+use App\Services\Seo\Providers\DataForSeoClient;
 use App\Services\Seo\SeoCrawlerService;
+use App\Services\Seo\SeoKeywordMetricsService;
+use App\Services\Seo\SeoKeywordResearchService;
 use App\Services\Seo\SeoRankTracker;
+use App\Services\Seo\SeoReportExporter;
+use App\Services\Seo\SeoTabExporter;
 use App\Services\Seo\SeoTaskGenerator;
 use App\Support\DomainNormalizer;
+use App\Support\PublicId;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class SeoController extends Controller
 {
@@ -33,7 +46,7 @@ class SeoController extends Controller
         GoogleSeoService $google,
         PlanAccess $plans,
         SeoCrawlerService $crawler,
-        \App\Services\Integrations\WorkspaceIntegrationService $integrations,
+        WorkspaceIntegrationService $integrations,
     ): Response {
         $workspace = $this->workspace($request);
         $sites = $workspace->seoSites()->latest()->get()->map(fn (SeoSite $s) => $this->sitePayload($s));
@@ -53,7 +66,7 @@ class SeoController extends Controller
             ->values()
             ->all();
 
-        $selectedId = (int) $request->query('site', 0);
+        $selectedId = PublicId::normalize($request->query('site', 0));
         $siteModel = $selectedId
             ? $workspace->seoSites()->whereKey($selectedId)->first()
             : $workspace->seoSites()->latest()->first();
@@ -144,7 +157,7 @@ class SeoController extends Controller
                 'name' => $workspace->name,
                 'website' => $workspace->website,
                 'suggested_domain' => filled($workspace->website)
-                    ? \App\Support\DomainNormalizer::normalize((string) $workspace->website)
+                    ? DomainNormalizer::normalize((string) $workspace->website)
                     : null,
                 'role' => $workspace->roleFor($request->user())?->value,
             ],
@@ -190,10 +203,10 @@ class SeoController extends Controller
                 'pagespeed' => $siteModel
                     ? $google->pagespeedConfigured($siteModel)
                     : filled($integrations->pagespeedApiKey($workspace)),
-                'dataforseo' => \App\Services\Seo\Providers\DataForSeoClient::configured(),
-                'browserless' => \App\Services\Integrations\ProviderStatus::snapshot()['browserless'] ?? false,
-                'js_render' => \App\Services\Integrations\ProviderStatus::snapshot()['js_render'] ?? false,
-                'js_render_driver' => \App\Services\Integrations\ProviderStatus::snapshot()['js_render_driver'] ?? null,
+                'dataforseo' => DataForSeoClient::configured(),
+                'browserless' => ProviderStatus::snapshot()['browserless'] ?? false,
+                'js_render' => ProviderStatus::snapshot()['js_render'] ?? false,
+                'js_render_driver' => ProviderStatus::snapshot()['js_render_driver'] ?? null,
             ],
             'pagespeed_quota' => (function () use ($integrations, $workspace) {
                 $key = $integrations->pagespeedApiKey($workspace);
@@ -201,7 +214,7 @@ class SeoController extends Controller
                     return null;
                 }
 
-                return app(\App\Services\Seo\GooglePagespeedQuota::class)->snapshot($key);
+                return app(GooglePagespeedQuota::class)->snapshot($key);
             })(),
             'plan' => $plans->summary($workspace),
             'backlinks' => $siteModel
@@ -220,6 +233,7 @@ class SeoController extends Controller
                 ]
                 : ['summary' => null, 'items' => []],
             'local_targets' => $localTargets,
+            'google_business' => $this->googleBusinessPayload($siteModel),
             'rankway' => $this->rankwayPayload($siteModel),
             'architecture' => $siteModel
                 ? $crawler->sitemapMap($siteModel, $request->boolean('refresh_sitemap'))
@@ -230,7 +244,7 @@ class SeoController extends Controller
     public function refreshRankway(
         Request $request,
         SeoSite $site,
-        \App\Services\Rankway\RankwayDomainAnalyzer $analyzer,
+        RankwayDomainAnalyzer $analyzer,
     ): RedirectResponse {
         $workspace = $this->workspace($request);
         abort_unless($site->workspace_id === $workspace->id, 404);
@@ -343,7 +357,7 @@ class SeoController extends Controller
     public function gscCallback(Request $request, GoogleSeoService $google): RedirectResponse
     {
         $state = json_decode(base64_decode((string) $request->query('state', '')), true);
-        $siteId = (int) ($state['site_id'] ?? $state['site'] ?? 0);
+        $siteId = PublicId::normalize($state['site_id'] ?? $state['site'] ?? null);
         $site = SeoSite::query()->findOrFail($siteId);
         $workspace = $site->workspace;
         abort_unless($workspace->hasMember($request->user()), 403);
@@ -388,6 +402,114 @@ class SeoController extends Controller
         return redirect()
             ->route('seo.index', ['site' => $site->id, 'tab' => 'keywords'])
             ->with('success', 'Google Search Console disconnected for this site.');
+    }
+
+    public function connectGbp(Request $request, SeoSite $site, GoogleBusinessProfileService $google): RedirectResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+        abort_unless($site->workspace_id === $workspace->id, 404);
+
+        if (! $google->configured($site)) {
+            return redirect()
+                ->route('settings.index', [
+                    'tab' => 'providers',
+                    'category' => 'seo',
+                    'configure' => 'google_gsc',
+                ])
+                ->with('error', 'Add the Google OAuth client first, then connect Google Business.');
+        }
+
+        return redirect()->away($google->authorizeUrl($site));
+    }
+
+    public function gbpCallback(Request $request, GoogleBusinessProfileService $google): RedirectResponse
+    {
+        $state = json_decode(base64_decode((string) $request->query('state', '')), true);
+        $siteId = PublicId::normalize($state['site_id'] ?? null);
+        $site = SeoSite::query()->findOrFail($siteId);
+        abort_unless($site->workspace->hasMember($request->user()), 403);
+
+        $result = $google->connect($site, (string) $request->query('code', ''));
+
+        return redirect()
+            ->route('seo.index', ['site' => $site->id, 'tab' => 'business'])
+            ->with($result['ok'] ? 'success' : 'error', $result['message']);
+    }
+
+    public function selectGbpLocation(Request $request, SeoSite $site, GoogleBusinessProfileService $google): RedirectResponse
+    {
+        $this->authorizeGbp($request, $site);
+        $data = $request->validate([
+            'account_name' => ['required', 'string', 'max:80'],
+            'location_name' => ['required', 'string', 'max:80'],
+        ]);
+
+        return $this->gbpAction($site, fn () => $google->selectLocation($site, $data['account_name'], $data['location_name']), 'Listing loaded.');
+    }
+
+    public function refreshGbp(Request $request, SeoSite $site, GoogleBusinessProfileService $google): RedirectResponse
+    {
+        $this->authorizeGbp($request, $site);
+
+        return $this->gbpAction($site, fn () => $google->refresh($site), 'Google Business refreshed.');
+    }
+
+    public function updateGbp(Request $request, SeoSite $site, GoogleBusinessProfileService $google): RedirectResponse
+    {
+        $this->authorizeGbp($request, $site);
+        $data = $request->validate([
+            'phone' => ['nullable', 'string', 'max:32'],
+            'website' => ['nullable', 'url', 'max:200'],
+            'description' => ['nullable', 'string', 'max:750'],
+        ]);
+
+        return $this->gbpAction(
+            $site,
+            fn () => $google->updateListing($site, trim((string) ($data['phone'] ?? '')), trim((string) ($data['website'] ?? '')), trim((string) ($data['description'] ?? ''))),
+            'Google Business listing updated.',
+        );
+    }
+
+    public function replyGbpReview(Request $request, SeoSite $site, GoogleBusinessProfileService $google): RedirectResponse
+    {
+        $this->authorizeGbp($request, $site);
+        $data = $request->validate([
+            'review_name' => ['required', 'string', 'max:180'],
+            'comment' => ['required', 'string', 'max:4000'],
+        ]);
+
+        return $this->gbpAction($site, fn () => $google->replyToReview($site, $data['review_name'], trim($data['comment'])), 'Review reply sent.');
+    }
+
+    public function publishGbpPost(Request $request, SeoSite $site, GoogleBusinessProfileService $google): RedirectResponse
+    {
+        $this->authorizeGbp($request, $site);
+        $data = $request->validate([
+            'summary' => ['required', 'string', 'max:1500'],
+        ]);
+
+        return $this->gbpAction($site, fn () => $google->publishPost($site, trim($data['summary'])), 'Update posted on Google Business.');
+    }
+
+    public function disconnectGbp(Request $request, SeoSite $site): RedirectResponse
+    {
+        $this->authorizeGbp($request, $site);
+        $site->update([
+            'gbp_connected' => false,
+            'gbp_token' => null,
+            'gbp_account_name' => null,
+            'gbp_location_name' => null,
+            'gbp_location_title' => null,
+            'gbp_locations' => null,
+            'gbp_profile' => null,
+            'gbp_reviews' => null,
+            'gbp_last_error' => null,
+        ]);
+
+        return redirect()
+            ->route('seo.index', ['site' => $site->id, 'tab' => 'business'])
+            ->with('success', 'Google Business disconnected.');
     }
 
     public function runPageSpeed(Request $request, SeoSite $site, GoogleSeoService $google): RedirectResponse
@@ -474,13 +596,13 @@ class SeoController extends Controller
 
     public function researchKeywords(
         Request $request,
-        \App\Services\Seo\SeoKeywordResearchService $research,
+        SeoKeywordResearchService $research,
     ): RedirectResponse {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
 
         $data = $request->validate([
-            'site_id' => ['nullable', 'integer'],
+            'site_id' => ['nullable', 'uuid'],
             'seed' => ['nullable', 'string', 'max:120'],
         ]);
 
@@ -536,7 +658,7 @@ class SeoController extends Controller
         return back()->with('success', 'Live SERP ranks refreshed via '.$provider.'.');
     }
 
-    public function refreshMetrics(Request $request, \App\Services\Seo\SeoKeywordMetricsService $metrics): RedirectResponse
+    public function refreshMetrics(Request $request, SeoKeywordMetricsService $metrics): RedirectResponse
     {
         $workspace = $this->workspace($request);
         $this->authorize('update', $workspace);
@@ -637,7 +759,7 @@ class SeoController extends Controller
         Request $request,
         SeoReport $report,
         string $format,
-        \App\Services\Seo\SeoReportExporter $exporter,
+        SeoReportExporter $exporter,
     ): \Symfony\Component\HttpFoundation\Response {
         $workspace = $this->workspace($request);
         abort_unless($report->workspace_id === $workspace->id, 404);
@@ -653,8 +775,8 @@ class SeoController extends Controller
     public function exportTab(
         Request $request,
         string $type,
-        \App\Services\Seo\SeoTabExporter $exporter,
-    ): \Symfony\Component\HttpFoundation\StreamedResponse {
+        SeoTabExporter $exporter,
+    ): StreamedResponse {
         $workspace = $this->workspace($request);
         $this->authorize('view', $workspace);
         $site = $this->selectedSite($request, $workspace);
@@ -701,7 +823,7 @@ class SeoController extends Controller
 
         $domain = $site->rankwayDomain;
         if (! $domain) {
-            $domain = \App\Models\RankwayDomain::query()
+            $domain = RankwayDomain::query()
                 ->where('domain', $site->domain)
                 ->with(['latestMetric', 'rankHistory'])
                 ->first();
@@ -724,9 +846,63 @@ class SeoController extends Controller
         ];
     }
 
+    /**
+     * @return array{configured:bool,connected:bool,location_name:?string,location_title:?string,locations:list<array<string,mixed>>,profile:?array<string,mixed>,reviews:list<array<string,mixed>>,error:?string}
+     */
+    private function googleBusinessPayload(?SeoSite $site): array
+    {
+        if (! $site) {
+            return [
+                'configured' => false,
+                'connected' => false,
+                'location_name' => null,
+                'location_title' => null,
+                'locations' => [],
+                'profile' => null,
+                'reviews' => [],
+                'error' => null,
+            ];
+        }
+
+        return [
+            'configured' => app(GoogleBusinessProfileService::class)->configured($site),
+            'connected' => (bool) $site->gbp_connected,
+            'location_name' => $site->gbp_location_name,
+            'location_title' => $site->gbp_location_title,
+            'locations' => $site->gbp_locations ?? [],
+            'profile' => $site->gbp_profile,
+            'reviews' => $site->gbp_reviews ?? [],
+            'error' => $site->gbp_last_error,
+        ];
+    }
+
+    private function authorizeGbp(Request $request, SeoSite $site): void
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+        abort_unless($site->workspace_id === $workspace->id, 404);
+    }
+
+    private function gbpAction(SeoSite $site, callable $action, string $success): RedirectResponse
+    {
+        try {
+            $action();
+        } catch (\Throwable $e) {
+            $site->update(['gbp_last_error' => $e->getMessage()]);
+
+            return redirect()
+                ->route('seo.index', ['site' => $site->id, 'tab' => 'business'])
+                ->with('error', $e->getMessage());
+        }
+
+        return redirect()
+            ->route('seo.index', ['site' => $site->id, 'tab' => 'business'])
+            ->with('success', $success);
+    }
+
     private function selectedSite(Request $request, $workspace): ?SeoSite
     {
-        $id = (int) $request->input('site_id', $request->query('site', 0));
+        $id = PublicId::normalize($request->input('site_id', $request->query('site', 0)));
 
         return $id
             ? $workspace->seoSites()->whereKey($id)->first()

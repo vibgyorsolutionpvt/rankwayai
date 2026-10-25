@@ -28,7 +28,7 @@ class AccountTeamController extends Controller
                 WorkspaceRole::Viewer->value,
             ])],
             'workspace_ids' => ['required', 'array', 'min:1'],
-            'workspace_ids.*' => ['integer'],
+            'workspace_ids.*' => ['uuid'],
         ]);
 
         $teams->invite(
@@ -50,10 +50,10 @@ class AccountTeamController extends Controller
 
         $data = $request->validate([
             'workspace_ids' => ['present', 'array'],
-            'workspace_ids.*' => ['integer'],
+            'workspace_ids.*' => ['uuid'],
         ]);
 
-        $teams->syncWorkspaces($owner, $owner, (int) $user->id, $data['workspace_ids']);
+        $teams->syncWorkspaces($owner, $owner, $user->id, $data['workspace_ids']);
 
         return back()->with('success', 'Workspace access updated.');
     }

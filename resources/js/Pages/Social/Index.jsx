@@ -1344,9 +1344,9 @@ export default function Index({
         postForm.clearErrors();
         postForm.transform((data) => ({
             ...data,
-            media_asset_id: data.media_asset_id ? Number(data.media_asset_id) : null,
+            media_asset_id: data.media_asset_id || null,
             public_media_url: data.public_media_url || null,
-            brand_kit_id: data.brand_kit_id ? Number(data.brand_kit_id) : null,
+            brand_kit_id: data.brand_kit_id || null,
             scheduled_at: data.delivery === 'schedule' ? data.scheduled_at || null : null,
             requires_approval: !!data.requires_approval,
             generate_posters: !!data.generate_posters,

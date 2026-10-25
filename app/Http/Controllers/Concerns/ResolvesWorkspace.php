@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Concerns;
 
 use App\Models\Workspace;
 use App\Services\Workspaces\VisibleWorkspaceService;
+use App\Support\PublicId;
 use Illuminate\Http\Request;
 
 trait ResolvesWorkspace
@@ -14,7 +15,7 @@ trait ResolvesWorkspace
 
         // Super admin viewing a tenant workspace.
         if ($user?->is_superadmin) {
-            $impersonateId = (int) $request->session()->get('impersonate_workspace_id');
+            $impersonateId = PublicId::normalize($request->session()->get('impersonate_workspace_id'));
             if ($impersonateId) {
                 $workspace = Workspace::query()->find($impersonateId);
                 abort_unless($workspace, 404, 'Workspace not found.');
@@ -23,7 +24,7 @@ trait ResolvesWorkspace
             }
         }
 
-        $activeId = (int) $request->session()->get('active_workspace_id');
+        $activeId = PublicId::normalize($request->session()->get('active_workspace_id'));
         $visible = app(VisibleWorkspaceService::class)->forUser($user);
 
         $workspace = null;

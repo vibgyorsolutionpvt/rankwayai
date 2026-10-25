@@ -38,15 +38,15 @@ return new class extends Migration
         });
 
         Schema::table('seo_tasks', function (Blueprint $table) {
-            $table->foreignId('seo_site_id')->nullable()->after('workspace_id')->constrained('seo_sites')->nullOnDelete();
-            $table->foreignId('seo_issue_id')->nullable()->after('seo_site_id')->constrained('seo_issues')->nullOnDelete();
+            $table->foreignUuid('seo_site_id')->nullable()->after('workspace_id')->constrained('seo_sites')->nullOnDelete();
+            $table->foreignUuid('seo_issue_id')->nullable()->after('seo_site_id')->constrained('seo_issues')->nullOnDelete();
             $table->json('ai_suggestion')->nullable()->after('source');
         });
 
         Schema::create('seo_keyword_ranks', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('seo_keyword_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('seo_keyword_id')->constrained()->cascadeOnDelete();
             $table->unsignedInteger('position')->nullable();
             $table->timestamp('checked_at');
             $table->timestamps();
@@ -54,8 +54,8 @@ return new class extends Migration
         });
 
         Schema::create('seo_competitors', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
             $table->string('domain');
             $table->unsignedSmallInteger('overlap_score')->default(0);
             $table->json('shared_keywords')->nullable();
@@ -64,9 +64,9 @@ return new class extends Migration
         });
 
         Schema::create('seo_suggestions', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('seo_site_id')->nullable()->constrained()->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('seo_site_id')->nullable()->constrained()->nullOnDelete();
             $table->string('type'); // meta, faq, internal_links, blog_topic, outline
             $table->string('title');
             $table->text('body');
@@ -75,9 +75,9 @@ return new class extends Migration
         });
 
         Schema::create('seo_reports', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('seo_site_id')->nullable()->constrained()->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('seo_site_id')->nullable()->constrained()->nullOnDelete();
             $table->string('period'); // weekly, monthly
             $table->date('period_start');
             $table->date('period_end');

@@ -60,8 +60,8 @@ function tabHintFromPath(path) {
 }
 
 function switchWorkspaceId(path) {
-    const match = path.match(/\/workspaces\/(\d+)\/switch/);
-    return match ? Number(match[1]) : null;
+    const match = path.match(/\/workspaces\/([^/]+)\/switch/);
+    return match ? match[1] : null;
 }
 
 /**
@@ -76,7 +76,7 @@ function classifyVisit(visit, workspaces = []) {
 
     const switchId = switchWorkspaceId(path);
     if (switchId) {
-        const target = workspaces.find((w) => Number(w.id) === switchId);
+        const target = workspaces.find((w) => String(w.id) === String(switchId));
         return {
             mode: 'nav',
             eyebrow: 'Switching workspace',

@@ -120,6 +120,31 @@ class CreditWalletService
         return true;
     }
 
+    public function refund(Workspace $workspace, int $credits): void
+    {
+        if ($credits <= 0) {
+            return;
+        }
+
+        $snap = $this->snapshot($workspace);
+        $toPlan = min($snap['plan_used'], $credits);
+        $toTopup = $credits - $toPlan;
+
+        if ($toPlan > 0) {
+            $account = $snap['source'] === 'account' && $snap['billing_account_id']
+                ? BillingAccount::query()->find($snap['billing_account_id'])
+                : null;
+            $target = $account ?? $this->settings($workspace);
+            $target->update([
+                'spent_usd' => max(0, (float) $target->spent_usd - CreditPackCatalog::creditsToUsd($toPlan)),
+            ]);
+        }
+
+        if ($toTopup > 0) {
+            $this->addTopup($workspace, $toTopup);
+        }
+    }
+
     public function addTopup(Workspace $workspace, int $credits): WorkspaceAiSetting
     {
         $billing = app(BillingService::class);
@@ -131,12 +156,12 @@ class CreditWalletService
                 ->whereKey($pool['billing_account_id'])
                 ->increment('topup_credits', max(0, $credits));
 
-            $homeId = $pool['wallet_home_id'] ?: (int) $workspace->id;
+            $homeId = $pool['wallet_home_id'] ?: $workspace->id;
 
             return $this->settings(Workspace::query()->find($homeId) ?? $workspace);
         }
 
-        $homeId = $pool['wallet_home_id'] ?: (int) $workspace->id;
+        $homeId = $pool['wallet_home_id'] ?: $workspace->id;
         $home = Workspace::query()->find($homeId) ?? $workspace;
         $settings = $this->settings($home);
         $settings->increment('topup_credits', max(0, $credits));
@@ -222,8 +247,8 @@ class CreditWalletService
                 'topup_credits' => (int) $account->topup_credits,
                 'source' => 'account',
                 'workspace_ids' => $covered,
-                'wallet_home_id' => (int) ($account->billing_workspace_id ?: ($covered[0] ?? $workspace->id)),
-                'billing_account_id' => (int) $account->id,
+                'wallet_home_id' => $account->billing_workspace_id ?: ($covered[0] ?? $workspace->id),
+                'billing_account_id' => $account->id,
             ];
         }
 
@@ -234,8 +259,8 @@ class CreditWalletService
             'plan_used_usd' => (float) $settings->spent_usd,
             'topup_credits' => (int) ($settings->topup_credits ?? 0),
             'source' => 'workspace',
-            'workspace_ids' => [(int) $workspace->id],
-            'wallet_home_id' => (int) $workspace->id,
+            'workspace_ids' => [$workspace->id],
+            'wallet_home_id' => $workspace->id,
             'billing_account_id' => null,
         ];
     }

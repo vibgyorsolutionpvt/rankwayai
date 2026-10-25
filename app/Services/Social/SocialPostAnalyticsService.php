@@ -149,7 +149,7 @@ class SocialPostAnalyticsService
     /**
      * @return array{likes:int,comments:int,views:int,reposts:int,shares:int,impressions:?int,reach:?int}
      */
-    public function aggregateForPost(int $socialPostId): array
+    public function aggregateForPost(string $socialPostId): array
     {
         $logs = SocialPublishLog::query()
             ->where('social_post_id', $socialPostId)
@@ -212,7 +212,7 @@ class SocialPostAnalyticsService
         ];
     }
 
-    private function publishedLogsQuery(int $workspaceId)
+    private function publishedLogsQuery(string $workspaceId)
     {
         return SocialPublishLog::query()
             ->where('workspace_id', $workspaceId)

@@ -24,8 +24,8 @@ class SeoCmsPublishService
     public function createDraftFromKeyword(
         Workspace $workspace,
         string $keyword,
-        ?int $keywordId = null,
-        ?int $userId = null,
+        ?string $keywordId = null,
+        ?string $userId = null,
         array $options = [],
     ): SeoContentDraft {
         if (! $this->plans->allows($workspace, 'seo_cms')) {

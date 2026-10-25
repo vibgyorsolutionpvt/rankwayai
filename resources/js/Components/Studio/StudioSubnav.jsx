@@ -3,7 +3,6 @@ import { Link } from '@inertiajs/react';
 const TABS = [
     { id: 'cards', label: 'Business cards', route: 'studio.cards.index' },
     { id: 'brochures', label: 'Brochures', route: 'studio.brochures.index' },
-    { id: 'itineraries', label: 'Itineraries', route: 'studio.itineraries.index' },
     { id: 'quotations', label: 'Quotations', route: 'studio.quotations.index' },
 ];
 

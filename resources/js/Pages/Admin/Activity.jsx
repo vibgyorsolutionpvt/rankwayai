@@ -273,7 +273,7 @@ export default function Activity({ logs, loginLogs, filters = {}, filterOptions 
                                     className="mt-1"
                                     value={filters.user_id ? String(filters.user_id) : ''}
                                     onChange={(value) =>
-                                        visit({ user_id: value ? Number(value) : null })
+                                        visit({ user_id: value || null })
                                     }
                                     placeholder="All people"
                                     searchPlaceholder="Search people…"
@@ -296,7 +296,7 @@ export default function Activity({ logs, loginLogs, filters = {}, filterOptions 
                                             filters.workspace_id ? String(filters.workspace_id) : ''
                                         }
                                         onChange={(value) =>
-                                            visit({ workspace_id: value ? Number(value) : null })
+                                            visit({ workspace_id: value || null })
                                         }
                                         placeholder="All workspaces"
                                         searchPlaceholder="Search workspaces…"

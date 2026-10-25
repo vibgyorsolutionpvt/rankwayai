@@ -10,6 +10,8 @@ use App\Models\SeoSite;
 use App\Models\SocialAccount;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\Access\ModuleAccess;
+use App\Services\Billing\BillingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -19,10 +21,11 @@ class CloseoutIntegrationsTest extends TestCase
 
     private function memberWithWorkspace(): array
     {
+        app(ModuleAccess::class)->setPlatformMenu('leads', true);
         $user = User::factory()->create();
         $workspace = Workspace::factory()->create();
         $workspace->users()->attach($user->id, ['role' => WorkspaceRole::Owner->value]);
-        app(\App\Services\Billing\BillingService::class)->changePlan($workspace, 'starter', 'active');
+        app(BillingService::class)->changePlan($workspace, 'starter', 'active');
 
         return [$user, $workspace];
     }

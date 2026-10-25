@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('channel_campaigns', function (Blueprint $table) {
-            $table->unsignedBigInteger('whatsapp_template_id')->nullable()->index();
+            $table->uuid('whatsapp_template_id')->nullable()->index();
         });
     }
 

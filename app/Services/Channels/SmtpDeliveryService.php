@@ -10,7 +10,10 @@ use Illuminate\Support\Str;
 
 class SmtpDeliveryService
 {
-    public function __construct(private WorkspaceIntegrationService $integrations) {}
+    public function __construct(
+        private WorkspaceIntegrationService $integrations,
+        private EmailHtmlSanitizer $emailHtml,
+    ) {}
 
     /**
      * @return array{ok:bool, id:?string, error:?string}
@@ -51,7 +54,7 @@ class SmtpDeliveryService
                 ->send(
                     (new ChannelCampaignMail(
                         $subject !== '' ? $subject : 'Message',
-                        $body
+                        $this->emailHtml->sanitize($body)
                     ))->from($cfg['from_address'], $cfg['from_name'] ?? null)
                 );
 

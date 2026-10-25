@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Models\WhatsappConversation;
 use App\Models\WhatsappMessage;
 use App\Models\Workspace;
+use App\Services\Billing\WhatsAppCreditService;
 use App\Services\Channels\ChannelTemplateService;
 use App\Services\Integrations\WorkspaceIntegrationService;
 use Illuminate\Support\Facades\Http;
@@ -21,6 +22,7 @@ class WhatsAppConversationService
         private WorkspaceIntegrationService $integrations,
         private ChannelTemplateService $templates,
         private MetaWhatsAppCloudService $meta,
+        private WhatsAppCreditService $credits,
     ) {}
 
     public function normalizePhone(string $phone): string
@@ -37,7 +39,7 @@ class WhatsAppConversationService
         Workspace $workspace,
         string $phone,
         ?string $contactName = null,
-        ?int $crmLeadId = null
+        ?string $crmLeadId = null
     ): WhatsappConversation {
         $phone = $this->normalizePhone($phone);
 
@@ -117,6 +119,15 @@ class WhatsAppConversationService
             ];
         }
 
+        if (! $this->credits->canSend($workspace)) {
+            return [
+                'ok' => false,
+                'message' => null,
+                'error' => WhatsAppCreditService::OUT_OF_CREDITS_MESSAGE,
+                'conversation' => $conversation,
+            ];
+        }
+
         $lead = $conversation->lead;
         $sourceBody = ($asTemplate && $template) ? (string) $template->body : $body;
         if ($sourceBody === '') {
@@ -162,6 +173,13 @@ class WhatsAppConversationService
             'error_message' => $delivery['error'],
             'sent_at' => now(),
         ]);
+
+        if ($delivery['ok']) {
+            $this->credits->charge($workspace, $user?->id, 'whatsapp_message', 1, [
+                'conversation_id' => $conversation->id,
+                'message_id' => $msg->id,
+            ]);
+        }
 
         $conversation->update([
             'last_message_preview' => Str::limit($rendered, 140),
@@ -341,8 +359,16 @@ class WhatsAppConversationService
             ->whereHas('conversation', fn ($q) => $q->where('workspace_id', $workspace->id))
             ->first();
 
+        $charged = ['sent', 'delivered', 'read'];
+
         if ($message && $message->direction === 'outbound') {
             if ($next === 'failed') {
+                if (in_array($message->status, $charged, true) && ! $message->channel_campaign_id) {
+                    $this->credits->refund($workspace, $message->user_id, 1, [
+                        'conversation_id' => $message->whatsapp_conversation_id,
+                        'message_id' => $message->id,
+                    ]);
+                }
                 $message->update([
                     'status' => 'failed',
                     'error_message' => $status['error'],
@@ -370,6 +396,9 @@ class WhatsAppConversationService
                     'sent_count' => $campaign->recipients()->whereIn('status', ['sent', 'delivered', 'read'])->count(),
                     'failed_count' => $campaign->recipients()->where('status', 'failed')->count(),
                 ]);
+                if ($recipient->status === 'failed' && $campaign->channel === 'whatsapp') {
+                    $this->credits->settleCampaign($workspace, $campaign);
+                }
             }
 
             if (! $message && in_array($recipient->status, ['delivered', 'read'], true) && $recipient->campaign) {

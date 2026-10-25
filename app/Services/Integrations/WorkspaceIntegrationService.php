@@ -282,6 +282,47 @@ class WorkspaceIntegrationService
         return $this->get($workspace, 'smtp') !== null;
     }
 
+    public function hasBrevo(Workspace $workspace): bool
+    {
+        return $this->brevoConfig($workspace) !== null;
+    }
+
+    /**
+     * @return array{api_key:string,sender_email:string,sender_name:string}|null
+     */
+    public function emailProviderConfig(Workspace $workspace, string $provider): ?array
+    {
+        if (! in_array($provider, ['brevo', 'resend', 'mailersend', 'sender'], true)) {
+            return null;
+        }
+
+        $row = $this->get($workspace, $provider);
+        if (! $row) {
+            return null;
+        }
+
+        $apiKey = trim((string) $row->credential('api_key'));
+        $senderEmail = trim((string) $row->credential('sender_email'));
+        $senderName = trim((string) $row->credential('sender_name'));
+        if ($apiKey === '' || ! filter_var($senderEmail, FILTER_VALIDATE_EMAIL) || $senderName === '') {
+            return null;
+        }
+
+        return [
+            'api_key' => $apiKey,
+            'sender_email' => $senderEmail,
+            'sender_name' => $senderName,
+        ];
+    }
+
+    /**
+     * @return array{api_key:string,sender_email:string,sender_name:string}|null
+     */
+    public function brevoConfig(Workspace $workspace): ?array
+    {
+        return $this->emailProviderConfig($workspace, 'brevo');
+    }
+
     /**
      * @return array{host:string,port:int,encryption:string,username:string,password:string,from_address:string,from_name:?string}|null
      */

@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class RankwayDomainRankHistory extends Model
 {
+    use HasUuids;
+
     protected $table = 'rankway_domain_rank_history';
 
     protected $fillable = [

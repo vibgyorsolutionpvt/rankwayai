@@ -109,7 +109,7 @@ class SeedSocialEngagementSamplesCommand extends Command
     {
         if ($needle) {
             if (ctype_digit($needle)) {
-                return Workspace::query()->find((int) $needle);
+                return Workspace::query()->find((string) $needle);
             }
 
             return Workspace::query()->where('slug', $needle)->first();

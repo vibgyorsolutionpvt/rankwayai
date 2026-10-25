@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SeoContentDraft extends Model
 {
+    use HasUuids;
+
     protected $fillable = [
         'workspace_id', 'seo_keyword_id', 'cms_connection_id', 'title', 'slug', 'body_html',
         'meta_title', 'meta_description', 'status', 'reviewed_at', 'external_id', 'published_url',

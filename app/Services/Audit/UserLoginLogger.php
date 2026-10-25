@@ -4,6 +4,7 @@ namespace App\Services\Audit;
 
 use App\Models\User;
 use App\Models\UserLoginLog;
+use App\Support\PublicId;
 use Illuminate\Http\Request;
 
 class UserLoginLogger
@@ -13,7 +14,7 @@ class UserLoginLogger
         Request $request,
         string $channel = 'web',
         bool $simulated = false,
-        ?int $simulatedBy = null
+        ?string $simulatedBy = null
     ): UserLoginLog {
         $log = UserLoginLog::query()->create([
             'user_id' => $user->id,
@@ -32,7 +33,7 @@ class UserLoginLogger
 
     public function recordLogout(Request $request): void
     {
-        $logId = (int) $request->session()->get('login_log_id');
+        $logId = PublicId::normalize($request->session()->get('login_log_id'));
         if ($logId <= 0) {
             return;
         }

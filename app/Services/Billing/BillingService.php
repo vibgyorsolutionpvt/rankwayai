@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\Workspace;
 use App\Models\WorkspaceSubscription;
 use App\Services\Integrations\ProviderStatus;
+use App\Support\PublicId;
 use Illuminate\Support\Str;
 
 class BillingService
@@ -371,7 +372,7 @@ class BillingService
             ? PlanCatalog::MARKET_GLOBAL
             : PlanCatalog::MARKET_IN;
         $interval = PlanCatalog::normalizeInterval($notes['interval'] ?? $account->billing_interval);
-        $workspaceId = (int) ($notes['workspace_id'] ?? $account->billing_workspace_id ?? 0);
+        $workspaceId = PublicId::normalize($notes['workspace_id'] ?? $account->billing_workspace_id ?? null);
         $workspace = $workspaceId ? Workspace::query()->find($workspaceId) : null;
 
         if ($workspace) {

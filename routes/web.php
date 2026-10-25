@@ -15,7 +15,6 @@ use App\Http\Controllers\CrmController;
 use App\Http\Controllers\EditorMediaController;
 use App\Http\Controllers\FunnelController;
 use App\Http\Controllers\IntegrationsController;
-use App\Http\Controllers\ItineraryController;
 use App\Http\Controllers\MarketingController;
 use App\Http\Controllers\MarketingSeoController;
 use App\Http\Controllers\MediaLibraryController;
@@ -170,6 +169,7 @@ Route::middleware(['auth', 'verified', 'workspace.setup', 'module'])->group(func
     Route::redirect('/today', '/dashboard', 301);
     Route::get('/dashboard', TodayController::class)->name('dashboard');
     Route::get('/business', [BusinessProfileController::class, 'edit'])->name('business.edit');
+    Route::post('/business/logo', [BusinessProfileController::class, 'storeLogo'])->name('business.logo.store');
     Route::get('/brand', [BrandKitController::class, 'edit'])->name('brand.edit');
     Route::post('/brand', [BrandKitController::class, 'store'])->name('brand.store');
     Route::post('/brand/{brand}', [BrandKitController::class, 'update'])->name('brand.update');
@@ -191,18 +191,10 @@ Route::middleware(['auth', 'verified', 'workspace.setup', 'module'])->group(func
     Route::post('/studio/brochures', [BrochureController::class, 'store'])->name('studio.brochures.store');
     Route::get('/studio/brochures/{brochure}/edit', [BrochureController::class, 'edit'])->name('studio.brochures.edit');
     Route::post('/studio/brochures/{brochure}', [BrochureController::class, 'update'])->name('studio.brochures.update');
+    Route::post('/studio/brochures/{brochure}/sync', [BrochureController::class, 'syncFromWorkspace'])->name('studio.brochures.sync');
     Route::post('/studio/brochures/{brochure}/duplicate', [BrochureController::class, 'duplicate'])->name('studio.brochures.duplicate');
     Route::get('/studio/brochures/{brochure}/pdf', [BrochureController::class, 'pdf'])->name('studio.brochures.pdf');
     Route::delete('/studio/brochures/{brochure}', [BrochureController::class, 'destroy'])->name('studio.brochures.destroy');
-
-    Route::get('/studio/itineraries', [ItineraryController::class, 'index'])->name('studio.itineraries.index');
-    Route::post('/studio/itineraries', [ItineraryController::class, 'store'])->name('studio.itineraries.store');
-    Route::get('/studio/itineraries/{itinerary}/edit', [ItineraryController::class, 'edit'])->name('studio.itineraries.edit');
-    Route::post('/studio/itineraries/{itinerary}', [ItineraryController::class, 'update'])->name('studio.itineraries.update');
-    Route::post('/studio/itineraries/{itinerary}/duplicate', [ItineraryController::class, 'duplicate'])->name('studio.itineraries.duplicate');
-    Route::post('/studio/itineraries/{itinerary}/regenerate-day', [ItineraryController::class, 'regenerateDay'])->name('studio.itineraries.regenerate-day');
-    Route::post('/studio/itineraries/{itinerary}/quotation', [QuotationController::class, 'fromItinerary'])->name('studio.itineraries.quotation');
-    Route::delete('/studio/itineraries/{itinerary}', [ItineraryController::class, 'destroy'])->name('studio.itineraries.destroy');
 
     Route::get('/studio/quotations', [QuotationController::class, 'index'])->name('studio.quotations.index');
     Route::post('/studio/quotations', [QuotationController::class, 'store'])->name('studio.quotations.store');
@@ -254,6 +246,27 @@ Route::middleware(['auth', 'verified', 'workspace.setup', 'module'])->group(func
     Route::delete('/seo/sites/{site}/gsc', [SeoController::class, 'disconnectGsc'])
         ->name('seo.sites.gsc.disconnect');
     Route::get('/seo/gsc/callback', [SeoController::class, 'gscCallback'])->name('seo.gsc.callback');
+    Route::get('/seo/sites/{site}/gbp', [SeoController::class, 'connectGbp'])
+        ->middleware('plan:seo_apis')
+        ->name('seo.sites.gbp');
+    Route::get('/seo/gbp/callback', [SeoController::class, 'gbpCallback'])->name('seo.gbp.callback');
+    Route::post('/seo/sites/{site}/gbp/location', [SeoController::class, 'selectGbpLocation'])
+        ->middleware('plan:seo_apis')
+        ->name('seo.sites.gbp.location');
+    Route::post('/seo/sites/{site}/gbp/refresh', [SeoController::class, 'refreshGbp'])
+        ->middleware('plan:seo_apis')
+        ->name('seo.sites.gbp.refresh');
+    Route::patch('/seo/sites/{site}/gbp', [SeoController::class, 'updateGbp'])
+        ->middleware('plan:seo_apis')
+        ->name('seo.sites.gbp.update');
+    Route::post('/seo/sites/{site}/gbp/reviews/reply', [SeoController::class, 'replyGbpReview'])
+        ->middleware('plan:seo_apis')
+        ->name('seo.sites.gbp.reviews.reply');
+    Route::post('/seo/sites/{site}/gbp/posts', [SeoController::class, 'publishGbpPost'])
+        ->middleware('plan:seo_apis')
+        ->name('seo.sites.gbp.posts');
+    Route::delete('/seo/sites/{site}/gbp', [SeoController::class, 'disconnectGbp'])
+        ->name('seo.sites.gbp.disconnect');
     Route::post('/seo/sites/{site}/pagespeed', [SeoController::class, 'runPageSpeed'])
         ->middleware(['plan:seo_apis', 'throttle:240,1'])
         ->name('seo.sites.pagespeed');
@@ -348,6 +361,15 @@ Route::middleware(['auth', 'verified', 'workspace.setup', 'module'])->group(func
     Route::post('/channels', [ChannelsController::class, 'store'])
         ->middleware('throttle:30,1')
         ->name('channels.store');
+    Route::get('/email', [ChannelsController::class, 'index'])->name('email.index');
+    Route::post('/email', [ChannelsController::class, 'storeEmail'])
+        ->middleware('throttle:30,1')
+        ->name('email.store');
+    Route::post('/email/templates', [ChannelsController::class, 'storeEmailTemplate'])
+        ->middleware('throttle:30,1')
+        ->name('email.templates.store');
+    Route::patch('/email/templates/{template}', [ChannelsController::class, 'updateEmailTemplate'])
+        ->name('email.templates.update');
     Route::post('/channels/templates', [ChannelsController::class, 'storeTemplate'])
         ->middleware('throttle:30,1')
         ->name('channels.templates.store');
@@ -385,6 +407,18 @@ Route::middleware(['auth', 'verified', 'workspace.setup', 'module'])->group(func
     Route::post('/whatsapp/campaigns/lead-groups/{group}/import', [WhatsAppController::class, 'importCampaignLeads'])
         ->middleware('throttle:10,1')
         ->name('whatsapp.campaigns.lead-groups.import');
+    Route::get('/whatsapp/campaigns/lead-groups/{group}/members', [WhatsAppController::class, 'campaignLeadGroupMembers'])
+        ->middleware('throttle:120,1')
+        ->name('whatsapp.campaigns.lead-groups.members');
+    Route::post('/whatsapp/campaigns/lead-groups/{group}/members', [WhatsAppController::class, 'storeCampaignLeadGroupMember'])
+        ->middleware('throttle:60,1')
+        ->name('whatsapp.campaigns.lead-groups.members.store');
+    Route::patch('/whatsapp/campaigns/lead-groups/{group}/members/{lead}', [WhatsAppController::class, 'updateCampaignLeadGroupMember'])
+        ->middleware('throttle:60,1')
+        ->name('whatsapp.campaigns.lead-groups.members.update');
+    Route::delete('/whatsapp/campaigns/lead-groups/{group}/members/{lead}', [WhatsAppController::class, 'destroyCampaignLeadGroupMember'])
+        ->middleware('throttle:60,1')
+        ->name('whatsapp.campaigns.lead-groups.members.destroy');
     Route::post('/whatsapp/campaigns/audience-preview', [WhatsAppController::class, 'audiencePreview'])
         ->middleware('throttle:120,1')
         ->name('whatsapp.campaigns.audience-preview');

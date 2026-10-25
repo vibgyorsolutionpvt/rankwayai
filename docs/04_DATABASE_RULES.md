@@ -4,7 +4,7 @@
 
 1. Every tenant-owned table has `workspace_id` (nullable only for global/system tables).
 2. Soft deletes preferred for user content (`deleted_at`).
-3. Use ULIDs/UUIDs for public IDs if exposed in URLs; internal auto-increment OK behind the API.
+3. Primary keys are UUIDs. The queue `jobs` and `failed_jobs` tables stay numeric because Laravel's database queue expects that.
 4. Foreign keys required for ownership relations.
 5. Indexes on `workspace_id`, status, scheduled times, and lookup keys.
 6. Migrations are the only schema source of truth.

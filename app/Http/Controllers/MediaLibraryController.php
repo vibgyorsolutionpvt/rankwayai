@@ -8,7 +8,6 @@ use App\Models\MediaAsset;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -126,8 +125,10 @@ class MediaLibraryController extends Controller
                 'id' => $asset->id,
                 'name' => $asset->original_name,
                 'url' => $asset->url('medium') ?: $asset->url(),
+                'full_url' => $asset->url(),
                 'thumb_url' => $asset->url('thumb') ?: $asset->url(),
                 'mime_type' => $asset->mime_type,
+                'is_poster' => in_array('ai-generated', $asset->tags ?? [], true),
                 'status' => $asset->status ?? 'ready',
                 'created_at' => $asset->created_at?->toDateTimeString(),
             ])

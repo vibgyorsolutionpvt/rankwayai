@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('platform_social_platforms', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
             $table->string('key')->unique();
             $table->boolean('enabled')->default(true);
             $table->timestamps();

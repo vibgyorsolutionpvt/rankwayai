@@ -10,9 +10,9 @@ return new class extends Migration
     {
         Schema::create('brochures', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
-            $table->foreignId('brand_kit_id')->nullable()->constrained('brand_kits')->nullOnDelete();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('created_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignUuid('brand_kit_id')->nullable()->constrained('brand_kits')->nullOnDelete();
             $table->string('title');
             $table->string('template_key', 40)->default('agency');
             $table->string('status', 20)->default('draft');
@@ -32,7 +32,7 @@ return new class extends Migration
         Schema::create('brochure_events', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->foreignUuid('brochure_id')->constrained('brochures')->cascadeOnDelete();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
             $table->string('event', 40); // view|download|cta
             $table->string('ip_hash', 64)->nullable();
             $table->string('user_agent', 255)->nullable();

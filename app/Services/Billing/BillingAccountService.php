@@ -61,7 +61,7 @@ class BillingAccountService
             ->wherePivot('role', WorkspaceRole::Owner->value)
             ->orderBy('workspaces.id')
             ->pluck('workspaces.id')
-            ->map(fn ($id) => (int) $id)
+            ->map(fn ($id) => (string) $id)
             ->all();
     }
 
@@ -77,7 +77,7 @@ class BillingAccountService
 
     public function workspaceIsCovered(Workspace $workspace, BillingAccount $account): bool
     {
-        if (! in_array((int) $workspace->id, $this->ownedWorkspaceIds($account->user), true)) {
+        if (! in_array($workspace->id, $this->ownedWorkspaceIds($account->user), true)) {
             return false;
         }
 

@@ -20,8 +20,8 @@ return new class extends Migration
         });
 
         Schema::create('seo_api_usage_logs', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
             $table->string('provider', 40);
             $table->string('operation', 60);
             $table->unsignedInteger('units')->default(1);

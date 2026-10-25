@@ -9,10 +9,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('crm_lead_activities', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('crm_lead_id')->constrained('crm_leads')->cascadeOnDelete();
-            $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('crm_lead_id')->constrained('crm_leads')->cascadeOnDelete();
+            $table->foreignUuid('user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->string('type', 40); // note, stage_change, created, whatsapp, quotation
             $table->text('body');
             $table->json('meta')->nullable();
@@ -21,10 +21,10 @@ return new class extends Migration
         });
 
         Schema::create('crm_quotations', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('crm_lead_id')->constrained('crm_leads')->cascadeOnDelete();
-            $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('crm_lead_id')->constrained('crm_leads')->cascadeOnDelete();
+            $table->foreignUuid('created_by')->nullable()->constrained('users')->nullOnDelete();
             $table->string('number', 40);
             $table->string('title');
             $table->string('status', 20)->default('draft'); // draft, sent, accepted, declined

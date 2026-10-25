@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('whatsapp_conversations', function (Blueprint $table) {
-            $table->foreignId('assigned_user_id')->nullable()->after('crm_lead_id')->constrained('users')->nullOnDelete();
+            $table->foreignUuid('assigned_user_id')->nullable()->after('crm_lead_id')->constrained('users')->nullOnDelete();
             $table->index(['workspace_id', 'assigned_user_id']);
         });
     }

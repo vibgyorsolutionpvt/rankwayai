@@ -21,7 +21,7 @@ class LeadScoringService
     /**
      * @return array{ok: bool, message: string, lead?: CrmLead}
      */
-    public function score(CrmLead $lead, ?int $userId = null, bool $useAi = true): array
+    public function score(CrmLead $lead, ?string $userId = null, bool $useAi = true): array
     {
         $workspace = $lead->workspace;
         if (! $workspace) {
@@ -79,7 +79,7 @@ class LeadScoringService
     /**
      * @return array{ok: bool, message: string, lead?: CrmLead}
      */
-    public function suggestFollowUp(CrmLead $lead, ?int $userId = null, bool $useAi = true): array
+    public function suggestFollowUp(CrmLead $lead, ?string $userId = null, bool $useAi = true): array
     {
         $workspace = $lead->workspace;
         if (! $workspace) {
@@ -381,7 +381,7 @@ Return JSON: {"message":"...","next_action":"..."}';
     /**
      * @param  array<string, mixed>  $meta
      */
-    private function logUsage(Workspace $workspace, ?int $userId, float $cost, array $meta): void
+    private function logUsage(Workspace $workspace, ?string $userId, float $cost, array $meta): void
     {
         AiUsageLog::query()->create([
             'workspace_id' => $workspace->id,

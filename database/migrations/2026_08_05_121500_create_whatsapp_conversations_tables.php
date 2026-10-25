@@ -9,9 +9,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('whatsapp_conversations', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('workspace_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('crm_lead_id')->nullable()->constrained('crm_leads')->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('workspace_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('crm_lead_id')->nullable()->constrained('crm_leads')->nullOnDelete();
             $table->string('phone', 32);
             $table->string('contact_name')->nullable();
             $table->string('external_conversation_id')->nullable();
@@ -27,9 +27,9 @@ return new class extends Migration
         });
 
         Schema::create('whatsapp_messages', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('whatsapp_conversation_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('whatsapp_conversation_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('user_id')->nullable()->constrained()->nullOnDelete();
             $table->string('direction', 16); // inbound, outbound
             $table->text('body');
             $table->string('status', 32)->default('sent'); // queued, sent, delivered, failed, received
