@@ -369,6 +369,11 @@ const SECTION_TONES = {
     },
 };
 
+function routeHref(name, params) {
+    if (!name || name === '#' || !route().has(name)) return '#';
+    return route(name, params || {});
+}
+
 function itemIsActive(item, currentTab) {
     if (item.comingSoon || item.noHighlight || !item.match) return false;
     if (!route().current(item.match)) return false;
@@ -381,7 +386,7 @@ function SubLink({ item, currentTab, onNavigate, tone }) {
     const locked = Boolean(item.locked);
     const restricted = Boolean(item.restricted);
     const blocked = locked || restricted;
-    const href = item.routeName && !item.comingSoon && !blocked ? route(item.routeName, item.routeParams || {}) : '#';
+    const href = item.routeName && !item.comingSoon && !blocked ? routeHref(item.routeName, item.routeParams) : '#';
     const isDisabled = Boolean(item.comingSoon || !item.routeName || blocked);
     const tip = item.comingSoon
         ? 'Coming soon'
@@ -446,7 +451,7 @@ function TopLink({ item, currentTab, onNavigate, tone, collapsed = false }) {
     const locked = Boolean(item.locked);
     const restricted = Boolean(item.restricted);
     const blocked = locked || restricted;
-    const href = item.routeName && !item.comingSoon && !blocked ? route(item.routeName, item.routeParams || {}) : '#';
+    const href = item.routeName && !item.comingSoon && !blocked ? routeHref(item.routeName, item.routeParams) : '#';
     const isDisabled = Boolean(item.comingSoon || !item.routeName || blocked);
     const tip = restricted
         ? 'Please enable this'
@@ -662,8 +667,9 @@ export default function AuthenticatedLayout({ header, children }) {
                 markLocked({
                     key: item.key,
                     label: item.label,
-                    routeName: item.route,
+                    routeName: item.route && item.route !== '#' ? item.route : null,
                     routeParams: item.params || {},
+                    comingSoon: Boolean(item.comingSoon || item.route === '#'),
                     match: item.match,
                     icon: item.icon,
                     tone: item.tone,
@@ -711,14 +717,16 @@ export default function AuthenticatedLayout({ header, children }) {
                         const defaults = spec.key ? MODULE_DEFAULTS[spec.key] : null;
                         const icon = spec.icon || base?.icon || 'platform';
                         const tone = spec.tone || base?.tone || 'signal';
+                        const rawRoute = spec.routeName || base?.routeName || defaults?.routeName;
+                        const routeName = rawRoute && rawRoute !== '#' ? rawRoute : null;
                         const locked = Boolean(base?.locked);
-                        const comingSoon = Boolean(spec.comingSoon);
+                        const comingSoon = Boolean(spec.comingSoon || base?.comingSoon);
                         const restricted = Boolean(spec.key && !comingSoon && !base);
 
                         return {
                             key: spec.key || `${section.title}-${spec.label}`,
                             label: spec.label,
-                            routeName: spec.routeName || base?.routeName || defaults?.routeName,
+                            routeName,
                             routeParams: spec.routeParams || base?.routeParams || defaults?.routeParams,
                             match: comingSoon ? spec.match : (spec.match || base?.match || defaults?.match),
                             icon,
@@ -764,7 +772,8 @@ export default function AuthenticatedLayout({ header, children }) {
         setOpenSections({ [title]: true });
     };
 
-    const homeHref = navItems[0] ? route(navItems[0].routeName) : route('profile.edit');
+    const homeItem = navItems.find((item) => item.routeName && !item.comingSoon && route().has(item.routeName));
+    const homeHref = homeItem ? route(homeItem.routeName, homeItem.routeParams || {}) : route('profile.edit');
     const impersonating = Boolean(page.impersonating);
     const simulatingUser = Boolean(page.simulatingUser);
     const impersonator = page.impersonator;
