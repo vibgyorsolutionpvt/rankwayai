@@ -1,0 +1,1 @@
+import{j as e,H as a}from"./app-BsOm5GeY.js";import{B as n}from"./BrochureView-DjfuW37x.js";import"./BrandName-Df8EbKpk.js";function m({brochure:t,track_url:s,pdf_url:i}){return e.jsxs(e.Fragment,{children:[e.jsx(a,{title:t.title||t.headline||"Brochure"}),e.jsx(n,{brochure:t,sections:t.enabled_sections,track_url:s,pdf_url:i})]})}export{m as default};
