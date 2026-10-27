@@ -10,6 +10,7 @@ use App\Models\ChannelMessageTemplate;
 use App\Models\CrmLead;
 use App\Models\CrmLeadGroup;
 use App\Models\User;
+use App\Models\WhatsappChatbot;
 use App\Models\WhatsappConversation;
 use App\Models\WhatsappMessage;
 use App\Models\Workspace;
@@ -1602,6 +1603,151 @@ class WhatsAppHubTest extends TestCase
         $this->assertNotNull($conversation);
         $this->assertSame('Priya', $conversation->contact_name);
         $this->assertSame('Hi Meta', WhatsappMessage::query()->first()->body);
+    }
+
+    public function test_chatbot_replies_from_the_workspace_whatsapp_number(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        app(CreditWalletService::class)->addTopup($workspace, 20);
+        app(WorkspaceIntegrationService::class)->upsert($workspace, 'whatsapp_meta', [
+            'phone_number_id' => '999',
+            'access_token' => 'token',
+            'verify_token' => 'my-verify',
+            'app_secret' => 'hubsecret',
+        ]);
+        WhatsappChatbot::query()->create([
+            'workspace_id' => $workspace->id,
+            'enabled' => true,
+            'fallback' => 'Thanks, we will reply shortly.',
+            'rules' => [
+                ['keyword' => 'price', 'reply' => 'Plans start at 999.'],
+            ],
+        ]);
+
+        Http::fake([
+            'graph.facebook.com/*' => Http::response([
+                'messages' => [['id' => 'wamid.BOT1']],
+            ], 200),
+        ]);
+
+        $this->postMetaInbound($workspace, 'wamid.INPRICE', 'What is the price?');
+
+        $outbound = WhatsappMessage::query()->where('direction', 'outbound')->first();
+        $this->assertNotNull($outbound);
+        $this->assertSame('Plans start at 999.', $outbound->body);
+        $this->assertTrue($outbound->meta['chatbot'] ?? false);
+        Http::assertSent(function ($request) {
+            return str_contains($request->url(), '/999/messages')
+                && $request['text']['body'] === 'Plans start at 999.';
+        });
+
+        $this->postMetaInbound($workspace, 'wamid.INHELLO', 'hello there');
+        $this->assertSame(
+            'Thanks, we will reply shortly.',
+            WhatsappMessage::query()->where('direction', 'outbound')->latest('id')->value('body'),
+        );
+    }
+
+    public function test_travel_enquiry_collects_a_tour_package(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        app(CreditWalletService::class)->addTopup($workspace, 20);
+        app(WorkspaceIntegrationService::class)->upsert($workspace, 'whatsapp_meta', [
+            'phone_number_id' => '999',
+            'access_token' => 'token',
+            'verify_token' => 'my-verify',
+            'app_secret' => 'hubsecret',
+        ]);
+        WhatsappChatbot::query()->create([
+            'workspace_id' => $workspace->id,
+            'enabled' => true,
+            'mode' => 'travel',
+        ]);
+
+        Http::fake([
+            'graph.facebook.com/*' => Http::response([
+                'messages' => [['id' => 'wamid.TRAVEL']],
+            ], 200),
+        ]);
+
+        $this->postMetaInbound($workspace, 'wamid.T1', 'Hi');
+        $this->assertStringContainsString('1. Tour package', (string) WhatsappMessage::query()->where('direction', 'outbound')->latest('id')->value('body'));
+
+        $this->postMetaInbound($workspace, 'wamid.T2', '1');
+        $this->assertStringContainsString('Destination kahan hai?', (string) WhatsappMessage::query()->where('direction', 'outbound')->latest('id')->value('body'));
+
+        $this->postMetaInbound($workspace, 'wamid.T3', 'Goa');
+        $this->postMetaInbound($workspace, 'wamid.T4', '12 Nov');
+        $this->postMetaInbound($workspace, 'wamid.T5', '4');
+
+        $summary = (string) WhatsappMessage::query()->where('direction', 'outbound')->latest('id')->value('body');
+        $this->assertStringContainsString('Enquiry note ho gayi.', $summary);
+        $this->assertStringContainsString('Destination: Goa', $summary);
+        $this->assertStringContainsString('Travellers: 4', $summary);
+    }
+
+    public function test_software_enquiry_collects_a_website_brief(): void
+    {
+        [$user, $workspace] = $this->memberWithWorkspace();
+        $workspace->update(['business_type' => 'it_software']);
+        app(CreditWalletService::class)->addTopup($workspace, 20);
+        app(WorkspaceIntegrationService::class)->upsert($workspace, 'whatsapp_meta', [
+            'phone_number_id' => '999',
+            'access_token' => 'token',
+            'verify_token' => 'my-verify',
+            'app_secret' => 'hubsecret',
+        ]);
+        WhatsappChatbot::query()->create([
+            'workspace_id' => $workspace->id,
+            'enabled' => true,
+            'mode' => 'software',
+        ]);
+
+        Http::fake([
+            'graph.facebook.com/*' => Http::response([
+                'messages' => [['id' => 'wamid.SOFT']],
+            ], 200),
+        ]);
+
+        $this->postMetaInbound($workspace, 'wamid.S1', 'Hi');
+        $this->assertStringContainsString('1. Website', (string) WhatsappMessage::query()->where('direction', 'outbound')->latest('id')->value('body'));
+        $this->assertStringNotContainsString('Tour package', (string) WhatsappMessage::query()->where('direction', 'outbound')->latest('id')->value('body'));
+
+        $this->postMetaInbound($workspace, 'wamid.S2', '1');
+        $this->postMetaInbound($workspace, 'wamid.S3', 'School management site');
+        $this->postMetaInbound($workspace, 'wamid.S4', 'Next month');
+        $this->postMetaInbound($workspace, 'wamid.S5', '2 lakh');
+
+        $summary = (string) WhatsappMessage::query()->where('direction', 'outbound')->latest('id')->value('body');
+        $this->assertStringContainsString('Requirement: School management site', $summary);
+        $this->assertStringContainsString('Budget: 2 lakh', $summary);
+    }
+
+    private function postMetaInbound(Workspace $workspace, string $id, string $text): void
+    {
+        $payload = [
+            'object' => 'whatsapp_business_account',
+            'entry' => [[
+                'changes' => [[
+                    'field' => 'messages',
+                    'value' => [
+                        'messages' => [[
+                            'from' => '919000011111',
+                            'id' => $id,
+                            'timestamp' => '1710000000',
+                            'type' => 'text',
+                            'text' => ['body' => $text],
+                        ]],
+                    ],
+                ]],
+            ]],
+        ];
+        $raw = json_encode($payload);
+
+        $this->call('POST', route('webhooks.meta.whatsapp', $workspace), [], [], [], [
+            'CONTENT_TYPE' => 'application/json',
+            'HTTP_X-Hub-Signature-256' => 'sha256='.hash_hmac('sha256', $raw, 'hubsecret'),
+        ], $raw)->assertOk();
     }
 
     public function test_campaign_can_be_drafted_for_typed_numbers_without_a_group(): void

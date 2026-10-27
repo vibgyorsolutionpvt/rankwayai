@@ -25,6 +25,7 @@ class WhatsappConversation extends Model
         'last_message_at',
         'window_expires_at',
         'opted_out_until',
+        'bot_state',
     ];
 
     protected function casts(): array
@@ -33,6 +34,7 @@ class WhatsappConversation extends Model
             'last_message_at' => 'datetime',
             'window_expires_at' => 'datetime',
             'opted_out_until' => 'datetime',
+            'bot_state' => 'array',
         ];
     }
 

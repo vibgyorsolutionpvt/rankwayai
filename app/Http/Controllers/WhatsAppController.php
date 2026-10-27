@@ -8,6 +8,7 @@ use App\Models\ChannelCampaign;
 use App\Models\ChannelMessageTemplate;
 use App\Models\CrmLead;
 use App\Models\CrmLeadGroup;
+use App\Models\WhatsappChatbot;
 use App\Models\WhatsappConversation;
 use App\Models\Workspace;
 use App\Services\Billing\PlanAccess;
@@ -18,6 +19,7 @@ use App\Services\Integrations\IntegrationCatalog;
 use App\Services\Integrations\WorkspaceIntegrationService;
 use App\Services\WhatsApp\MetaEmbeddedSignupService;
 use App\Services\WhatsApp\MetaWhatsAppCloudService;
+use App\Services\WhatsApp\WhatsAppChatbotService;
 use App\Services\WhatsApp\WhatsAppConversationService;
 use App\Support\PublicId;
 use Illuminate\Http\Client\ConnectionException;
@@ -69,7 +71,7 @@ class WhatsAppController extends Controller
     ): Response {
         $workspace = $this->workspace($request);
 
-        $view = in_array($request->query('view'), ['conversations', 'templates', 'campaigns', 'setup'], true)
+        $view = in_array($request->query('view'), ['conversations', 'templates', 'campaigns', 'setup', 'chatbot'], true)
             ? $request->query('view')
             : ($integrations->whatsappConnected($workspace) ? 'conversations' : 'setup');
         $activeId = PublicId::normalize($request->query('conversation'));
@@ -137,6 +139,7 @@ class WhatsAppController extends Controller
             'provider' => $channels->provider($workspace, 'whatsapp'),
             'plan' => $plans->summary($workspace),
             'meta_setup' => $this->metaSetupPayload($workspace, $integrations, $request->user()),
+            'chatbot' => $this->chatbotPayload($workspace),
             'conversations' => $threadList,
             'inbox' => $inbox,
             'inboxFilters' => [
@@ -982,6 +985,73 @@ class WhatsAppController extends Controller
         ];
 
         return ['components' => $components, 'header_handle' => $headerHandle, 'error' => null];
+    }
+
+    /**
+     * @return array{enabled:bool,fallback:string,rules:list<array{keyword:string,reply:string}>}
+     */
+    private function chatbotPayload(Workspace $workspace): array
+    {
+        $bot = WhatsappChatbot::query()->where('workspace_id', $workspace->id)->first();
+        $preset = WhatsAppChatbotService::presetFor($workspace);
+        $mode = in_array($bot?->mode, ['travel', 'software', 'custom'], true) ? $bot->mode : 'custom';
+        if ($preset !== null) {
+            $mode = $preset;
+        }
+
+        return [
+            'enabled' => (bool) $bot?->enabled,
+            'preset' => $preset,
+            'mode' => $mode,
+            'fallback' => (string) ($bot?->fallback ?? ''),
+            'rules' => collect($bot?->rules ?? [])
+                ->map(fn ($rule) => [
+                    'keyword' => (string) ($rule['keyword'] ?? ''),
+                    'reply' => (string) ($rule['reply'] ?? ''),
+                ])
+                ->filter(fn ($rule) => $rule['keyword'] !== '' && $rule['reply'] !== '')
+                ->values()
+                ->all(),
+        ];
+    }
+
+    public function saveChatbot(Request $request): RedirectResponse
+    {
+        $workspace = $this->workspace($request);
+        $this->authorize('update', $workspace);
+
+        $preset = WhatsAppChatbotService::presetFor($workspace);
+        $allowed = $preset !== null ? [$preset] : ['custom'];
+
+        $data = $request->validate([
+            'enabled' => ['required', 'boolean'],
+            'mode' => ['required', 'in:'.implode(',', $allowed)],
+            'fallback' => ['nullable', 'string', 'max:1000'],
+            'rules' => ['nullable', 'array', 'max:30'],
+            'rules.*.keyword' => ['required', 'string', 'max:40'],
+            'rules.*.reply' => ['required', 'string', 'max:1000'],
+        ]);
+
+        WhatsappChatbot::query()->updateOrCreate(
+            ['workspace_id' => $workspace->id],
+            [
+                'enabled' => $data['enabled'],
+                'mode' => $data['mode'],
+                'fallback' => trim((string) ($data['fallback'] ?? '')) ?: null,
+                'rules' => collect($data['rules'] ?? [])
+                    ->map(fn ($rule) => [
+                        'keyword' => trim((string) $rule['keyword']),
+                        'reply' => trim((string) $rule['reply']),
+                    ])
+                    ->filter(fn ($rule) => $rule['keyword'] !== '' && $rule['reply'] !== '')
+                    ->values()
+                    ->all(),
+            ],
+        );
+
+        return redirect()
+            ->route('whatsapp.index', ['view' => 'chatbot'])
+            ->with('success', 'WhatsApp chatbot saved. Replies go from this workspace’s connected number.');
     }
 
     /**

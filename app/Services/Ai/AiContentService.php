@@ -315,8 +315,8 @@ class AiContentService
         $allServices = $offerings['services'] !== [] ? $offerings['services'] : [];
         $relevantServices = $this->servicesRelevantToPrompt($prompt, $allServices, $industrySpoken);
         $servicesList = $relevantServices !== []
-            ? implode(', ', array_slice($relevantServices, 0, 6))
-            : $industrySpoken;
+            ? implode(', ', $relevantServices)
+            : 'none';
         $platformList = implode(', ', $platforms);
         $platformJson = json_encode(array_values($platforms), JSON_UNESCAPED_UNICODE);
 
@@ -340,7 +340,9 @@ USER_PROMPT:
 {$prompt}
 
 Rules:
-- Write the post ONLY about USER_PROMPT topic. Do not dump the full company service catalogue.
+- Write the post ONLY about USER_PROMPT topic. Write a fresh hook and examples each time.
+- If relevant_services_for_this_prompt is none, do not list the company's services.
+- If relevant_services_for_this_prompt has names, give every name its own bullet. Do not stop after four.
 - Fix spelling/typos from USER_PROMPT (e.g. contetn→content). Never copy misspellings or instruction words (create/write/likho/content) into title or body.
 - Title must be a clean marketing headline about the topic — not a paste of the user brief.
 - Body format (REQUIRED — return the COMPLETE caption ready to post):
@@ -392,8 +394,11 @@ PROMPT;
         }
 
         if ($matchedNeedles === []) {
-            // Vague prompt ("create content") → only top few services, not all 11
-            return array_slice($services, 0, 4);
+            // Only a services overview should fall back to the catalogue.
+            // Any other prompt must stay on the user's topic.
+            return $this->promptLooksLikeServicesOverview($prompt)
+                ? array_values($services)
+                : [];
         }
 
         $matchedNeedles = array_values(array_unique($matchedNeedles));
@@ -408,7 +413,13 @@ PROMPT;
             }
         }
 
-        return $picked !== [] ? array_values(array_unique($picked)) : array_slice($services, 0, 4);
+        if ($picked !== []) {
+            return array_values(array_unique($picked));
+        }
+
+        return $this->promptLooksLikeServicesOverview($prompt)
+            ? array_values($services)
+            : [];
     }
 
     /**
@@ -476,64 +487,8 @@ PROMPT;
 
             $normalized[] = $line;
         }
-        $body = trim(implode("\n", $normalized));
 
-        if ($this->bodyHasServiceBullets($body)) {
-            return $body;
-        }
-
-        $parts = preg_split("/\n{2,}/", $body) ?: [$body];
-        $intro = trim((string) ($parts[0] ?? ''));
-        $intro = trim(preg_replace('/(?:📞|✉️|🌐|📱|☎️).*$/us', '', $intro) ?? $intro);
-
-        $offerings = $this->resolveBrandOfferings($workspace);
-        $services = $offerings['services'] !== []
-            ? $offerings['services']
-            : $this->defaultServicesForIndustry(
-                $this->industrySpokenLabel((string) ($settings->industry ?: 'business')),
-            );
-
-        $bullets = [];
-        foreach (array_slice($services, 0, 4) as $service) {
-            $service = trim((string) $service);
-            if ($service === '' || preg_match('/^business\s+services?$/iu', $service)) {
-                continue;
-            }
-            $bullets[] = $this->iconForBulletText($service).' '.$service;
-        }
-
-        if (count($bullets) < 3) {
-            $topicBits = preg_split('/\s+/u', $intro) ?: [];
-            $short = trim(Str::limit(implode(' ', array_slice($topicBits, 0, 10)), 56, ''));
-            $fallbacks = array_values(array_filter([
-                $short !== '' ? $this->iconForBulletText($short).' '.$short : null,
-                '🚗 Comfortable travel with clear day-wise plans',
-                '👨‍👩‍👧 Family-friendly stops and flexible timing',
-                '📍 Easy pickup & drop from your city',
-            ]));
-            foreach ($fallbacks as $line) {
-                if (count($bullets) >= 4) {
-                    break;
-                }
-                if (! in_array($line, $bullets, true)) {
-                    $bullets[] = $line;
-                }
-            }
-        }
-
-        if ($bullets === []) {
-            return $body;
-        }
-
-        $cta = $offer !== ''
-            ? $offer
-            : trim((string) ($workspace->resolveBrandKit()?->default_cta_label ?? 'Get started'));
-
-        if ($intro === '') {
-            $intro = 'Plan your next trip with '.$workspace->name.'.';
-        }
-
-        return trim($intro."\n\n".implode("\n", $bullets)."\n\n".$cta);
+        return trim(implode("\n", $normalized));
     }
 
     /**
@@ -721,7 +676,7 @@ STD;
             return ['summary' => $summary, 'services' => $fallbackServices, 'source' => null];
         }
 
-        $cacheKey = 'brand_offerings:v3:'.md5(mb_strtolower($website));
+        $cacheKey = 'brand_offerings:v4:'.md5(mb_strtolower($website));
 
         return Cache::remember($cacheKey, now()->addHours(24), function () use ($website, $fallbackServices, $workspace, $industry, $location) {
             $scraped = $this->scrapeWebsiteOfferings($website);
@@ -753,7 +708,7 @@ STD;
 
             return [
                 'summary' => implode("\n", $lines),
-                'services' => array_slice($services, 0, 12),
+                'services' => array_values($services),
                 'source' => $website,
             ];
         });
@@ -1568,7 +1523,7 @@ STD;
         $services = $offerings['services'] !== []
             ? $offerings['services']
             : $this->defaultServicesForIndustry($industrySpoken);
-        $serviceFocus = array_slice($services, 0, 3);
+        $serviceFocus = $services;
         $serviceList = $serviceFocus !== [] ? implode(', ', $serviceFocus) : $industrySpoken;
         $topic = $this->extractComposeTopic($prompt);
         $angle = abs(crc32($prompt.'|'.$brand.'|body')) % 3;
@@ -1593,7 +1548,7 @@ STD;
 
         // Vague "services" brief → showcase with emoji bullets (voice matches industry)
         if ($this->promptLooksLikeServicesOverview($prompt) && count($services) >= 2) {
-            $named = array_slice($services, 0, 10);
+            $named = $services;
             $bullets = implode("\n", array_map(fn (string $s) => '✅ '.$s, $named));
             $main = match ($family) {
                 'travel' => "✈️ Ready for your next getaway?\n\n"
@@ -3148,7 +3103,7 @@ PROMPT;
             if (strlen($brandTag) > 2) {
                 $tags[] = $brandTag;
             }
-            foreach (array_slice($this->resolveBrandOfferings($workspace)['services'] ?? [], 0, 4) as $service) {
+            foreach ($this->resolveBrandOfferings($workspace)['services'] ?? [] as $service) {
                 $tag = '#'.preg_replace('/[^a-zA-Z0-9]+/', '', $service);
                 if (strlen($tag) > 2) {
                     $tags[] = $tag;
@@ -3162,7 +3117,7 @@ PROMPT;
             $tags = ['#SmallBusiness', '#India', '#Travel'];
         }
 
-        return implode(' ', array_slice($tags, 0, 8));
+        return implode(' ', $tags);
     }
 
     /**
@@ -3232,7 +3187,7 @@ PROMPT;
                 ? $offerings['summary']
                 : 'Use industry “'.($settings->industry ?: 'business').'” and location “'.($settings->location ?: 'India').'”. Do not invent products, prices, SLAs, or awards.';
             $servicesList = $offerings['services'] !== []
-                ? implode(', ', array_slice($offerings['services'], 0, 12))
+                ? implode(', ', $offerings['services'])
                 : ($settings->industry ?: 'core services');
         }
 
