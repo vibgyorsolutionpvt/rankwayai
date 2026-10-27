@@ -384,6 +384,7 @@ Route::middleware(['auth', 'verified', 'workspace.setup', 'module'])->group(func
 
     Route::get('/whatsapp', [WhatsAppController::class, 'index'])->name('whatsapp.index');
     Route::put('/whatsapp/setup', [WhatsAppController::class, 'saveSetup'])->name('whatsapp.setup');
+    Route::put('/whatsapp/chatbot', [WhatsAppController::class, 'saveChatbot'])->name('whatsapp.chatbot');
     Route::post('/whatsapp/embedded-signup', [WhatsAppController::class, 'embeddedSignup'])
         ->middleware('throttle:10,1')
         ->name('whatsapp.embedded-signup');

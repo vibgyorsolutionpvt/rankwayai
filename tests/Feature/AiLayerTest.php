@@ -5,7 +5,9 @@ namespace Tests\Feature;
 use App\Enums\WorkspaceRole;
 use App\Models\AiGeneration;
 use App\Models\AiUsageLog;
+use App\Models\BillingAccount;
 use App\Models\SocialAccount;
+use App\Models\SocialComposePromptHistory;
 use App\Models\SocialPost;
 use App\Models\User;
 use App\Models\Workspace;
@@ -13,6 +15,7 @@ use App\Models\WorkspaceAiSetting;
 use App\Services\Ai\AiContentService;
 use App\Services\Billing\BillingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -106,7 +109,7 @@ class AiLayerTest extends TestCase
             'user_id' => $user->id,
             'prompt' => $this->validComposeInput()['prompt'],
         ]);
-        $history = \App\Models\SocialComposePromptHistory::query()
+        $history = SocialComposePromptHistory::query()
             ->where('workspace_id', $workspace->id)
             ->latest('id')
             ->first();
@@ -127,7 +130,7 @@ class AiLayerTest extends TestCase
             AiUsageLog::query()->where('workspace_id', $workspace->id)->where('action', 'social_compose')->value('provider')
         );
 
-        $account = \App\Models\BillingAccount::query()->where('user_id', $user->id)->first();
+        $account = BillingAccount::query()->where('user_id', $user->id)->first();
         $this->assertNotNull($account);
         $this->assertGreaterThan(0, (float) $account->spent_usd);
     }
@@ -136,7 +139,7 @@ class AiLayerTest extends TestCase
     {
         [$user, $workspace] = $this->memberWithWorkspace();
 
-        \App\Models\SocialComposePromptHistory::remember(
+        SocialComposePromptHistory::remember(
             $workspace,
             $user->id,
             'Promote our Lucknow to Goa monsoon travel package with 15% off for families',
@@ -151,7 +154,7 @@ class AiLayerTest extends TestCase
 
         $this->assertSame(
             0,
-            \App\Models\SocialComposePromptHistory::query()->where('workspace_id', $workspace->id)->count(),
+            SocialComposePromptHistory::query()->where('workspace_id', $workspace->id)->count(),
         );
     }
 
@@ -210,8 +213,8 @@ class AiLayerTest extends TestCase
         $apiTitle = 'Delhi to Mathura Day Trip';
         $apiBody = "Temple towns hit different when the day is already planned.\n\n✅ Delhi/Noida pickup\n✅ Mathura + Vrindavan highlights\n✅ Same-day return\n\nAtlas Demo keeps the route simple.\nBook now";
 
-        \Illuminate\Support\Facades\Http::fake([
-            'api.openai.com/*' => \Illuminate\Support\Facades\Http::response([
+        Http::fake([
+            'api.openai.com/*' => Http::response([
                 'choices' => [[
                     'message' => [
                         'content' => json_encode([
@@ -245,7 +248,7 @@ class AiLayerTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/\b(bullet|icon|likho|content)\b/i', $title);
         $this->assertDoesNotMatchRegularExpression('/[.!?]\h*✅/u', $body);
 
-        \Illuminate\Support\Facades\Http::assertSent(function ($request) use ($prompt, $workspace) {
+        Http::assertSent(function ($request) use ($prompt, $workspace) {
             $payload = $request->data();
             $userMsg = (string) data_get($payload, 'messages.1.content', '');
 
@@ -271,7 +274,7 @@ class AiLayerTest extends TestCase
         $this->assertMatchesRegularExpression('/^✅ Enjoy curated packages\./m', $out);
     }
 
-    public function test_compose_forces_icon_bullets_when_api_returns_flat_paragraph(): void
+    public function test_compose_keeps_api_paragraph_instead_of_service_catalogue(): void
     {
         [$user, $workspace] = $this->memberWithWorkspace();
         WorkspaceAiSetting::query()->updateOrCreate(
@@ -296,7 +299,8 @@ class AiLayerTest extends TestCase
             'platforms' => ['facebook'],
         ], $workspace, $settings, 'Get started', 70);
 
-        $this->assertGreaterThanOrEqual(3, preg_match_all('/^(?:✅|📍|🚗|👨‍👩‍👧|🙏|🎟️|🏨|⏱️|₹|💰)\s+/mu', $out['body']));
+        $this->assertStringContainsString('Agra and Mathura', $out['body']);
+        $this->assertStringNotContainsString('Comfortable travel with clear day-wise plans', $out['body']);
     }
 
     public function test_compose_picks_context_icon_for_bullet_text(): void
@@ -320,7 +324,7 @@ class AiLayerTest extends TestCase
         $sub = app(BillingService::class)->subscription($workspace);
         $planBudget = (float) ($sub->limits['ai_budget_usd'] ?? 20);
 
-        $account = \App\Models\BillingAccount::query()->where('user_id', $user->id)->first();
+        $account = BillingAccount::query()->where('user_id', $user->id)->first();
         $account?->update([
             'spent_usd' => $planBudget,
             'topup_credits' => 0,
@@ -356,7 +360,7 @@ class AiLayerTest extends TestCase
         $sub = app(BillingService::class)->subscription($workspace);
         $planBudget = (float) ($sub->limits['ai_budget_usd'] ?? 20);
 
-        $account = \App\Models\BillingAccount::query()->where('user_id', $user->id)->first();
+        $account = BillingAccount::query()->where('user_id', $user->id)->first();
         $account?->update([
             'spent_usd' => $planBudget,
             'topup_credits' => 500,
@@ -380,7 +384,7 @@ class AiLayerTest extends TestCase
             ->assertSessionHas('success')
             ->assertSessionHas('ai_compose');
 
-        $account = \App\Models\BillingAccount::query()->where('user_id', $user->id)->first();
+        $account = BillingAccount::query()->where('user_id', $user->id)->first();
         $this->assertNotNull($account);
         $this->assertLessThan(500, (int) $account->topup_credits);
         $this->assertSame($planBudget, (float) $account->spent_usd);
@@ -405,7 +409,7 @@ class AiLayerTest extends TestCase
         Queue::fake();
         [$user, $workspace] = $this->memberWithWorkspace('free');
 
-        \App\Models\BillingAccount::query()->where('user_id', $user->id)->update([
+        BillingAccount::query()->where('user_id', $user->id)->update([
             'topup_credits' => 500,
             'spent_usd' => 0,
         ]);
@@ -428,7 +432,7 @@ class AiLayerTest extends TestCase
             ->assertSessionHas('success')
             ->assertSessionHas('ai_compose');
 
-        $account = \App\Models\BillingAccount::query()->where('user_id', $user->id)->first();
+        $account = BillingAccount::query()->where('user_id', $user->id)->first();
         $this->assertNotNull($account);
         $this->assertLessThan(500, (int) $account->topup_credits);
     }

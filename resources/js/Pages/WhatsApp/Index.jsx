@@ -18,6 +18,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 const TABS = [
     { id: 'setup', label: 'Setup' },
     { id: 'conversations', label: 'Conversations' },
+    { id: 'chatbot', label: 'Chatbot' },
     { id: 'templates', label: 'Templates' },
     { id: 'campaigns', label: 'Campaigns' },
 ];
@@ -70,6 +71,7 @@ export default function Index({
     provider = 'none',
     plan = null,
     meta_setup = null,
+    chatbot = { enabled: false, preset: null, mode: 'custom', fallback: '', rules: [] },
     conversations = [],
     inbox = 'all',
     inboxFilters = {},
@@ -352,6 +354,10 @@ export default function Index({
 
                 {view === 'setup' ? (
                     <SetupView metaSetup={meta_setup} workspace={workspace} />
+                ) : null}
+
+                {view === 'chatbot' ? (
+                    <ChatbotView chatbot={chatbot} connected={!notConnected} number={meta_setup?.verified_phone || meta_setup?.business_phone} />
                 ) : null}
 
                 {view === 'conversations' ? (
@@ -3009,6 +3015,124 @@ function GroupMembers({ group, onBack }) {
                 </div>
             ) : null}
         </div>
+    );
+}
+
+function ChatbotView({ chatbot, connected, number }) {
+    const form = useForm({
+        enabled: !!chatbot.enabled,
+        mode: chatbot.preset || 'custom',
+        fallback: chatbot.fallback || '',
+        rules: chatbot.rules?.length ? chatbot.rules : [{ keyword: '', reply: '' }],
+    });
+
+    const setRule = (index, key, value) => {
+        const rules = form.data.rules.map((rule, i) => (i === index ? { ...rule, [key]: value } : rule));
+        form.setData('rules', rules);
+    };
+
+    return (
+        <form
+            className="atlas-panel space-y-4 p-4"
+            onSubmit={(event) => {
+                event.preventDefault();
+                form
+                    .transform((data) => ({
+                        ...data,
+                        rules: data.rules.filter((rule) => rule.keyword.trim() && rule.reply.trim()),
+                    }))
+                    .put(route('whatsapp.chatbot'));
+            }}
+        >
+            <div>
+                <h2 className="font-display text-lg font-bold text-ink">WhatsApp chatbot</h2>
+                <p className="mt-1 text-sm text-ink-muted">
+                    {connected
+                        ? `Replies go from this workspace’s connected number${number ? ` ${number}` : ''}. A separate bot number is not used.`
+                        : 'Connect WhatsApp in Setup first. The chatbot uses that same number.'}
+                </p>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-line px-3 py-2">
+                <span className="text-sm font-semibold text-ink">Reply automatically</span>
+                <Toggle checked={form.data.enabled} onChange={(value) => form.setData('enabled', value)} />
+            </div>
+            {chatbot.preset === 'travel' ? (
+                <div className="rounded-lg border border-line bg-mist/40 px-3 py-3 text-sm text-ink">
+                    <p className="font-semibold">Travel enquiry for this workspace</p>
+                    <ol className="mt-2 list-decimal space-y-1 pl-5">
+                        <li>Tour package — destination, date, travellers</li>
+                        <li>Transfer — pickup, drop, date and time, passengers</li>
+                        <li>Hotel — city, check-in, check-out, guests</li>
+                        <li>Flight — from, to, date, passengers</li>
+                        <li>Bus — from, to, date, seats</li>
+                    </ol>
+                    <p className="mt-2 text-ink-muted">Customer replies Hi, then a number. The enquiry stays in this workspace only.</p>
+                </div>
+            ) : null}
+            {chatbot.preset === 'software' ? (
+                <div className="rounded-lg border border-line bg-mist/40 px-3 py-3 text-sm text-ink">
+                    <p className="font-semibold">Software enquiry for this workspace</p>
+                    <ol className="mt-2 list-decimal space-y-1 pl-5">
+                        <li>Website — what to build, timeline, budget</li>
+                        <li>Mobile app — what to build, timeline, budget</li>
+                        <li>Custom software — what to build, timeline, budget</li>
+                    </ol>
+                    <p className="mt-2 text-ink-muted">Customer replies Hi, then a number. The enquiry stays in this workspace only.</p>
+                </div>
+            ) : null}
+            {chatbot.preset ? null : (
+            <>
+            <div>
+                <InputLabel value="If no keyword matches" />
+                <textarea
+                    className="atlas-input mt-1.5 min-h-20 w-full"
+                    maxLength={1000}
+                    value={form.data.fallback}
+                    onChange={(event) => form.setData('fallback', event.target.value)}
+                    placeholder="Hi, thanks for messaging us. A teammate will reply shortly."
+                />
+            </div>
+            <div className="space-y-2">
+                <InputLabel value="Keyword replies" />
+                {form.data.rules.map((rule, index) => (
+                    <div key={index} className="grid gap-2 sm:grid-cols-[160px_1fr_auto]">
+                        <TextInput
+                            value={rule.keyword}
+                            placeholder="price"
+                            onChange={(event) => setRule(index, 'keyword', event.target.value)}
+                        />
+                        <TextInput
+                            value={rule.reply}
+                            placeholder="Plans start at ₹999."
+                            onChange={(event) => setRule(index, 'reply', event.target.value)}
+                        />
+                        <SecondaryButton
+                            type="button"
+                            onClick={() =>
+                                form.setData(
+                                    'rules',
+                                    form.data.rules.filter((_, i) => i !== index),
+                                )
+                            }
+                        >
+                            Remove
+                        </SecondaryButton>
+                    </div>
+                ))}
+                <SecondaryButton
+                    type="button"
+                    onClick={() => form.setData('rules', [...form.data.rules, { keyword: '', reply: '' }])}
+                >
+                    Add keyword
+                </SecondaryButton>
+            </div>
+            </>
+            )}
+            <p className="text-xs text-ink-muted">
+                The bot stays quiet after a teammate is assigned, and it does not reply to STOP. Each reply uses 1 credit when WhatsApp accepts it.
+            </p>
+            <PrimaryButton processing={form.processing}>Save chatbot</PrimaryButton>
+        </form>
     );
 }
 

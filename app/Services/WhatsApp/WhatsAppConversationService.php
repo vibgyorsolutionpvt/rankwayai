@@ -317,6 +317,10 @@ class WhatsAppConversationService
             'status' => 'open',
         ]);
 
+        if (! $this->isOptOutKeyword($text)) {
+            app(WhatsAppChatbotService::class)->reply($workspace, $conversation->fresh(), $text);
+        }
+
         return $msg;
     }
 
